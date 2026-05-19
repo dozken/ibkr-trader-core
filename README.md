@@ -1,8 +1,17 @@
 # ibkr-trader-core
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev/)
+
 Shariah-compliant trading bot framework for Interactive Brokers, with a pluggable strategy interface.
 
 > Open-core of [ibkr-trader](https://github.com/dozken/ibkr-trader) — the framework is MIT, run it with the bundled SMA reference strategy or plug in your own.
+
+## Screenshots
+
+_Coming soon — add to `docs/screenshots/` and link here once deployment screenshots are captured._
 
 ## What you get
 

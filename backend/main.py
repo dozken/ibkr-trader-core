@@ -319,11 +319,10 @@ def system_markets():
     try:
         from backend.features.ai.halal_universe import SEED_UNIVERSE, REGIONAL_HALAL  # type: ignore
     except ImportError:
-        # Public install: no halal universe shipped — return empty regions.
-        # Plug in your own by adding `backend/features/ai/halal_universe.py`
-        # exporting `SEED_UNIVERSE` (list[str]) and `REGIONAL_HALAL` (dict[str, list[str]]).
-        SEED_UNIVERSE: list = []
-        REGIONAL_HALAL: dict = {}
+        # Public install: fall back to bundled reference seed list. Override by
+        # shipping your own `backend/features/ai/halal_universe.py` exporting
+        # `SEED_UNIVERSE` (list[str]) and `REGIONAL_HALAL` (dict[str, list[str]]).
+        from backend.strategies.halal_universe_seed import SEED_UNIVERSE, REGIONAL_HALAL
     from datetime import datetime
     from zoneinfo import ZoneInfo
 

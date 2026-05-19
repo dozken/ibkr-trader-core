@@ -1,9 +1,16 @@
 import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
-import BacktestPage from './features/ai/BacktestPage'
-import ScannerPage from './features/ai/ScannerPage'
-import SignalLogPage from './features/ai/SignalLogPage'
-import SignalQualityPage from './features/ai/SignalQualityPage'
-import SignalsPage from './features/ai/SignalsPage'
+import BacktestPageRaw from './features/ai/BacktestPage'
+import ScannerPageRaw from './features/ai/ScannerPage'
+import SignalLogPageRaw from './features/ai/SignalLogPage'
+import SignalQualityPageRaw from './features/ai/SignalQualityPage'
+import SignalsPageRaw from './features/ai/SignalsPage'
+import { AIModuleGate } from './features/ai/AIModuleGate'
+
+const BacktestPage = () => <AIModuleGate pageTitle="Backtest"><BacktestPageRaw /></AIModuleGate>
+const ScannerPage = () => <AIModuleGate pageTitle="Scanner"><ScannerPageRaw /></AIModuleGate>
+const SignalLogPage = () => <AIModuleGate pageTitle="Signal Log"><SignalLogPageRaw /></AIModuleGate>
+const SignalQualityPage = () => <AIModuleGate pageTitle="Signal Quality"><SignalQualityPageRaw /></AIModuleGate>
+const SignalsPage = () => <AIModuleGate pageTitle="Signals"><SignalsPageRaw /></AIModuleGate>
 import AuditPage from './features/compliance/AuditPage'
 import ScreeningPage from './features/compliance/ScreeningPage'
 import FAQPage from './features/faq/FAQPage'

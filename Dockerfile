@@ -27,7 +27,6 @@ RUN pip install --no-cache-dir prometheus-client
 # Copy application code
 COPY backend/ ./backend/
 COPY alembic.ini ./
-COPY AGENT.md ./
 
 # Create data directory for SQLite
 RUN mkdir -p /home/trader/app/backend/data

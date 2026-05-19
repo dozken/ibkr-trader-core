@@ -375,7 +375,7 @@ Expected: mostly SUBMITTED/FILLED. Flag if IBKR_ERROR > 10% of total.
 
 ### Weekly
 - Check purification ledger (Zakat/purification page in dashboard)
-- Review RL model training status at `/api/ai/ml-status`
+- Review active strategy status at `/api/ai/ml-status` (private AI module only — public build returns 404)
 - Check `discovery_loop` found new halal candidates
 
 ### Monthly (1st of month)
