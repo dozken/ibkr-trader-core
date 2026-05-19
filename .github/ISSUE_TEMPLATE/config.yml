@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Shariah compliance questions
+    url: https://github.com/dozken/ibkr-trader-core/discussions/categories/q-a
+    about: Halal/haram methodology, AAOIFI screening — use Discussions
+  - name: Security disclosure
+    url: https://github.com/dozken/ibkr-trader-core/security/advisories/new
+    about: Privately report a security issue

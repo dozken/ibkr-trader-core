@@ -1,0 +1,48 @@
+name: Bug report
+description: Something broken in the framework
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Clear description of the bug
+      placeholder: Tell us what you see
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `docker compose up`
+        2. Open ...
+        3. See error
+    validations:
+      required: true
+  - type: input
+    id: strategy
+    attributes:
+      label: Active STRATEGY_CLASS
+      description: Output of `echo $STRATEGY_CLASS` or what you set
+      placeholder: backend.strategies.sma_crossover:SMACrossover
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      placeholder: |
+        - OS:
+        - Python version:
+        - IBKR TWS / Gateway version:
+        - Branch / tag: v0.1.0
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / stack trace
+      render: shell

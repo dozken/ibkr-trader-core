@@ -38,3 +38,26 @@ Conventional Commits — `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:
 ## Shariah compliance
 
 If your change touches order routing, screening, sizing, or instruments — explain why it's still halal. PRs introducing interest, leverage, or shorting will be closed.
+
+## Release (maintainers)
+
+PyPI publish runs on GitHub release publish events via Trusted Publishing (`_deferred/release-pypi.yml.template`). To enable:
+
+1. Refresh gh auth with workflow scope: `gh auth refresh -s workflow`
+2. Move template into place:
+   ```bash
+   mkdir -p .github/workflows
+   mv _deferred/release-pypi.yml.template .github/workflows/release-pypi.yml
+   ```
+3. Configure Trusted Publisher on PyPI:
+   - <https://pypi.org/manage/account/publishing/> → add `dozken/ibkr-trader-core`, workflow `release-pypi.yml`, environment `pypi`
+   - <https://test.pypi.org/manage/account/publishing/> → same with environment `testpypi`
+4. Create release in GitHub: `gh release create v0.1.x --generate-notes`
+
+Manual publish from local (alternative):
+```bash
+python -m build
+twine check dist/*
+twine upload --repository testpypi dist/*   # smoke test first
+twine upload dist/*                          # then prod
+```
