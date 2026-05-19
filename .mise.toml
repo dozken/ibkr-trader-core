@@ -1,0 +1,32 @@
+[tools]
+python = "3.11"
+node = "22"
+
+[env]
+PYTHONPATH = "{{cwd}}"
+VIRTUAL_ENV = "{{cwd}}/backend/.venv"
+_.path = ["{{cwd}}/backend/.venv/bin"]
+
+[tasks.backend]
+description = "Run backend dev server (hot-reload)"
+run = "uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000"
+
+[tasks.bot]
+description = "Run trading bot with hot-reload"
+run = "set -a && source backend/.env && set +a && uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000"
+
+[tasks.frontend]
+description = "Run frontend dev server"
+run = "cd frontend && bun run dev"
+
+[tasks.test]
+description = "Run all tests"
+depends = ["test-backend", "test-frontend"]
+
+[tasks.test-backend]
+description = "Run backend tests"
+run = "cd backend && .venv/bin/pytest --ignore=features/trading/tests/test_ibkr_connection.py"
+
+[tasks.test-frontend]
+description = "Run frontend tests"
+run = "cd frontend && bunx vitest run"

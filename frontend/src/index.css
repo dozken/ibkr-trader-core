@@ -1,0 +1,190 @@
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap");
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Light mode (DEFAULT) — Modern Parchment & Forest ──────────── */
+:root {
+  --radius: 0.6rem;
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+
+  --color-base: 250 249 246; /* #faf9f6  Warm Parchment */
+  --color-surface: 255 255 255; /* Pure white cards */
+  --color-elevated: 241 239 233; /* #f1efe9  Elevated parchment */
+  --color-divider: 231 229 220; /* #e7e5dc  Soft divider */
+  --color-muted: 95 105 115; /* Professional Slate Blue-Gray */
+  --color-light: 12 20 30; /* Deep Navy for sharp text */
+  --color-primary: 12 95 80; /* Deep Forest Green - More premium */
+  --color-primary-hover: 8 75 65;
+  --color-success: 22 135 105; /* Vibrant but deep green */
+  --color-danger: 210 45 45; /* Rich Ruby Red */
+  --color-warning: 190 120 20; /* Burnished Gold */
+  --color-accent: 160 115 30; /* Antique Gold */
+  --color-accent-light: 200 155 60;
+
+  --card-bg: rgba(255, 255, 255, 0.96);
+  --input-bg: rgba(255, 255, 255, 1);
+  --modal-bg: rgba(255, 255, 255, 1);
+  --table-header-bg: rgba(241, 239, 233, 0.6);
+  --grid-pattern:
+    linear-gradient(rgba(12, 95, 80, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(12, 95, 80, 0.02) 1px, transparent 1px);
+  --accent-line: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(160, 115, 30, 0.25) 40%,
+    rgba(12, 95, 80, 0.25) 70%,
+    transparent 100%
+  );
+  --focus-ring: rgba(12, 95, 80, 0.15);
+  --focus-glow: rgba(12, 95, 80, 0.05);
+  --card-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.03), 0 1px 2px rgba(0, 0, 0, 0.02),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
+}
+
+/* ── Dark mode — Midnight Emerald & Moroccan Gold ──────────────── */
+.dark {
+  --radius: 0.6rem;
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+
+  --color-base: 2 6 12; /* #02060c  Midnight Navy */
+  --color-surface: 8 18 30; /* #08121e  Deep Surface */
+  --color-elevated: 15 28 45; /* #0f1c2d  Elevated */
+  --color-divider: 30 45 65; /* #1e2d41  Stronger divider */
+  --color-muted: 203 213 225; /* Slate 300 - Much better visibility */
+  --color-light: 248 250 252; /* Slate 50 - Crisp header text */
+  --color-primary: 45 212 191; /* Teal 400 - Vibrant teal */
+  --color-primary-hover: 20 184 166;
+  --color-success: 52 211 153; /* Emerald 400 */
+  --color-danger: 248 113 113; /* Red 400 */
+  --color-warning: 251 191 36; /* Amber 400 */
+  --color-accent: 234 179 8; /* Gold / Yellow 500 */
+  --color-accent-light: 253 224 71;
+
+  --card-bg: rgba(8, 18, 30, 0.75);
+  --input-bg: rgba(2, 6, 12, 0.85);
+  --modal-bg: rgba(8, 18, 30, 0.95);
+  --table-header-bg: rgba(15, 28, 45, 0.7);
+  --grid-pattern:
+    linear-gradient(rgba(45, 212, 191, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(234, 179, 8, 0.03) 1px, transparent 1px);
+  --accent-line: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(234, 179, 8, 0.5) 40%,
+    rgba(45, 212, 191, 0.5) 70%,
+    transparent 100%
+  );
+  --focus-ring: rgba(234, 179, 8, 0.25);
+  --focus-glow: rgba(234, 179, 8, 0.12);
+  --card-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+@layer base {
+  body {
+    @apply min-h-screen font-sans antialiased transition-colors duration-300 bg-brand-base text-brand-light;
+    background-image: var(--grid-pattern);
+    background-size: 40px 40px;
+  }
+  * {
+    @apply border-brand-divider;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@layer components {
+  /* Cards */
+  .card {
+    @apply p-6 rounded-xl border border-brand-divider backdrop-blur-md relative overflow-hidden;
+    background-color: var(--card-bg);
+    box-shadow: var(--card-shadow);
+  }
+  .card::before {
+    content: "";
+    @apply absolute top-0 left-0 right-0 h-px;
+    background: var(--accent-line);
+  }
+  .card-header {
+    @apply p-6 border-b border-brand-divider flex items-center justify-between;
+  }
+  .page-container {
+    @apply p-4 md:p-8 text-brand-light;
+  }
+
+  /* Typography scale — 6 sizes, single source of truth */
+  .t-eyebrow { @apply text-[10px] font-bold uppercase tracking-[0.18em] text-brand-light/50; }
+  .t-tiny    { @apply text-[11px] leading-snug text-brand-light/60; }
+  .t-meta    { @apply text-xs leading-snug text-brand-light/70; }
+  .t-body    { @apply text-sm leading-normal text-brand-light; }
+  .t-stat    { @apply text-base font-bold font-mono tracking-tight text-brand-light; }
+  .t-h3      { @apply text-base font-semibold tracking-tight text-brand-light; }
+  .t-h2      { @apply text-lg font-semibold tracking-tight text-brand-light; }
+  .t-h1      { @apply text-2xl md:text-3xl font-bold tracking-tight text-brand-light; }
+  .t-hero    { @apply text-4xl font-bold font-mono tracking-tight text-brand-light; }
+  .t-num     { @apply font-mono tabular-nums; }
+
+  .heading-1 { @apply t-h1 flex items-center gap-2; }
+  .heading-2 { @apply t-h2 flex items-center gap-2; }
+  .text-muted { @apply text-brand-light/70; }
+
+  /* Buttons */
+  button:disabled {
+    @apply opacity-40 grayscale-[0.5] cursor-not-allowed !important;
+  }
+
+  /* Modals */
+  .modal-overlay {
+    @apply fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm p-4;
+    background: rgba(var(--color-base), 0.45);
+  }
+  .modal-content {
+    @apply border border-brand-accent/20 rounded-2xl max-w-2xl w-full overflow-hidden backdrop-blur-md relative;
+    background-color: var(--modal-bg);
+    box-shadow:
+      0 25px 60px rgba(0, 0, 0, 0.3),
+      0 0 80px rgb(var(--color-primary) / 0.07);
+  }
+  .modal-content::before {
+    content: "";
+    @apply absolute top-0 left-0 right-0 h-px;
+    background: var(--accent-line);
+  }
+  .modal-content-danger {
+    @apply border border-brand-danger/25 rounded-2xl max-w-md w-full p-8 backdrop-blur-md;
+    background-color: var(--modal-bg);
+    box-shadow:
+      0 25px 60px rgba(0, 0, 0, 0.3),
+      0 0 80px rgb(var(--color-danger) / 0.08);
+  }
+
+  /* Tables */
+  .table-container {
+    @apply rounded-xl border border-brand-divider overflow-x-auto overflow-y-hidden backdrop-blur-md relative;
+    background-color: var(--card-bg);
+    box-shadow: var(--card-shadow);
+  }
+  .table-container::before {
+    content: "";
+    @apply absolute top-0 left-0 right-0 h-px z-10;
+    background: var(--accent-line);
+  }
+  .table-header {
+    @apply text-brand-light/70 text-[10px] font-bold tracking-[0.15em] uppercase border-b border-brand-divider;
+    background-color: var(--table-header-bg);
+  }
+  .table-row {
+    @apply border-b border-brand-divider/40 hover:bg-brand-primary/5 transition-colors;
+  }
+  .table-cell {
+    @apply p-4 text-sm align-middle;
+  }
+}

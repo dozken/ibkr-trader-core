@@ -1,0 +1,33 @@
+[project]
+name = "ibkr-trader-core"
+version = "0.1.0"
+description = "Shariah-compliant IBKR trading bot framework with pluggable strategies"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "dozken" }]
+requires-python = ">=3.11"
+keywords = ["ibkr", "trading", "shariah", "halal", "fastapi"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.urls]
+Repository = "https://github.com/dozken/ibkr-trader-core"
+Issues = "https://github.com/dozken/ibkr-trader-core/issues"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["backend*"]
+exclude = ["backend.features.ai*", "tests*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["backend"]
