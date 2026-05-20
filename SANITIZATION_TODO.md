@@ -54,20 +54,6 @@ Run `pytest backend/` in the public repo and catch import errors. Skip / refacto
 3. Add `backend/private_strategies/{rl_strategy,ml_strategy}.py` that wrap existing `features/ai/*` into the `Strategy` interface.
 4. Set `STRATEGY_CLASS` to private impl via `docker-compose.override.yml`.
 
-## Add CI workflow (deferred — needs `workflow` token scope)
-
-The CI workflow exists at `_deferred/ci.yml.template`. To enable:
-
-```bash
-gh auth refresh -s workflow
-mkdir -p .github/workflows
-mv _deferred/ci.yml.template .github/workflows/ci.yml
-rmdir _deferred
-git add .github/workflows/ci.yml && git rm SANITIZATION_TODO.md  # or update this section
-git commit -m "ci: enable github actions workflow"
-git push
-```
-
 ## Phase 6 — security pass (before push)
 
 ```bash
