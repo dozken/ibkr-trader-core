@@ -7,7 +7,7 @@ COPY frontend/ ./
 RUN bun run build
 
 # ── Backend & Production Stage ───────────────────────────────────────────────
-FROM python:3.11-slim as runtime
+FROM python:3.14-slim as runtime
 
 # Security: Don't run as root
 RUN useradd -m trader
