@@ -5,13 +5,13 @@ Phase 4 of the open-core split. Public skeleton is up and runs with the bundled 
 ## Verified clean
 - No real secrets in private git history (all placeholders).
 - `features/ai/` not copied to public.
-- `backend/main.py` — AI imports wrapped in try/except, AI loops + router gated on `HAS_AI_MODULE`.
-- `backend/features/trading/loops.py` — top-level AI imports replaced with Strategy plugin shims; lazy AI imports inside loops gated.
-- `backend/features/alerts/telegram_bot.py` — `get_guarded_signals` now goes through `get_active_strategy()`.
-- `backend/features/portfolio/router.py` — `/rerate` endpoint returns 501 if AI module missing.
-- `backend/features/alerts/tests/test_telegram_bot.py` — patches Strategy interface, not `features.ai.strategy`.
-- `backend/features/trading/tests/test_institutional_enhancements.py` — deleted (private).
-- `backend/requirements.txt` — torch / xgboost / onnx / scikit-learn removed (private only).
+- `ibkr_core/main.py` — AI imports wrapped in try/except, AI loops + router gated on `HAS_AI_MODULE`.
+- `ibkr_core/features/trading/loops.py` — top-level AI imports replaced with Strategy plugin shims; lazy AI imports inside loops gated.
+- `ibkr_core/features/alerts/telegram_bot.py` — `get_guarded_signals` now goes through `get_active_strategy()`.
+- `ibkr_core/features/portfolio/router.py` — `/rerate` endpoint returns 501 if AI module missing.
+- `ibkr_core/features/alerts/tests/test_telegram_bot.py` — patches Strategy interface, not `features.ai.strategy`.
+- `ibkr_core/features/trading/tests/test_institutional_enhancements.py` — deleted (private).
+- `ibkr_core/requirements.txt` — torch / xgboost / onnx / scikit-learn removed (private only).
 
 ## Still TODO before publishing
 
@@ -24,7 +24,7 @@ Files: `frontend/src/features/ai/{SignalsPage,SignalLogPage,SignalQualityPage,Ba
 3. Gate via build-time flag.
 
 ### Halal universe in `/api/system/markets` endpoint
-`backend/main.py:320` falls back to empty SEED_UNIVERSE / REGIONAL_HALAL when AI module missing. Markets page will show empty regions. Either:
+`ibkr_core/main.py:320` falls back to empty SEED_UNIVERSE / REGIONAL_HALAL when AI module missing. Markets page will show empty regions. Either:
 - Ship a small public halal seed list (e.g. 20 US large-caps that pass AAOIFI by default).
 - Refactor endpoint to derive symbols from compliance screening cache instead of static list.
 
@@ -40,7 +40,7 @@ Public docs may reference RL / ML / private internals. Review each:
 Search command: `grep -rn -iE "rl|reinforcement|xgboost|torch|onnx|ML model" docs/`
 
 ### Tests that depend on AI module
-Run `pytest backend/` in the public repo and catch import errors. Skip / refactor any test that needs `features.ai`.
+Run `pytest ibkr_core/` in the public repo and catch import errors. Skip / refactor any test that needs `features.ai`.
 
 ### docker-compose.yml sanity
 - Default `STRATEGY_CLASS` env present in env_file.

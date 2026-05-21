@@ -1,6 +1,6 @@
 [project]
 name = "ibkr-trader-core"
-version = "0.1.0"
+version = "0.2.0"
 description = "Shariah-compliant IBKR trading bot framework with pluggable strategies"
 readme = "README.md"
 license = { text = "MIT" }
@@ -25,9 +25,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["backend*"]
-exclude = ["backend.features.ai*", "tests*"]
+include = ["ibkr_core*"]
+exclude = ["ibkr_core.features.ai*", "tests*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["backend"]
+testpaths = ["ibkr_core"]

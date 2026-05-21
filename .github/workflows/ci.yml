@@ -14,12 +14,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r backend/requirements.txt
+      - run: pip install -r ibkr_core/requirements.txt
       - name: Smoke import
         run: |
           cd ${{ github.workspace }}
-          python -c "from backend.core.strategy import Strategy, load_strategy, get_active_strategy; print('strategy ok')"
-          python -c "from backend.strategies.sma_crossover import SMACrossover; s = SMACrossover(); print(f'sma ok: {s.name}')"
+          python -c "from ibkr_core.core.strategy import Strategy, load_strategy, get_active_strategy; print('strategy ok')"
+          python -c "from ibkr_core.strategies.sma_crossover import SMACrossover; s = SMACrossover(); print(f'sma ok: {s.name}')"
       - name: Tests
         run: |
           cd ${{ github.workspace }}

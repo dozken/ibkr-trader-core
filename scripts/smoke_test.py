@@ -38,15 +38,15 @@ async def run_synthetic_test():
     }
 
     # 4. Import Loops
-    from backend.features.trading.loops import main_loop, cash_sweep_loop, halal_drip_loop, discovery_loop
-    from backend.features.compliance.loops import compliance_audit_loop
-    from backend.features.portfolio.loops import portfolio_snapshot_loop
-    from backend.features.alerts.loops import daily_report_loop, purification_reminder_loop
-    from backend.features.alerts.telegram_bot import telegram_bot_loop
-    from backend.features.zakat.loops import zakat_monitoring_loop
-    from backend.features.ai.loops import ml_retraining_loop
+    from ibkr_core.features.trading.loops import main_loop, cash_sweep_loop, halal_drip_loop, discovery_loop
+    from ibkr_core.features.compliance.loops import compliance_audit_loop
+    from ibkr_core.features.portfolio.loops import portfolio_snapshot_loop
+    from ibkr_core.features.alerts.loops import daily_report_loop, purification_reminder_loop
+    from ibkr_core.features.alerts.telegram_bot import telegram_bot_loop
+    from ibkr_core.features.zakat.loops import zakat_monitoring_loop
+    from ibkr_core.features.ai.loops import ml_retraining_loop
     # Import the main.py version of the integrity loop
-    from backend.main import audit_integrity_loop
+    from ibkr_core.main import audit_integrity_loop
 
     # 5. Start Loops (Short Duration)
     logger.info("Initializing 12 Security & Intelligence loops...")

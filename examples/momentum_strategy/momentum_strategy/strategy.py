@@ -8,8 +8,8 @@ from typing import List
 
 import yfinance as yf
 
-from backend.core.strategy.base import MarketContext, Strategy
-from backend.features.trading.schemas import TradeSignal
+from ibkr_core.core.strategy.base import MarketContext, Strategy
+from ibkr_core.features.trading.schemas import TradeSignal
 
 logger = logging.getLogger(__name__)
 

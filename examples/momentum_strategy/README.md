@@ -13,7 +13,7 @@ pip install -e .
 
 ```bash
 STRATEGY_CLASS=momentum_strategy:MomentumStrategy \
-  uvicorn backend.main:app --host 0.0.0.0 --port 8000
+  uvicorn ibkr_core.main:app --host 0.0.0.0 --port 8000
 ```
 
 or in `docker-compose.override.yml`:

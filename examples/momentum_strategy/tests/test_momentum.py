@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from backend.core.strategy.base import MarketContext, Strategy
+from ibkr_core.core.strategy.base import MarketContext, Strategy
 from momentum_strategy import MomentumStrategy
 
 
