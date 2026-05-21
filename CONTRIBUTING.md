@@ -4,7 +4,7 @@ Thanks for your interest! A few ground rules.
 
 ## Scope
 
-This repo is the open framework. The strategy interface (`backend/core/strategy/`) is the right place to extend trading logic; please don't PR proprietary alpha — your strategy belongs in your own repo, loaded via `STRATEGY_CLASS`.
+This repo is the open framework. The strategy interface (`ibkr_core/core/strategy/`) is the right place to extend trading logic; please don't PR proprietary alpha — your strategy belongs in your own repo, loaded via `STRATEGY_CLASS`.
 
 ## What we want
 

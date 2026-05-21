@@ -15,7 +15,7 @@ Add Expo app. Restructure to:
 
 ```
 ibkr-trader/
-  backend/             ← untouched (FastAPI + ib_insync)
+  ibkr_core/             ← untouched (FastAPI + ib_insync)
   apps/
     web/               ← renamed from frontend/
     mobile/            ← new Expo app

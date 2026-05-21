@@ -31,7 +31,7 @@ body:
     attributes:
       label: Active STRATEGY_CLASS
       description: Output of `echo $STRATEGY_CLASS` or what you set
-      placeholder: backend.strategies.sma_crossover:SMACrossover
+      placeholder: ibkr_core.strategies.sma_crossover:SMACrossover
   - type: textarea
     id: env
     attributes:

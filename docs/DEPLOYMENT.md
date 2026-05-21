@@ -112,10 +112,10 @@ All three are optional but improve signal quality. The system falls back to yfin
 
 ```sh
 cd /path/to/ibkr-trader
-cp backend/.env.example backend/.env
+cp ibkr_core/.env.example ibkr_core/.env
 ```
 
-Edit `backend/.env`:
+Edit `ibkr_core/.env`:
 
 ```ini
 # ── IBKR ─────────────────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ IBKR_PORT=4002                   # 4002=paper IB Gateway | 4001=live IB Gateway
                                  # 7497=paper TWS | 7496=live TWS
 
 # ── Database ──────────────────────────────────────────────────────────────────
-DATABASE_URL=sqlite:///./backend/data/trading_paper.db
+DATABASE_URL=sqlite:///./ibkr_core/data/trading_paper.db
 LOG_LEVEL=INFO
 
 # ── API Keys ──────────────────────────────────────────────────────────────────
@@ -158,10 +158,10 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 # Step 2: Initialize database
-python3 -c "from backend.core.database import init_db; init_db()"
+python3 -c "from ibkr_core.core.database import init_db; init_db()"
 
 # Step 3: Start backend (keep terminal open)
-uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn ibkr_core.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Step 4: Install frontend deps (separate terminal)
 cd frontend
@@ -339,10 +339,10 @@ Expected: mostly SUBMITTED/FILLED. Flag if IBKR_ERROR > 10% of total.
 
 ### Switch to live
 
-1. Edit `backend/.env`:
+1. Edit `ibkr_core/.env`:
    ```ini
    IBKR_PORT=4001                              # live IB Gateway
-   DATABASE_URL=sqlite:///./backend/data/trading.db
+   DATABASE_URL=sqlite:///./ibkr_core/data/trading.db
    ```
 2. Log IB Gateway out of paper → log in with **live** account
 3. Start with reduced position size:

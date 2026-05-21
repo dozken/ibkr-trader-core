@@ -20,16 +20,16 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python dependencies
-COPY backend/requirements.txt ./
+COPY ibkr_core/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir prometheus-client
 
 # Copy application code
-COPY backend/ ./backend/
+COPY ibkr_core/ ./ibkr_core/
 COPY alembic.ini ./
 
 # Create data directory for SQLite
-RUN mkdir -p /home/trader/app/backend/data
+RUN mkdir -p /home/trader/app/ibkr_core/data
 
 # Copy frontend build from stage 1
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
@@ -45,4 +45,4 @@ ENV IBKR_PORT=4002
 
 EXPOSE 8000
 
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "ibkr_core.main:app", "--host", "0.0.0.0", "--port", "8000"]

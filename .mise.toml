@@ -4,16 +4,16 @@ node = "22"
 
 [env]
 PYTHONPATH = "{{cwd}}"
-VIRTUAL_ENV = "{{cwd}}/backend/.venv"
-_.path = ["{{cwd}}/backend/.venv/bin"]
+VIRTUAL_ENV = "{{cwd}}/ibkr_core/.venv"
+_.path = ["{{cwd}}/ibkr_core/.venv/bin"]
 
 [tasks.backend]
 description = "Run backend dev server (hot-reload)"
-run = "uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000"
+run = "uvicorn ibkr_core.main:app --reload --host 127.0.0.1 --port 8000"
 
 [tasks.bot]
 description = "Run trading bot with hot-reload"
-run = "set -a && source backend/.env && set +a && uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000"
+run = "set -a && source ibkr_core/.env && set +a && uvicorn ibkr_core.main:app --reload --host 127.0.0.1 --port 8000"
 
 [tasks.frontend]
 description = "Run frontend dev server"

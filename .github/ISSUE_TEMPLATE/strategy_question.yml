@@ -7,7 +7,7 @@ body:
       value: |
         For questions about the `Strategy` ABC, `STRATEGY_CLASS` env var, or wiring your alpha into the framework.
 
-        See [`backend/core/strategy/base.py`](../../blob/main/backend/core/strategy/base.py) and the [Plug-in-your-own-strategy](../../#plug-in-your-own-strategy) README section first.
+        See [`ibkr_core/core/strategy/base.py`](../../blob/main/ibkr_core/core/strategy/base.py) and the [Plug-in-your-own-strategy](../../#plug-in-your-own-strategy) README section first.
   - type: textarea
     id: question
     attributes:

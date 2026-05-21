@@ -32,7 +32,7 @@ This is the framework. The author's private alpha strategies (ML/RL signal model
 ```bash
 git clone https://github.com/dozken/ibkr-trader-core.git
 cd ibkr-trader-core
-cp backend/.env.example backend/.env  # then fill in your IBKR creds
+cp ibkr_core/.env.example ibkr_core/.env  # then fill in your IBKR creds
 docker compose up --build
 ```
 
@@ -40,15 +40,15 @@ Open <http://localhost:8000/docs> for API, <http://localhost:3000> for UI.
 
 By default uses `SMACrossover` strategy. To swap:
 ```bash
-STRATEGY_CLASS=backend.strategies.buy_and_hold:BuyAndHold docker compose up
+STRATEGY_CLASS=ibkr_core.strategies.buy_and_hold:BuyAndHold docker compose up
 ```
 
 ## Plug in your own strategy
 
 ```python
 # my_alpha/strategy.py
-from backend.core.strategy import Strategy, MarketContext
-from backend.features.trading.schemas import TradeSignal
+from ibkr_core.core.strategy import Strategy, MarketContext
+from ibkr_core.features.trading.schemas import TradeSignal
 
 class MyAlpha(Strategy):
     name = "MyAlpha"
@@ -63,7 +63,7 @@ Then run:
 STRATEGY_CLASS=my_alpha.strategy:MyAlpha docker compose up
 ```
 
-See [`backend/core/strategy/base.py`](backend/core/strategy/base.py) for the full interface.
+See [`ibkr_core/core/strategy/base.py`](ibkr_core/core/strategy/base.py) for the full interface.
 
 ## Compliance
 
@@ -74,7 +74,7 @@ Screening follows AAOIFI Shariah standards (33% debt-to-asset, 33% cash-to-asset
 ## Project layout
 
 ```
-backend/
+ibkr_core/
   core/                  framework primitives (db, auth, audit, websocket)
   core/strategy/         Strategy ABC + plugin loader
   strategies/            SMA + buy-and-hold reference impls
