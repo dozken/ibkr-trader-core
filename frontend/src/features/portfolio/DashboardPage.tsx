@@ -131,8 +131,13 @@ const formatUSD = (v: number, compact = false) =>
 const _pct = (v: number) => `${(v * 100).toFixed(2)}%`
 
 const formatPnL = (v: number) => {
-  const sign = v >= 0 ? '+' : ''
-  return `${sign}$${Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const formatted = new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Math.abs(v))
+  return v >= 0 ? `+${formatted}` : `-${formatted}`
 }
 
 const pnlClass = (v: number) => (v >= 0 ? 'text-brand-success' : 'text-brand-danger')
@@ -580,31 +585,50 @@ const Sparkline: React.FC<{ data: number[]; positive: boolean; w?: number; h?: n
   )
 }
 
-const SimplePortfolioSummary: React.FC<{
-  value: number
-  cashAvailable: number
-  costBasis: number
-  unrealizedPnl: number
-  returnPct: number
-  purity: number
-  purificationDue: number
-  last7: number[]
-  audits: any[]
-  complianceResults: Record<string, any>
-}> = ({ value, cashAvailable, costBasis, unrealizedPnl, returnPct, purity, purificationDue, last7, audits, complianceResults }) => {
-  const isHealthy = purity >= 0.98
-  const hasPurification = purificationDue > 0
+export type PortfolioSummary = {
+  connected: boolean
+  account_type: 'PAPER' | 'LIVE'
+  total_value: number | null
+  cost_basis: number | null
+  cash_available: number | null
+  unrealized_pnl: number | null
+  return_pct: number | null
+  purity: number | null
+  purification_due: number | null
+  compliance_pct: number | null
+  zakat_estimate: number | null
+  sector_count: number | null
+  max_impure_revenue_pct: number | null
+  halal_label: string | null
+  compliance_label: string | null
+  sector_label: string | null
+  purify_label: string | null
+}
+
+const SimplePortfolioSummary: React.FC<{ summary: PortfolioSummary }> = ({ summary }) => {
+  const value = summary.total_value ?? 0
+  const cashAvailable = summary.cash_available ?? 0
+  const costBasis = summary.cost_basis ?? 0
+  const unrealizedPnl = summary.unrealized_pnl ?? 0
+  const returnPct = summary.return_pct ?? 0
+  const purity = summary.purity
+  const purificationDue = summary.purification_due ?? 0
+  const compliancePct = summary.compliance_pct
+  const zakatEstimate = summary.zakat_estimate ?? 0
+  const sectorCount = summary.sector_count
+  const maxImpure = summary.max_impure_revenue_pct
+
   const pnlPositive = unrealizedPnl >= 0
-  const sparkPositive = last7.length >= 2 && last7[last7.length - 1] >= last7[0]
   const accentColor = pnlPositive ? 'rgba(34,197,94,0.07)' : 'rgba(239,68,68,0.07)'
 
-  // Health stats (merged from PortfolioHealth)
-  const dbItems = Object.values(complianceResults)
-  const source = audits.length > 0 ? audits : dbItems.map((d: any) => ({ is_compliant: d.is_compliant ?? false, sector: d.sector ?? 'Unknown', impure_revenue_pct: d.impure_revenue_pct ?? 0 }))
-  const compliancePct = source.length > 0 ? (source.filter((a: any) => a.is_compliant).length / source.length) * 100 : null
-  const zakatEstimate = value * 0.025
-  const sectorCount = new Set(source.map((a: any) => (a.sector ?? 'Unknown').split('/')[0].trim())).size
-  const maxImpure = source.length > 0 ? Math.max(...source.map((a: any) => a.impure_revenue_pct ?? 0)) : 0
+  const isHealthy = purity !== null && purity >= 0.98
+  const hasPurification = purificationDue > 0
+  const halalSub = purity === null
+    ? 'no data'
+    : (hasPurification ? `purify ${formatUSD(purificationDue)}` : (summary.halal_label ?? 'all clear'))
+  const complianceSub = summary.compliance_label ?? 'no data'
+  const sectorSub = summary.sector_label ?? 'no data'
+  const purifySub = summary.purify_label ?? 'no data'
 
   const Stat = ({
     label, value: val, sub, color, tip, href,
@@ -648,11 +672,11 @@ const SimplePortfolioSummary: React.FC<{
       <div className="bg-brand-elevated/60 border-t border-brand-divider/50 grid grid-cols-7 divide-x divide-brand-divider/40 overflow-x-auto">
         <Stat label="Invested" value={formatUSD(costBasis, true)} sub={value > 0 ? `${((costBasis / value) * 100).toFixed(0)}% of portfolio` : '—'} tip="Total amount currently invested in open positions." />
         <Stat label="Cash" value={formatUSD(cashAvailable, true)} sub={value > 0 ? `${((cashAvailable / value) * 100).toFixed(0)}% available` : '—'} tip="Uninvested cash ready to deploy on the next signal." />
-        <Stat label="Halal" value={`🌙 ${(purity * 100).toFixed(0)}%`} sub={hasPurification ? `purify ${formatUSD(purificationDue)}` : 'all clear'} color={isHealthy ? 'text-brand-success' : 'text-brand-warning'} tip="How much of your portfolio income comes from Halal sources." />
-        <Stat label="Compliance" value={compliancePct !== null ? `${compliancePct.toFixed(0)}%` : '—'} sub={compliancePct === 100 ? 'all pass screening' : compliancePct !== null ? 'review needed' : 'no data'} color={compliancePct === 100 ? 'text-brand-success' : 'text-brand-warning'} tip="Percentage of holdings that pass Shariah screening." />
-        <Stat label="Zakat" value={formatUSD(zakatEstimate, true)} sub="est. annual" color="text-brand-accent" tip="Estimated Zakat due — 2.5% of total portfolio value. Tap for details." href="/zakat" />
-        <Stat label="Sectors" value={String(sectorCount || '—')} sub={sectorCount > 1 ? 'diversified' : 'concentrated'} tip="Number of distinct industry sectors in your portfolio." />
-        <Stat label="Purify" value={maxImpure > 0 ? `${(maxImpure * 100).toFixed(1)}%` : '$0'} sub={maxImpure > 0 ? 'max impure rev' : 'owed'} color={maxImpure > 0 ? 'text-brand-danger' : 'text-brand-success'} tip="Max impure revenue % across holdings. Donate this share of profits from affected positions." />
+        <Stat label="Halal" value={purity === null ? '—' : `🌙 ${(purity * 100).toFixed(0)}%`} sub={halalSub} color={purity === null ? undefined : (isHealthy ? 'text-brand-success' : 'text-brand-warning')} tip="How much of your portfolio income comes from Halal sources." />
+        <Stat label="Compliance" value={compliancePct !== null ? `${compliancePct.toFixed(0)}%` : '—'} sub={complianceSub} color={compliancePct === null ? undefined : (compliancePct >= 100 ? 'text-brand-success' : 'text-brand-warning')} tip="Percentage of holdings that pass Shariah screening." />
+        <Stat label="Zakat" value={formatUSD(zakatEstimate, true)} sub={value > 0 ? 'est. annual' : 'no data'} color="text-brand-accent" tip="Estimated Zakat due — 2.5% of total portfolio value. Tap for details." href="/zakat" />
+        <Stat label="Sectors" value={sectorCount === null || sectorCount === 0 ? '—' : String(sectorCount)} sub={sectorSub} tip="Number of distinct industry sectors in your portfolio." />
+        <Stat label="Purify" value={maxImpure === null ? '—' : (maxImpure > 0 ? `${(maxImpure * 100).toFixed(1)}%` : '$0')} sub={purifySub} color={maxImpure === null ? undefined : (maxImpure > 0 ? 'text-brand-danger' : 'text-brand-success')} tip="Max impure revenue % across holdings. Donate this share of profits from affected positions." />
       </div>
     </div>
   )
@@ -881,7 +905,13 @@ const TwapJobsPanel: React.FC<{ twapJobs: any[] }> = ({ twapJobs }) => {
         if (!r.ok) throw new Error(`Cancel failed: HTTP ${r.status}`)
         return r.json()
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['twap-jobs'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['twap-jobs'] })
+      toast.success('TWAP job cancelled successfully')
+    },
+    onError: (e: Error) => {
+      toast.error(e.message || 'Failed to cancel TWAP job')
+    },
   })
 
   return (
@@ -976,6 +1006,9 @@ const Dashboard = () => {
       qc.invalidateQueries({ queryKey: ['settings-paused'] })
       toast.success('Trading resumed')
     },
+    onError: (e: Error) => {
+      toast.error(e.message || 'Failed to resume trading')
+    },
   })
 
   const {
@@ -1002,6 +1035,32 @@ const Dashboard = () => {
     queryFn: () => fetch(withAccount(ROUTES.PORTFOLIO_PNL, selectedAccountId)).then((r) => r.json()),
     refetchInterval: 60_000,
   })
+
+  const { data: portfolioSummary } = useQuery<PortfolioSummary>({
+    queryKey: ['portfolio-summary', selectedAccountId],
+    queryFn: () => fetch(withAccount(ROUTES.PORTFOLIO_SUMMARY, selectedAccountId)).then((r) => r.json()),
+    refetchInterval: 60_000,
+  })
+
+  const summaryFallback: PortfolioSummary = {
+    connected: false,
+    account_type: 'PAPER',
+    total_value: null,
+    cost_basis: null,
+    cash_available: null,
+    unrealized_pnl: null,
+    return_pct: null,
+    purity: null,
+    purification_due: null,
+    compliance_pct: null,
+    zakat_estimate: null,
+    sector_count: null,
+    max_impure_revenue_pct: null,
+    halal_label: null,
+    compliance_label: null,
+    sector_label: null,
+    purify_label: null,
+  }
 
   const { data: history = [] } = useQuery<HistorySnapshot[]>({
     queryKey: ['portfolio-history', selectedAccountId, historyDays],
@@ -1093,14 +1152,32 @@ const Dashboard = () => {
 
   const diversifyMutation = useMutation({
     mutationFn: () =>
-      fetch(ROUTES.AI_DIVERSIFY, { method: 'POST', headers: { 'X-Api-Key': API_KEY } }).then((r) => r.json()),
-    onSuccess: (data) => setDiversifyPicks(data),
+      fetch(ROUTES.AI_DIVERSIFY, { method: 'POST', headers: { 'X-Api-Key': API_KEY } }).then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      }),
+    onSuccess: (data) => {
+      setDiversifyPicks(data)
+      toast.success('AI diversification ideas generated')
+    },
+    onError: (e: Error) => {
+      toast.error(e.message || 'Failed to generate diversification ideas')
+    },
   })
 
   const sectorDiversifyMutation = useMutation({
     mutationFn: () =>
-      fetch(ROUTES.AI_DIVERSIFY_SECTOR, { method: 'POST', headers: { 'X-Api-Key': API_KEY } }).then((r) => r.json()),
-    onSuccess: (data) => setSectorPicks(data),
+      fetch(ROUTES.AI_DIVERSIFY_SECTOR, { method: 'POST', headers: { 'X-Api-Key': API_KEY } }).then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      }),
+    onSuccess: (data) => {
+      setSectorPicks(data)
+      toast.success('AI sector diversification ideas generated')
+    },
+    onError: (e: Error) => {
+      toast.error(e.message || 'Failed to generate sector diversification ideas')
+    },
   })
 
   // Load stored compliance results from DB on mount
@@ -1130,7 +1207,6 @@ const Dashboard = () => {
   const totalCostBasis = positions.reduce((s, p) => s + p.quantity * p.avg_cost, 0)
   const returnPct = totalCostBasis > 0 ? (totalPnl / totalCostBasis) * 100 : 0
   const portfolioValue = portfolio.available_funds
-  const last7 = history.slice(-7).map((h) => h.total_value)
 
   const toggleSelect = (symbol: string) =>
     setSelected((prev) => {
@@ -1177,15 +1253,6 @@ const Dashboard = () => {
   const allSelected = positions.length > 0 && selected.size === positions.length
   const isChecking = checkingSymbols.size > 0
   const colCount = 6
-
-  const puritySource = audits.length > 0
-    ? audits
-    : Object.values(complianceResults)
-  const avgImpure =
-    puritySource.length > 0
-      ? puritySource.reduce((s, a) => s + (a.impure_revenue_pct ?? 0), 0) / puritySource.length
-      : 0
-  const avgPurity = 1 - avgImpure
 
   return (
     <Page>
@@ -1496,20 +1563,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      <SimplePortfolioSummary
-        value={totalMarketValue + portfolioValue}
-        cashAvailable={portfolioValue}
-        costBasis={totalCostBasis}
-        unrealizedPnl={totalPnl}
-        returnPct={returnPct}
-        purity={avgPurity}
-        purificationDue={pnlSummary?.total_purification_cost ?? 0}
-        last7={last7}
-        audits={audits}
-        complianceResults={Object.fromEntries(
-          Object.entries(complianceResults).filter(([sym]) => positions.some(p => p.symbol === sym)),
-        )}
-      />
+      <SimplePortfolioSummary summary={portfolioSummary ?? summaryFallback} />
 
       <GlobalMarketsPanel />
 
@@ -1617,7 +1671,7 @@ const Dashboard = () => {
                 <span className="text-brand-light/70">
                   Total value:{' '}
                   <span className="text-brand-light font-bold">
-                    ${totalMarketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    {new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(totalMarketValue)}
                   </span>
                 </span>
                 <span

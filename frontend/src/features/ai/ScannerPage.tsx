@@ -1,12 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
-import { useLocation } from '@tanstack/react-router'
 import { Radar, ScanSearch, Search, ShieldCheck } from 'lucide-react'
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Page, PageHeader, PageSection, CardGrid, ActionRow, InfoRow, Stack } from '@/components/ui/layout'
+import { Page, PageHeader, PageSection, InfoRow } from '@/components/ui/layout'
 import { Input } from '@/components/ui/input'
-import { InfoTip, TextTip } from '../../components/Tooltip'
-import { ROUTES } from '../../shared/routes'
+import { TextTip } from '../../components/Tooltip'
+import { ROUTES, API_KEY } from '../../shared/routes'
 
 interface ScanResult {
   symbol: string
@@ -21,16 +20,39 @@ interface ScanResult {
   impure_revenue_pct: number
 }
 
+interface ScanResponse {
+  status: 'done' | 'running'
+  results: ScanResult[]
+  total_fetched?: number
+}
+
+const fetchJson = (url: string) =>
+  fetch(url, { headers: API_KEY ? { 'X-API-Key': API_KEY } : {} }).then((r) => r.json())
+
 const ScannerPage = () => {
-  const _location = useLocation()
-  const [results, setResults] = useState<ScanResult[]>([])
-  const [loading, setLoading] = useState(false)
   const [query, setQuery] = useState('')
+  const [selectedRegion, setSelectedRegion] = useState<string | null>(null)
+
+  const { data: regions = [] } = useQuery<string[]>({
+    queryKey: ['scan-regions'],
+    queryFn: () => fetchJson(ROUTES.AI_SCAN_REGIONS),
+    staleTime: 600_000,
+  })
 
   const { data: universeData, isLoading: universeLoading } = useQuery<any>({
     queryKey: ['halal-universe'],
-    queryFn: () => fetch(ROUTES.AI_HALAL_UNIVERSE).then((r) => r.json()),
+    queryFn: () => fetchJson(ROUTES.AI_HALAL_UNIVERSE),
     staleTime: 300_000,
+  })
+
+  const { data: scanData, isLoading: scanLoading, isFetching: scanFetching } = useQuery<ScanResponse>({
+    queryKey: ['scan-region', selectedRegion],
+    queryFn: () => fetchJson(ROUTES.AI_SCAN(selectedRegion!)),
+    enabled: !!selectedRegion,
+    refetchInterval: (query) => {
+      const d = query.state.data as ScanResponse | undefined
+      return d?.status === 'running' ? 2000 : false
+    },
   })
 
   const universe: ScanResult[] = Array.isArray(universeData)
@@ -39,53 +61,87 @@ const ScannerPage = () => {
       ? universeData.sample
       : []
 
-  const displayResults = universe.filter((r) =>
-    !query || r.symbol?.toLowerCase().includes(query.toLowerCase()) || r.name?.toLowerCase().includes(query.toLowerCase())
-  )
+  const scanResults: ScanResult[] = scanData?.results ?? []
+  const activeResults = selectedRegion ? scanResults : universe
+  const isScanning = scanLoading || scanFetching || scanData?.status === 'running'
 
-  useEffect(() => {
-    // Initial fetch or based on search
-  }, [])
+  const displayResults = activeResults.filter(
+    (r) =>
+      !query ||
+      r.symbol?.toLowerCase().includes(query.toLowerCase()) ||
+      r.name?.toLowerCase().includes(query.toLowerCase()),
+  )
 
   return (
     <Page>
       <PageHeader>
         <div>
           <h1 className="heading-1">
-                    <Radar className="text-brand-primary" />
-                    Market Scanner
-                  </h1>
-                  <p className="text-brand-light/70">
-                    Scan global markets for Shariah-compliant opportunities
-                  </p>
+            <Radar className="text-brand-primary" />
+            Market Scanner
+          </h1>
+          <p className="text-brand-light/70">
+            Scan global markets for Shariah-compliant opportunities
+          </p>
         </div>
       </PageHeader>
 
       <PageSection className="card">
-        <div className="flex gap-4">
+        <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1 relative">
             <Search
               className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-light/70"
               size={18}
             />
             <Input
-              placeholder="Search by region, sector or theme (e.g. US Tech, Japan AI)..."
+              placeholder="Filter results by symbol or name…"
               className="pl-10 h-12 text-base"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
-          <Button className="h-12 px-8 shrink-0">
-            <ScanSearch size={20} />
-            Run Scan
-          </Button>
+          <select
+            value={selectedRegion ?? ''}
+            onChange={(e) => setSelectedRegion(e.target.value || null)}
+            className="h-12 px-4 bg-brand-elevated border border-brand-divider rounded-lg text-sm text-brand-light focus:outline-none focus:border-brand-primary/60"
+          >
+            <option value="">All (Halal Universe)</option>
+            {regions.map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+          {selectedRegion && (
+            <Button
+              className="h-12 px-8 shrink-0"
+              disabled={isScanning}
+              onClick={() => setSelectedRegion(selectedRegion)}
+            >
+              {isScanning ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Scanning…
+                </>
+              ) : (
+                <>
+                  <ScanSearch size={20} />
+                  Run Scan
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </PageSection>
 
-      {universeLoading ? (
+      {selectedRegion && scanData?.status === 'done' && (
+        <p className="text-xs text-brand-light/50 -mt-2 mb-2">
+          {scanResults.length} results from {selectedRegion} scan · {scanResults.filter((r) => r.is_shariah).length} Shariah-compliant
+        </p>
+      )}
+
+      {(universeLoading || (selectedRegion && isScanning && scanResults.length === 0)) ? (
         <div className="flex flex-col items-center justify-center py-20 opacity-50">
           <div className="w-12 h-12 border-4 border-brand-primary/20 border-t-brand-primary rounded-full animate-spin mb-4" />
-          <p className="text-brand-light/70 font-medium">Scanning markets...</p>
+          <p className="text-brand-light/70 font-medium">Scanning markets…</p>
         </div>
       ) : (
         <div className="table-container">
@@ -136,7 +192,7 @@ const ScannerPage = () => {
                     </td>
                     <td className="table-cell">
                       {r.is_shariah ? (
-                        <InfoRow className=" text-brand-success text-xs font-bold uppercase">
+                        <InfoRow className="text-brand-success text-xs font-bold uppercase">
                           <ShieldCheck size={14} /> Pass
                         </InfoRow>
                       ) : (
@@ -151,7 +207,9 @@ const ScannerPage = () => {
                           : '—'}
                     </td>
                     <td className="table-cell font-mono text-xs text-brand-light/70">
-                      {r.impure_revenue_pct != null ? `${(r.impure_revenue_pct * 100).toFixed(2)}%` : '—'}
+                      {r.impure_revenue_pct != null
+                        ? `${(r.impure_revenue_pct * 100).toFixed(2)}%`
+                        : '—'}
                     </td>
                   </tr>
                 </React.Fragment>
@@ -162,8 +220,10 @@ const ScannerPage = () => {
                     colSpan={6}
                     className="table-cell text-center py-20 text-brand-light/70 italic"
                   >
-                    {universe.length === 0
-                      ? 'Start a scan to see potential Shariah-compliant opportunities.'
+                    {activeResults.length === 0
+                      ? selectedRegion
+                        ? 'No scan results yet. Select a region and run the scan.'
+                        : 'No halal universe data available.'
                       : 'No results match your search.'}
                   </td>
                 </tr>

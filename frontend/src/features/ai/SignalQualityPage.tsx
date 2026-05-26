@@ -133,6 +133,11 @@ const SignalQualityPage: React.FC = () => {
       ? resolved30.reduce((s, r) => s + (r.outcome_30d_pct ?? 0), 0) / resolved30.length
       : null
 
+  const oldestPendingTime = pending.length > 0 
+    ? Math.min(...pending.map(p => new Date(p.created_at).getTime()))
+    : Date.now()
+  const statsDate = new Date(oldestPendingTime + 7 * 86_400_000)
+
   return (
     <Page>
       <PageHeader>
@@ -153,7 +158,7 @@ const SignalQualityPage: React.FC = () => {
           <Clock size={14} className="text-zinc-400 mt-0.5 shrink-0" />
           <p className="text-xs text-zinc-400">
             <span className="font-semibold text-zinc-200">{pending.length} signals</span> logged — outcomes fill automatically once 7 days have passed.
-            Win-rate stats will appear from <span className="font-semibold text-zinc-200">{new Date(Date.now() + 7 * 86_400_000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>.
+            Win-rate stats will appear from <span className="font-semibold text-zinc-200">{statsDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>.
           </p>
         </div>
       )}

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AIModuleGate } from './AIModuleGate'
 import {
   AlertTriangle,
   BrainCircuit,
@@ -1090,8 +1091,10 @@ import { ErrorBoundary } from '../../components/ErrorBoundary'
 
 export default function SignalsPageWithBoundary() {
   return (
-    <ErrorBoundary title="AI Signals unavailable">
-      <SignalsPage />
-    </ErrorBoundary>
+    <AIModuleGate pageTitle="Signals">
+      <ErrorBoundary title="AI Signals unavailable">
+        <SignalsPage />
+      </ErrorBoundary>
+    </AIModuleGate>
   )
 }

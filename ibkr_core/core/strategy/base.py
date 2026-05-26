@@ -59,3 +59,13 @@ class Strategy(ABC):
     ) -> List[TradeSignal]:
         """Signals filtered against currently held positions. Default: empty."""
         return []
+
+    async def get_multi_factor_score(
+        self, symbol: str, vix_buffer: float = 0.0
+    ) -> Optional[dict]:
+        """Score a single symbol for position rerating. Default: None (skip)."""
+        return None
+
+    def get_portfolio_sector_weights(self) -> Optional[dict]:
+        """Current portfolio sector allocation weights. Default: None (sort by confidence only)."""
+        return None

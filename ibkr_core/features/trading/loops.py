@@ -622,23 +622,18 @@ async def main_loop(worker, manager: ConnectionManager, health: dict, account_id
                     signal_map = {s.symbol: s for s in buy_signals}
 
                     # Sort compliant signals: underrepresented sectors first, then by confidence.
-                    # Sector weighting helper is optional — private AI module supplies it.
-                    try:
-                        from ibkr_core.features.ai.strategy import _portfolio_sector_weights  # type: ignore
-                        sector_wts = _portfolio_sector_weights()
-                        if sector_wts:
-                            def _sector_key(cr):
-                                sec = (cr.sector or "Unknown").split("/")[0].strip()
-                                return (sector_wts.get(sec, 0.0), -signal_map[cr.symbol].confidence)
-                            compliance_results = sorted(compliance_results, key=_sector_key)
-                    except ImportError:
-                        # public build: sort by confidence only
+                    from ibkr_core.core.strategy import get_active_strategy
+                    sector_wts = get_active_strategy().get_portfolio_sector_weights()
+                    if sector_wts:
+                        def _sector_key(cr):
+                            sec = (cr.sector or "Unknown").split("/")[0].strip()
+                            return (sector_wts.get(sec, 0.0), -signal_map[cr.symbol].confidence)
+                        compliance_results = sorted(compliance_results, key=_sector_key)
+                    else:
                         compliance_results = sorted(
                             compliance_results,
                             key=lambda cr: -signal_map[cr.symbol].confidence,
                         )
-                    except Exception:
-                        pass
 
                     require_pullback = bool(settings.get("require_pullback_entry", True))
                     cooldown_days = int(settings.get("re_entry_cooldown_days", 14))
@@ -1150,13 +1145,8 @@ async def position_rerating_loop(worker, manager: ConnectionManager, health: dic
             threshold = int(settings.get("rerate_sell_threshold") or 35)
             trader = Trader(worker)
 
-            # Multi-factor rerating requires the private AI scoring module.
-            try:
-                from ibkr_core.features.ai.strategy import get_multi_factor_score  # type: ignore
-            except ImportError:
-                logger.info("position_rerating_loop: AI scoring module not present — skipping rerate cycle")
-                await asyncio.sleep(4 * 3600)
-                continue
+            from ibkr_core.core.strategy import get_active_strategy
+            strategy = get_active_strategy()
             from ibkr_core.features.compliance.vix import get_current_vix, vix_to_ratio_buffer
 
             vix = await asyncio.to_thread(get_current_vix)
@@ -1168,7 +1158,9 @@ async def position_rerating_loop(worker, manager: ConnectionManager, health: dic
                 if not symbol or qty <= 0:
                     continue
                 try:
-                    res = await get_multi_factor_score(symbol, vix_buffer=buf)
+                    res = await strategy.get_multi_factor_score(symbol, vix_buffer=buf)
+                    if res is None:
+                        continue
                     score = res["total_score"]
                     if score <= threshold:
                         logger.info("Re-rating SELL: %s score=%d <= threshold=%d", symbol, score, threshold)

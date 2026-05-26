@@ -8,7 +8,7 @@ earnings; always re-screen before placing orders.
 
 Private forks of this bot may ship a larger, actively-curated universe and
 override this list by exporting `SEED_UNIVERSE` / `REGIONAL_HALAL` from
-`ibkr_core.features.ai.halal_universe`.
+your private AI module's halal_universe.
 """
 from __future__ import annotations
 

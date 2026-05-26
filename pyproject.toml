@@ -1,6 +1,6 @@
 [project]
 name = "ibkr-trader-core"
-version = "0.2.0"
+version = "0.2.1"
 description = "Shariah-compliant IBKR trading bot framework with pluggable strategies"
 readme = "README.md"
 license = { text = "MIT" }
@@ -13,6 +13,9 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "exchange_calendars>=4.5",
 ]
 
 [project.urls]

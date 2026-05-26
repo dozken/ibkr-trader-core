@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AIModuleGate } from './AIModuleGate'
 import { useMutation } from '@tanstack/react-query'
 import {
   LineChart,
@@ -124,6 +125,7 @@ export default function BacktestPage() {
   const alpha = result ? result.total_return_pct - result.benchmark_return_pct : 0
 
   return (
+    <AIModuleGate pageTitle="Strategy Backtest">
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Portfolio Backtest</h1>
@@ -396,5 +398,6 @@ export default function BacktestPage() {
         </>
       )}
     </div>
+    </AIModuleGate>
   )
 }

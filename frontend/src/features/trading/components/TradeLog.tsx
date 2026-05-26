@@ -2,7 +2,8 @@ import { AlertTriangle, Ban, CheckCircle2, ClipboardList, Clock } from 'lucide-r
 import type React from 'react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import { stateLabel } from '../../../shared/tradeLabels'
+import { Tooltip } from '../../../components/Tooltip'
+import { stateLabel, stateTooltip } from '../../../shared/tradeLabels'
 import type { Trade } from '../../../shared/types/trade'
 
 interface TradeLogProps {
@@ -69,20 +70,24 @@ const TradeLog: React.FC<TradeLogProps> = ({ trades }) => {
       </div>
 
       <div className="flex flex-wrap gap-1.5 px-4 pb-3 border-b border-brand-divider/40">
-        {(['ALL', 'FILLED', 'SETTLED', 'HALAL_CERTIFIED', 'LIQUIDATING', 'REJECTED_COMPLIANCE', 'REJECTED_FUNDS', 'IBKR_ERROR'] as const).map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => setFilterState(s)}
-            className={`px-2.5 py-0.5 text-[10px] font-bold uppercase rounded-full border transition-colors ${
-              filterState === s
-                ? 'bg-brand-primary/20 border-brand-primary/50 text-brand-primary'
-                : 'border-brand-divider/40 text-brand-light/50 hover:text-brand-light/80'
-            }`}
-          >
-            {s === 'ALL' ? `All (${trades.length})` : stateLabel(s)}
-          </button>
-        ))}
+        {(['ALL', 'FILLED', 'SETTLED', 'HALAL_CERTIFIED', 'LIQUIDATING', 'REJECTED_COMPLIANCE', 'REJECTED_FUNDS', 'IBKR_ERROR'] as const).map((s) => {
+          const tip = s === 'ALL' ? null : stateTooltip(s)
+          const btn = (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setFilterState(s)}
+              className={`px-2.5 py-0.5 text-[10px] font-bold uppercase rounded-full border transition-colors ${
+                filterState === s
+                  ? 'bg-brand-primary/20 border-brand-primary/50 text-brand-primary'
+                  : 'border-brand-divider/40 text-brand-light/50 hover:text-brand-light/80'
+              }`}
+            >
+              {s === 'ALL' ? `All (${trades.length})` : stateLabel(s)}
+            </button>
+          )
+          return tip ? <Tooltip key={s} text={tip}>{btn}</Tooltip> : btn
+        })}
       </div>
 
       {/* Mobile cards */}
@@ -106,15 +111,21 @@ const TradeLog: React.FC<TradeLogProps> = ({ trades }) => {
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span
-                  className={cn(
-                    'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border',
-                    getStatusStyle(trade.state),
-                  )}
-                >
-                  {getStatusIcon(trade.state)}
-                  {stateLabel(trade.state)}
-                </span>
+                {(() => {
+                  const badge = (
+                    <span
+                      className={cn(
+                        'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border',
+                        getStatusStyle(trade.state),
+                      )}
+                    >
+                      {getStatusIcon(trade.state)}
+                      {stateLabel(trade.state)}
+                    </span>
+                  )
+                  const tip = stateTooltip(trade.state)
+                  return tip ? <Tooltip text={tip}>{badge}</Tooltip> : badge
+                })()}
                 <span className="text-xs text-brand-light/70 font-mono">
                   {new Date(trade.created_at).toLocaleTimeString()}
                 </span>
@@ -166,15 +177,21 @@ const TradeLog: React.FC<TradeLogProps> = ({ trades }) => {
                   </td>
                   <td className="table-cell text-sm text-brand-light">{trade.quantity}</td>
                   <td className="table-cell">
-                    <span
-                      className={cn(
-                        'flex items-center gap-1.5 w-fit px-2.5 py-1 rounded-full text-xs font-medium border',
-                        getStatusStyle(trade.state),
-                      )}
-                    >
-                      {getStatusIcon(trade.state)}
-                      {trade.state}
-                    </span>
+                    {(() => {
+                      const badge = (
+                        <span
+                          className={cn(
+                            'flex items-center gap-1.5 w-fit px-2.5 py-1 rounded-full text-xs font-medium border',
+                            getStatusStyle(trade.state),
+                          )}
+                        >
+                          {getStatusIcon(trade.state)}
+                          {stateLabel(trade.state)}
+                        </span>
+                      )
+                      const tip = stateTooltip(trade.state)
+                      return tip ? <Tooltip text={tip}>{badge}</Tooltip> : badge
+                    })()}
                   </td>
                   <td className="table-cell text-xs font-mono text-brand-light/70">
                     {trade.ibkr_order_id || '---'}

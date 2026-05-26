@@ -106,6 +106,25 @@ export default function Layout() {
     }
   }, [dark])
 
+  useEffect(() => {
+    const p = location.pathname
+    const routeName =
+      p === '/' ? 'Dashboard' :
+      p.startsWith('/signals') ? 'Signals' :
+      p.startsWith('/screening') ? 'Screening' :
+      p.startsWith('/audit') ? 'Audit' :
+      p.startsWith('/zakat') ? 'Zakat' :
+      p.startsWith('/accounts') ? 'Accounts' :
+      p.startsWith('/settings') ? 'Settings' :
+      p.startsWith('/backtest') ? 'Backtest' :
+      p.startsWith('/signal-quality') ? 'Signal Quality' :
+      p.startsWith('/signal-log') ? 'Signal Log' :
+      p.startsWith('/scanner') ? 'Scanner' :
+      p.startsWith('/faq') ? 'Guide' : 'App'
+      
+    document.title = `${routeName} - IBKR Shariah`
+  }, [location.pathname])
+
   return (
     <div className="flex flex-col min-h-screen bg-brand-base">
       <Toaster position="top-right" toastOptions={{ style: { background: '#1e2530', color: '#e2e8f0', border: '1px solid #2d3748', fontSize: '13px' } }} />

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { AIModuleGate } from './AIModuleGate'
 import { AlertTriangle, Clock } from 'lucide-react'
 import React, { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
@@ -167,8 +168,10 @@ const SignalLogPage: React.FC = () => {
 
 export default function SignalLogPageWithBoundary() {
   return (
-    <ErrorBoundary title="Signal Log unavailable">
-      <SignalLogPage />
-    </ErrorBoundary>
+    <AIModuleGate pageTitle="Signal Log">
+      <ErrorBoundary title="Signal Log unavailable">
+        <SignalLogPage />
+      </ErrorBoundary>
+    </AIModuleGate>
   )
 }

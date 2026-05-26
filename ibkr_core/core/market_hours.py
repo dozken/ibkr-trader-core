@@ -1,4 +1,5 @@
 from datetime import datetime, time
+from functools import lru_cache
 from zoneinfo import ZoneInfo
 from typing import Optional
 
@@ -120,9 +121,80 @@ SUNDAY_THURSDAY_EXCHANGES = {"SAU", "DFM", "DOH", "KWT", "CAI"}
 
 DEFAULT_CONFIG = ("America/New_York", [(time(9,30), time(16,0))], "SMART", "USD")
 
+# Map yfinance exchange code → exchange_calendars ISO MIC for holiday lookup.
+# Missing entries fall back to weekday-only check (no holiday filtering).
+_EXCHANGE_TO_CALENDAR: dict = {
+    "NMS": "XNYS", "NYQ": "XNYS", "PCX": "XNYS", "NGM": "XNYS",
+    "TKS": "XTKS", "OSA": "XTKS", "JPX": "XTKS",
+    "SHH": "XSHG", "SHZ": "XSHE",
+    "HKG": "XHKG",
+    "KSC": "XKRX", "KOE": "XKRX",
+    "TAI": "XTAI",
+    "SGX": "XSES",
+    "BSE": "XBOM", "NSI": "XNSE",
+    "JKT": "XIDX",
+    "SAU": "XSAU",
+    "LSE": "XLON",
+    "AMS": "XAMS",
+    "GER": "XETR", "XET": "XETR",
+    "PAR": "XPAR",
+    "MIL": "XMIL",
+    "MCE": "XMAD",
+    "EBS": "XSWX",
+    "STO": "XSTO",
+    "OSL": "XOSL",
+    "CPH": "XCSE",
+    "HEL": "XHEL",
+    "BRU": "XBRU",
+    "VIE": "XWBO",
+    "LIS": "XLIS",
+    "ATH": "XATH",
+    "ISE": "XDUB",
+    "TOR": "XTSE",
+    "MEX": "XMEX",
+    "SAO": "BVMF",
+    "ASX": "XASX",
+    "NZE": "XNZE",
+    "JNB": "XJSE",
+    "IST": "XIST",
+}
+
 
 def get_exchange_config(exchange_code: str) -> tuple:
     return EXCHANGE_CONFIG.get(exchange_code, DEFAULT_CONFIG)
+
+
+@lru_cache(maxsize=64)
+def _get_calendar(cal_code: str):
+    """Cached exchange_calendars.get_calendar — calendar construction is expensive."""
+    try:
+        from exchange_calendars import get_calendar
+        return get_calendar(cal_code)
+    except Exception:
+        return None
+
+
+def is_trading_day(exchange_code: str, day=None) -> bool:
+    """True if `day` is a regular session for the exchange (weekend AND holidays filtered).
+    Falls back to weekday-only check if no calendar mapping or exchange_calendars unavailable."""
+    tz_name, _, _, _ = get_exchange_config(exchange_code)
+    if day is None:
+        day = datetime.now(ZoneInfo(tz_name)).date()
+
+    cal_code = _EXCHANGE_TO_CALENDAR.get(exchange_code)
+    if cal_code is not None:
+        cal = _get_calendar(cal_code)
+        if cal is not None:
+            try:
+                import pandas as pd
+                return bool(cal.is_session(pd.Timestamp(day)))
+            except Exception:
+                pass
+
+    # Fallback: weekday-only
+    if exchange_code in SUNDAY_THURSDAY_EXCHANGES:
+        return day.weekday() in (0, 1, 2, 3, 6)
+    return day.weekday() < 5
 
 
 def is_market_open(exchange_code: str = "NMS") -> bool:
@@ -130,13 +202,8 @@ def is_market_open(exchange_code: str = "NMS") -> bool:
     tz = ZoneInfo(tz_name)
     now = datetime.now(tz)
 
-    # Gulf markets: Sun(6)-Thu(3), others: Mon(0)-Fri(4)
-    if exchange_code in SUNDAY_THURSDAY_EXCHANGES:
-        if now.weekday() not in (0, 1, 2, 3, 6):  # Mon-Thu + Sun
-            return False
-    else:
-        if now.weekday() >= 5:  # Sat or Sun
-            return False
+    if not is_trading_day(exchange_code, now.date()):
+        return False
 
     return any(open_ <= now.time() < close for open_, close in sessions)
 
@@ -154,12 +221,8 @@ def is_in_trading_window(
     tz = ZoneInfo(tz_name)
     now = datetime.now(tz)
 
-    if exchange_code in SUNDAY_THURSDAY_EXCHANGES:
-        if now.weekday() not in (0, 1, 2, 3, 6):
-            return False
-    else:
-        if now.weekday() >= 5:
-            return False
+    if not is_trading_day(exchange_code, now.date()):
+        return False
 
     for open_, close in sessions:
         open_dt = now.replace(hour=open_.hour, minute=open_.minute, second=0, microsecond=0)

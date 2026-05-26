@@ -44,7 +44,11 @@ async def run_synthetic_test():
     from ibkr_core.features.alerts.loops import daily_report_loop, purification_reminder_loop
     from ibkr_core.features.alerts.telegram_bot import telegram_bot_loop
     from ibkr_core.features.zakat.loops import zakat_monitoring_loop
-    from ibkr_core.features.ai.loops import ml_retraining_loop
+    try:
+        from ibkr_core.features.ai.loops import ml_retraining_loop
+        HAS_AI_MODULE = True
+    except ImportError:
+        HAS_AI_MODULE = False
     # Import the main.py version of the integrity loop
     from ibkr_core.main import audit_integrity_loop
 
@@ -65,8 +69,10 @@ async def run_synthetic_test():
             asyncio.create_task(purification_reminder_loop(health)),
             asyncio.create_task(zakat_monitoring_loop(mock_worker, health)),
             asyncio.create_task(audit_integrity_loop(mock_worker, health)),
-            asyncio.create_task(ml_retraining_loop(health)),
         ]
+        
+        if HAS_AI_MODULE:
+            tasks.append(asyncio.create_task(ml_retraining_loop(health)))
         
         # Let them run for a few simulated seconds
         await asyncio.sleep(2)

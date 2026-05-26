@@ -6,6 +6,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Page, PageSection } from '@/components/ui/layout'
 import { Text, Eyebrow } from '@/components/ui/text'
 import { ROUTES, API_KEY } from '../../shared/routes'
@@ -254,6 +262,7 @@ export default function AccountsPage() {
   const [form, setForm] = useState<AccountCreate>(EMPTY_FORM)
   const [editId, setEditId] = useState<number | null>(null)
   const [editLabel, setEditLabel] = useState('')
+  const [accountToDeactivate, setAccountToDeactivate] = useState<Account | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const { data: accounts = [], isLoading } = useQuery<Account[]>({
@@ -311,8 +320,12 @@ export default function AccountsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['accounts'] })
       toast.success('Account deactivated')
+      setAccountToDeactivate(null)
     },
-    onError: (e: Error) => toast.error(e.message || 'Request failed'),
+    onError: (e: Error) => {
+      toast.error(e.message || 'Request failed')
+      setAccountToDeactivate(null)
+    },
   })
 
   function set(k: keyof AccountCreate, v: string | number | boolean) {
@@ -451,11 +464,7 @@ export default function AccountsPage() {
                     {acc.is_paper ? 'Paper' : 'Live'}
                   </Badge>
                   <button
-                    onClick={() => {
-                      if (window.confirm(`Deactivate account "${acc.label}"? Active positions remain open in IBKR.`)) {
-                        deactivateMutation.mutate(acc.id)
-                      }
-                    }}
+                    onClick={() => setAccountToDeactivate(acc)}
                     className="text-brand-light/40 hover:text-red-400 transition-colors"
                     title="Remove account"
                   >
@@ -467,6 +476,28 @@ export default function AccountsPage() {
           </div>
         )}
       </PageSection>
+
+      <Dialog open={!!accountToDeactivate} onOpenChange={(open) => !open && setAccountToDeactivate(null)}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Deactivate Account</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to deactivate "{accountToDeactivate?.label}"?
+              Active positions will remain open in your IBKR account.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setAccountToDeactivate(null)}>Cancel</Button>
+            <Button 
+              variant="destructive" 
+              onClick={() => accountToDeactivate && deactivateMutation.mutate(accountToDeactivate.id)}
+              disabled={deactivateMutation.isPending}
+            >
+              {deactivateMutation.isPending ? 'Deactivating...' : 'Deactivate'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Page>
   )
 }

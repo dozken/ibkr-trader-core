@@ -31,11 +31,11 @@ export const RatioBar: React.FC<RatioBarProps> = ({ label, value, limit, pass })
     <div className="h-1 rounded-full bg-brand-divider/30 relative">
       <div
         className={`h-full rounded-full transition-all duration-700 ease-out ${pass ? 'bg-brand-success shadow-[0_0_8px_rgba(34,197,94,0.3)]' : 'bg-brand-danger shadow-[0_0_8px_rgba(239,68,68,0.3)]'}`}
-        style={{ width: `${Math.min((value / limit) * 100, 100)}%` }}
+        style={{ width: `${Math.min(value * 100, 100)}%` }}
       />
       <div
-        className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 bg-brand-warning/70 rounded-full"
-        style={{ left: '100%' }}
+        className="absolute top-1/2 -translate-y-1/2 w-[3px] h-3 bg-brand-warning rounded-full shadow-[0_0_4px_rgba(251,191,36,0.6)]"
+        style={{ left: `${limit * 100}%` }}
         title={`AAOIFI limit: ${(limit * 100).toFixed(0)}%`}
       />
     </div>
