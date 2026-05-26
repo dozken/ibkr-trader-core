@@ -9,7 +9,7 @@ from ibkr_core.features.trading.schemas import Trade, TradeCreate
 from ibkr_core.features.compliance.schemas import ComplianceStatus
 from ibkr_core.features.compliance.screening import check_shariah_compliance
 from ibkr_core.core.database import SessionLocal
-from ibkr_core.core.models import TradeHistory, AuditLog, TwapExecution
+from ibkr_core.core.models import Account, TradeHistory, AuditLog, TwapExecution
 from ibkr_core.features.settings.service import load_settings as _load_settings, RISK_STOP_TAKE
 from ibkr_core.core.monitoring import TRADES_EXECUTED
 from ibkr_core.features.compliance.vix import get_current_vix, vix_to_tier
@@ -320,6 +320,16 @@ class Trader:
         pre_screened: pass an already-computed ComplianceStatus to skip re-screening.
         force_liquidation: True only for kill-switch SELLs on non-compliant positions.
         """
+        if self.account_id is not None:
+            _db = SessionLocal()
+            try:
+                acct = _db.query(Account).filter(Account.id == self.account_id).first()
+                if acct and acct.read_only:
+                    logger.info(f"Account {self.account_id} is read-only — blocking {trade_req.side} {trade_req.symbol}")
+                    return Trade(**trade_req.model_dump(), state=TradeState.REJECTED_COMPLIANCE)
+            finally:
+                _db.close()
+
         machine = TradeStateMachine()
         db = SessionLocal()
 

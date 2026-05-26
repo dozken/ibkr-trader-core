@@ -18,6 +18,7 @@ class AccountCreate(BaseModel):
     client_id: int = 1
     ibkr_account_id: Optional[str] = None
     is_paper: bool = True
+    read_only: bool = False
 
 
 class AccountPatch(BaseModel):
@@ -28,6 +29,7 @@ class AccountPatch(BaseModel):
     ibkr_account_id: Optional[str] = None
     is_paper: Optional[bool] = None
     is_active: Optional[bool] = None
+    read_only: Optional[bool] = None
 
 
 class AccountResponse(BaseModel):
@@ -39,6 +41,7 @@ class AccountResponse(BaseModel):
     ibkr_account_id: Optional[str]
     is_paper: bool
     is_active: bool
+    read_only: bool
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
