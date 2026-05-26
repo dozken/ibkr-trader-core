@@ -724,6 +724,135 @@ def record_purification(req: PurificationRecordRequest, db: Session = Depends(ge
     return {"id": entry.id, "symbol": entry.symbol, "purification_amount": entry.purification_amount}
 
 
+class PortfolioSummaryResponse(BaseModel):
+    connected: bool
+    account_type: Literal["PAPER", "LIVE"] = "PAPER"
+    total_value: Optional[float] = None
+    cost_basis: Optional[float] = None
+    cash_available: Optional[float] = None
+    unrealized_pnl: Optional[float] = None
+    return_pct: Optional[float] = None
+    purity: Optional[float] = None
+    purification_due: Optional[float] = None
+    compliance_pct: Optional[float] = None
+    zakat_estimate: Optional[float] = None
+    sector_count: Optional[int] = None
+    max_impure_revenue_pct: Optional[float] = None
+    halal_label: Optional[str] = None
+    compliance_label: Optional[str] = None
+    sector_label: Optional[str] = None
+    purify_label: Optional[str] = None
+
+
+@router.get("/summary", response_model=PortfolioSummaryResponse)
+def get_portfolio_summary(request: Request, db: Session = Depends(get_db),
+                          account_id: Optional[int] = None) -> PortfolioSummaryResponse:
+    live_ports = {"7496", "4001"}
+    port = os.environ.get("IBKR_PORT", "7497")
+    account_type: Literal["PAPER", "LIVE"] = "LIVE" if port in live_ports else "PAPER"
+
+    worker = getattr(request.app.state, "worker", None)
+    connected = False
+    available_funds = 0.0
+    positions: list = []
+
+    try:
+        if worker and worker.ib.isConnected():
+            connected = True
+            available_funds = float(worker.get_available_funds())
+            positions = worker.get_positions()
+    except Exception:
+        pass
+
+    if not connected or not positions:
+        return PortfolioSummaryResponse(connected=connected, account_type=account_type)
+
+    symbols = [p["symbol"] for p in positions]
+    total_market_value = sum(float(p.get("market_value", 0)) for p in positions)
+    total_cost_basis = sum(float(p.get("avg_cost", 0)) * float(p.get("quantity", 0)) for p in positions)
+    total_unrealized = sum(float(p.get("unrealized_pnl", 0)) for p in positions)
+    total_value = total_market_value + available_funds
+    return_pct = (total_unrealized / total_cost_basis * 100) if total_cost_basis > 0 else 0.0
+
+    comp_q = db.query(PositionCompliance).filter(PositionCompliance.symbol.in_(symbols))
+    if account_id is not None:
+        comp_q = comp_q.filter(PositionCompliance.account_id == account_id)
+    comp_rows = comp_q.order_by(PositionCompliance.timestamp.desc()).all()
+
+    compliance_map: Dict[str, dict] = {}
+    for row in comp_rows:
+        if row.symbol not in compliance_map:
+            metrics = row.metrics or {}
+            compliance_map[row.symbol] = {
+                "status": row.shariah_status,
+                "impure_pct": float(metrics.get("impure_revenue_pct", 0) or 0),
+                "sector": metrics.get("sector", "Unknown"),
+            }
+
+    compliant_count = sum(1 for s in symbols if compliance_map.get(s, {}).get("status") == "COMPLIANT")
+    screened_count = sum(1 for s in symbols if s in compliance_map)
+    compliance_pct = (compliant_count / screened_count * 100) if screened_count > 0 else None
+
+    sectors = set()
+    max_impure = 0.0
+    total_impure_weighted = 0.0
+    for p in positions:
+        sym = p["symbol"]
+        info = compliance_map.get(sym, {})
+        sector = info.get("sector", "Unknown")
+        if sector and sector != "Unknown":
+            sectors.add(sector.split("/")[0].strip())
+        impure = info.get("impure_pct", 0.0)
+        mkt_val = float(p.get("market_value", 0))
+        max_impure = max(max_impure, impure)
+        total_impure_weighted += impure * mkt_val
+
+    purity = 1.0 - (total_impure_weighted / total_market_value) if total_market_value > 0 else None
+    purification_due = total_impure_weighted if total_impure_weighted > 0 else 0.0
+    zakat_estimate = total_value * 0.025
+
+    n_pos = len(positions)
+    halal_label = (
+        "all clear" if purity and purity >= 0.98 else
+        f"purify {n_pos - compliant_count}" if screened_count > 0 else
+        None
+    )
+    compliance_label = (
+        f"{compliant_count}/{screened_count} pass" if screened_count > 0 else "no data"
+    )
+    sector_count = len(sectors) if sectors else None
+    sector_label = (
+        f"{len(sectors)} sectors" if len(sectors) > 1 else
+        f"1 sector" if len(sectors) == 1 else
+        "no data"
+    )
+    purify_label = (
+        f"max {max_impure*100:.1f}% impure" if max_impure > 0 else
+        "all clean" if screened_count > 0 else
+        "no data"
+    )
+
+    return PortfolioSummaryResponse(
+        connected=connected,
+        account_type=account_type,
+        total_value=round(total_value, 2),
+        cost_basis=round(total_cost_basis, 2),
+        cash_available=round(available_funds, 2),
+        unrealized_pnl=round(total_unrealized, 2),
+        return_pct=round(return_pct, 2),
+        purity=round(purity, 4) if purity is not None else None,
+        purification_due=round(purification_due, 2),
+        compliance_pct=round(compliance_pct, 2) if compliance_pct is not None else None,
+        zakat_estimate=round(zakat_estimate, 2),
+        sector_count=sector_count,
+        max_impure_revenue_pct=round(max_impure, 4) if max_impure > 0 else 0.0,
+        halal_label=halal_label,
+        compliance_label=compliance_label,
+        sector_label=sector_label,
+        purify_label=purify_label,
+    )
+
+
 @router.post("/rerate")
 async def manual_rerate(request: Request):
     """
