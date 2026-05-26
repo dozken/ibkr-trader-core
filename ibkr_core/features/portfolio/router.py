@@ -734,18 +734,12 @@ async def manual_rerate(request: Request):
     Requires the private AI module to be installed (provides get_multi_factor_score).
     Returns 501 in the public build.
     """
-    try:
-        from ibkr_core.features.ai.strategy import get_multi_factor_score  # type: ignore
-    except ImportError:
-        from fastapi import HTTPException
-        raise HTTPException(
-            status_code=501,
-            detail="Manual rerate requires the AI scoring module (private). "
-                   "Install the ibkr-trader private fork or implement get_multi_factor_score in backend/features/ai/strategy.py.",
-        )
+    from ibkr_core.core.strategy import get_active_strategy
     from ibkr_core.features.compliance.vix import get_current_vix, vix_to_ratio_buffer
     from ibkr_core.core.models import PendingSignal
     from ibkr_core.core.database import SessionLocal
+
+    strategy = get_active_strategy()
 
     worker = getattr(request.app.state, "worker", None)
     settings = load_settings()
@@ -771,7 +765,10 @@ async def manual_rerate(request: Request):
         if not symbol or qty <= 0:
             continue
         try:
-            res = await get_multi_factor_score(symbol, vix_buffer=buf)
+            res = await strategy.get_multi_factor_score(symbol, vix_buffer=buf)
+            if res is None:
+                scored.append({"symbol": symbol, "score": None, "error": "strategy does not support scoring"})
+                continue
             score = res["total_score"]
             action = res.get("action", "HOLD")
             entry = {"symbol": symbol, "score": score, "action": action,
