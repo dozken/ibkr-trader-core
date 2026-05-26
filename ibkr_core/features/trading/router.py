@@ -444,3 +444,49 @@ async def emergency_liquidate(body: EmergencyLiquidateRequest, request: Request)
             skipped.append({"symbol": symbol, "error": str(exc)})
 
     return {"liquidated": liquidated, "skipped": skipped, "total": len(liquidated)}
+
+
+class BatchSellRequest(BaseModel):
+    symbols: List[str]
+    account_id: Optional[int] = None
+
+
+@router.post("/batch-sell", dependencies=[Depends(require_api_key)])
+async def batch_sell(body: BatchSellRequest, request: Request):
+    """Sell specific positions by symbol at market price."""
+    from ibkr_core.features.compliance.screening import live_shariah_screen
+    from ibkr_core.features.trading.trader import Trader
+
+    if not body.symbols:
+        raise HTTPException(status_code=400, detail="No symbols provided")
+
+    worker = _resolve_worker(request, body.account_id)
+    if worker is None or not worker.ib.isConnected():
+        raise HTTPException(status_code=503, detail="IBKR worker not connected")
+
+    positions = await asyncio.to_thread(worker.get_positions)
+    pos_map = {p["symbol"]: float(p.get("quantity", 0)) for p in positions if p.get("symbol")}
+
+    trader = Trader(worker, account_id=body.account_id)
+    sold, skipped = [], []
+
+    for symbol in body.symbols:
+        qty = pos_map.get(symbol, 0)
+        if qty <= 0:
+            skipped.append({"symbol": symbol, "error": "no position"})
+            continue
+        try:
+            compliance = await asyncio.to_thread(live_shariah_screen, symbol)
+            trade_req = TradeCreate(symbol=symbol, quantity=qty, side="SELL")
+            await trader.execute_trade(
+                trade_req,
+                exchange=compliance.exchange or "NMS",
+                pre_screened=compliance,
+            )
+            logger.info("BATCH SELL: sold %s qty=%.4f", symbol, qty)
+            sold.append(symbol)
+        except Exception as exc:
+            logger.error("BATCH SELL: failed %s: %s", symbol, exc)
+            skipped.append({"symbol": symbol, "error": str(exc)})
+
+    return {"sold": sold, "skipped": skipped, "total": len(sold)}
