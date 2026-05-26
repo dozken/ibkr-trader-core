@@ -2,7 +2,7 @@ from datetime import date
 from unittest.mock import patch
 
 from ibkr_core.core import market_hours
-from ibkr_core.core.market_hours import is_trading_day, is_market_open
+from ibkr_core.core.market_hours import is_trading_day, is_market_open, is_holiday
 
 
 def test_us_memorial_day_2026_not_trading_day():
@@ -34,6 +34,23 @@ def test_unknown_exchange_falls_back_to_weekday():
     # No calendar mapping → weekday-only check
     assert is_trading_day("UNKNOWN_XX", date(2026, 5, 25)) is True  # Mon
     assert is_trading_day("UNKNOWN_XX", date(2026, 5, 23)) is False  # Sat
+
+
+def test_is_holiday_memorial_day():
+    assert is_holiday("NMS", date(2026, 5, 25)) is True
+
+
+def test_is_holiday_false_on_weekend():
+    # Saturday — weekend, not flagged as holiday
+    assert is_holiday("NMS", date(2026, 5, 23)) is False
+
+
+def test_is_holiday_false_on_regular_session():
+    assert is_holiday("NMS", date(2026, 5, 26)) is False
+
+
+def test_is_holiday_false_for_unmapped_exchange():
+    assert is_holiday("UNKNOWN_XX", date(2026, 5, 25)) is False
 
 
 def test_is_market_open_blocks_us_holiday():

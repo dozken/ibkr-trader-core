@@ -266,6 +266,34 @@ def any_market_open(exchange_codes: Optional[list] = None) -> bool:
     return any(is_market_open(code) for code in exchange_codes)
 
 
+def is_holiday(exchange_code: str, day=None) -> bool:
+    """True if `day` is an exchange-calendar holiday: weekday rule would say open, but the
+    calendar says closed. Excludes weekends. Requires a mapped calendar; otherwise False."""
+    tz_name, _, _, _ = get_exchange_config(exchange_code)
+    if day is None:
+        day = datetime.now(ZoneInfo(tz_name)).date()
+
+    # Weekend per exchange's weekly schedule
+    if exchange_code in SUNDAY_THURSDAY_EXCHANGES:
+        is_weekend = day.weekday() not in (0, 1, 2, 3, 6)
+    else:
+        is_weekend = day.weekday() >= 5
+    if is_weekend:
+        return False
+
+    cal_code = _EXCHANGE_TO_CALENDAR.get(exchange_code)
+    if cal_code is None:
+        return False
+    cal = _get_calendar(cal_code)
+    if cal is None:
+        return False
+    try:
+        import pandas as pd
+        return not bool(cal.is_session(pd.Timestamp(day)))
+    except Exception:
+        return False
+
+
 def market_status(exchange_code: str = "NMS") -> dict:
     tz_name, sessions, ibkr_exchange, currency = get_exchange_config(exchange_code)
     tz = ZoneInfo(tz_name)
@@ -278,5 +306,6 @@ def market_status(exchange_code: str = "NMS") -> dict:
         "timezone": tz_name,
         "local_time": now.strftime("%a %H:%M"),
         "is_open": open_,
+        "is_holiday": is_holiday(exchange_code, now.date()),
         "sessions": [f"{o.strftime('%H:%M')}-{c.strftime('%H:%M')}" for o, c in sessions],
     }
