@@ -94,7 +94,7 @@ manager = ConnectionManager()
 
 
 async def price_push_loop(worker, health: dict) -> None:
-    """Subscribe to IBKR ticks for all held positions; broadcast to WS clients."""
+    """Subscribe to IBKR ticks for positions + watchlist; broadcast to WS clients."""
     health["price_push_loop"] = {"status": "running", "last_run": None}
     subscribed: set = set()
 
@@ -102,8 +102,14 @@ async def price_push_loop(worker, health: dict) -> None:
         try:
             if worker.ib.isConnected():
                 current = {p["symbol"] for p in await asyncio.to_thread(worker.get_positions)}
+                try:
+                    from ibkr_core.features.settings.service import load_settings
+                    watchlist = set(load_settings().get("watchlist", []))
+                except Exception:
+                    watchlist = set()
+                target = current | watchlist
 
-                for sym in current - subscribed:
+                for sym in target - subscribed:
                     def make_cb(s: str):
                         def cb(update):
                             asyncio.create_task(manager.broadcast(TickerUpdate(data=update)))
@@ -111,7 +117,7 @@ async def price_push_loop(worker, health: dict) -> None:
                     await worker.subscribe_ticker(sym, make_cb(sym))
                     subscribed.add(sym)
 
-                for sym in subscribed - current:
+                for sym in subscribed - target:
                     worker.unsubscribe_ticker(sym)
                     subscribed.discard(sym)
 

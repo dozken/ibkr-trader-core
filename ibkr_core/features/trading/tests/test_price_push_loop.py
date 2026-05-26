@@ -39,11 +39,24 @@ class TestPricePushLoop(unittest.IsolatedAsyncioTestCase):
         worker = _make_worker(["AAPL", "MSFT"])
         manager = _make_manager()
 
-        with patch("ibkr_core.main.manager", manager):
+        with patch("ibkr_core.main.manager", manager), \
+             patch("ibkr_core.features.settings.service.load_settings", return_value={}):
             await self._run_one_tick(worker, manager)
 
         subscribed = {call.args[0] for call in worker.subscribe_ticker.call_args_list}
         self.assertEqual(subscribed, {"AAPL", "MSFT"})
+
+    async def test_subscribes_watchlist_symbols(self):
+        worker = _make_worker(["AAPL"])
+        manager = _make_manager()
+
+        with patch("ibkr_core.main.manager", manager), \
+             patch("ibkr_core.features.settings.service.load_settings",
+                   return_value={"watchlist": ["GOOG", "TSLA"]}):
+            await self._run_one_tick(worker, manager)
+
+        subscribed = {call.args[0] for call in worker.subscribe_ticker.call_args_list}
+        self.assertEqual(subscribed, {"AAPL", "GOOG", "TSLA"})
 
     async def test_does_not_resubscribe_existing_symbols(self):
         worker = _make_worker(["AAPL"])
@@ -85,7 +98,8 @@ class TestPricePushLoop(unittest.IsolatedAsyncioTestCase):
                 except asyncio.CancelledError:
                     pass
 
-        with patch("ibkr_core.main.manager", manager):
+        with patch("ibkr_core.main.manager", manager), \
+             patch("ibkr_core.features.settings.service.load_settings", return_value={}):
             await run_two_ticks()
 
         unsubscribed = {call.args[0] for call in worker.unsubscribe_ticker.call_args_list}

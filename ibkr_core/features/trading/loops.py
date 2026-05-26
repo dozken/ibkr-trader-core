@@ -14,28 +14,59 @@ _atr_cache: dict[str, tuple[float, float]] = {}
 _ATR_CACHE_TTL = 86400.0  # 24 hours in seconds
 
 
+def _compute_atr_stop(high: np.ndarray, low: np.ndarray, close: np.ndarray,
+                      multiplier: float = 2.5) -> float | None:
+    if len(close) < 15:
+        return None
+    prev_close = np.roll(close, 1)
+    tr = np.maximum(
+        high - low,
+        np.maximum(np.abs(high - prev_close[1:]), np.abs(low - prev_close[1:])),
+    )
+    atr = tr[-14:].mean()
+    return float(atr * multiplier / close[-1])
+
+
 def _atr_stop_pct(symbol: str, multiplier: float = 2.5) -> float | None:
-    """Returns stop distance as a fraction (e.g. 0.06 = 6%). Returns None on failure."""
+    """Fallback: fetch 30d bars from yfinance and compute ATR stop."""
     try:
         hist = yf.Ticker(symbol).history(period="30d", interval="1d", auto_adjust=True)
-        if len(hist) < 15:
+        if hist.empty:
             return None
-        high = hist["High"].values
-        low = hist["Low"].values
-        close = hist["Close"].values
-        prev_close = np.roll(close, 1)
-        tr = np.maximum(
-            high - low,
-            np.maximum(np.abs(high - prev_close[1:]), np.abs(low - prev_close[1:])),
-        )
-        atr = tr[-14:].mean()
-        return float(atr * multiplier / close[-1])
+        return _compute_atr_stop(hist["High"].values, hist["Low"].values,
+                                 hist["Close"].values, multiplier)
     except Exception:
         return None
 
 
-async def _get_atr_stop(symbol: str) -> float | None:
-    """Return cached ATR stop pct, refreshing if stale (>24 h)."""
+async def _ibkr_daily_bars(worker, symbol: str, days: int = 30):
+    """Fetch daily OHLC from IBKR. Returns (high, low, close) arrays or None."""
+    try:
+        from ib_insync import Stock
+        from ibkr_core.core.market_hours import get_exchange_config, infer_exchange_from_symbol
+        from ibkr_core.features.trading.worker import _ibkr_symbol
+        exchange_code = infer_exchange_from_symbol(symbol)
+        _, _, ibkr_exchange, currency = get_exchange_config(exchange_code)
+        contract = Stock(_ibkr_symbol(symbol), ibkr_exchange, currency)
+        await worker.ib.qualifyContractsAsync(contract)
+        bars = await worker.ib.reqHistoricalDataAsync(
+            contract, endDateTime='', durationStr=f'{days} D',
+            barSizeSetting='1 day', whatToShow='TRADES', useRTH=True,
+        )
+        if not bars:
+            return None
+        return (
+            np.array([b.high for b in bars]),
+            np.array([b.low for b in bars]),
+            np.array([b.close for b in bars]),
+        )
+    except Exception as e:
+        logger.debug("IBKR bars failed for %s: %s", symbol, e)
+        return None
+
+
+async def _get_atr_stop(symbol: str, worker=None) -> float | None:
+    """Return cached ATR stop pct, refreshing if stale (>24 h). Prefers IBKR over yfinance."""
     import time
 
     cached = _atr_cache.get(symbol)
@@ -44,10 +75,16 @@ async def _get_atr_stop(symbol: str) -> float | None:
         if time.time() - ts < _ATR_CACHE_TTL:
             return val
 
-    result = await asyncio.to_thread(_atr_stop_pct, symbol)
+    result = None
+    if worker and worker.ib.isConnected():
+        bars = await _ibkr_daily_bars(worker, symbol)
+        if bars:
+            result = _compute_atr_stop(*bars)
+    if result is None:
+        result = await asyncio.to_thread(_atr_stop_pct, symbol)
+
     if result is not None:
-        import time as _time
-        _atr_cache[symbol] = (result, _time.time())
+        _atr_cache[symbol] = (result, time.time())
     return result
 
 
@@ -77,31 +114,41 @@ def _correlation_with_portfolio(symbol: str, positions: list) -> float:
         return 0.0
 
 
+def _compute_pullback(closes: np.ndarray) -> tuple[bool, str]:
+    if len(closes) < 20:
+        return True, ""
+    price = float(closes[-1])
+    high_20d = float(closes[-20:].max())
+    sma20 = float(closes[-20:].mean())
+    if price < sma20:
+        return False, f"price ${price:.2f} below SMA20 ${sma20:.2f} — daily downtrend"
+    pullback_pct = (high_20d - price) / high_20d if high_20d > 0 else 0.0
+    if pullback_pct < 0.01:
+        return False, f"price near 20d high (only {pullback_pct:.1%} dip) — wait for pullback"
+    if pullback_pct > 0.05:
+        return False, f"pullback {pullback_pct:.1%} too deep — potential breakdown"
+    return True, f"healthy pullback {pullback_pct:.1%} from 20d high, above SMA20"
+
+
 def _check_pullback_entry(symbol: str) -> tuple[bool, str]:
-    """
-    Returns (ok, reason). ok=True = good entry timing.
-    Requires price pulled back 1-5% from 20-day high while still above SMA20.
-    Avoids buying at local peaks or in downtrends.
-    """
+    """Fallback: yfinance-based pullback check."""
     try:
         hist = yf.Ticker(symbol).history(period="30d", interval="1d", auto_adjust=True)
-        if len(hist) < 20:
-            return True, ""  # insufficient history — allow
-        closes = hist["Close"].values
-        price = float(closes[-1])
-        high_20d = float(closes[-20:].max())
-        sma20 = float(closes[-20:].mean())
-        if price < sma20:
-            return False, f"price ${price:.2f} below SMA20 ${sma20:.2f} — daily downtrend"
-        pullback_pct = (high_20d - price) / high_20d if high_20d > 0 else 0.0
-        if pullback_pct < 0.01:
-            return False, f"price near 20d high (only {pullback_pct:.1%} dip) — wait for pullback"
-        if pullback_pct > 0.05:
-            return False, f"pullback {pullback_pct:.1%} too deep — potential breakdown"
-        return True, f"healthy pullback {pullback_pct:.1%} from 20d high, above SMA20"
+        if hist.empty:
+            return True, ""
+        return _compute_pullback(hist["Close"].values)
     except Exception as e:
         logger.debug("Pullback check failed for %s: %s", symbol, e)
-        return True, ""  # on error, allow through
+        return True, ""
+
+
+async def _check_pullback_async(symbol: str, worker=None) -> tuple[bool, str]:
+    """Pullback entry check. Prefers IBKR historical bars, falls back to yfinance."""
+    if worker and worker.ib.isConnected():
+        bars = await _ibkr_daily_bars(worker, symbol)
+        if bars:
+            return _compute_pullback(bars[2])
+    return await asyncio.to_thread(_check_pullback_entry, symbol)
 
 from ibkr_core.core.market_hours import market_status, is_in_trading_window
 from ibkr_core.core.health_utils import set_loop_error, clear_loop_error
@@ -425,7 +472,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict, account_id
 
                 # Determine effective stop distance (ATR-based or fixed)
                 if use_atr_stops:
-                    atr_stop = await _get_atr_stop(symbol)
+                    atr_stop = await _get_atr_stop(symbol, worker=worker)
                     stop_loss_pct = atr_stop if atr_stop is not None else fixed_stop_loss_pct
                     if atr_stop is None:
                         logger.debug("ATR fetch failed for %s — falling back to fixed stop %.1f%%", symbol, fixed_stop_loss_pct * 100)
@@ -665,7 +712,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict, account_id
                             logger.info("Re-entry cooldown active for %s — skipping BUY.", cr.symbol)
                             continue
                         if require_pullback:
-                            ok, reason = await asyncio.to_thread(_check_pullback_entry, cr.symbol)
+                            ok, reason = await _check_pullback_async(cr.symbol, worker=worker)
                             if not ok:
                                 logger.info("Pullback filter: skip %s — %s", cr.symbol, reason)
                                 continue
