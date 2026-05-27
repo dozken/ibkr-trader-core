@@ -434,6 +434,18 @@ class IBKRWorker:
                     if val is not None and not math.isnan(val) and val > 0:
                         return val
                 await asyncio.sleep(1)
+            # Fallback: yfinance when IBKR market data unavailable
+            try:
+                import yfinance as yf
+                tick = yf.Ticker(symbol)
+                hist = tick.history(period="1d")
+                if not hist.empty:
+                    val = float(hist["Close"].iloc[-1])
+                    if val > 0:
+                        logger.info("get_last_price(%s): yfinance fallback → %.2f", symbol, val)
+                        return val
+            except Exception:
+                pass
             return 0.0
 
     async def get_market_data(self, symbol: str, exchange: str = "NMS") -> Dict[str, float]:
@@ -627,7 +639,7 @@ class IBKRWorker:
         _, _, ibkr_exchange, currency = get_exchange_config(exchange)
         contract = Stock(_ibkr_symbol(trade.symbol), ibkr_exchange, currency)
         await self.ib.qualifyContractsAsync(contract)
-        quantity = float(_math.floor(trade.quantity))
+        quantity = float(trade.quantity) if trade.side == "SELL" else float(_math.floor(trade.quantity))
         settings = _ls()
         if settings.get("use_limit_orders", False):
             price = await self.get_last_price(trade.symbol, exchange)

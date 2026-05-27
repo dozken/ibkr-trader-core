@@ -403,13 +403,23 @@ class Trader:
             settings = _load_settings()
             price = await self.worker.get_last_price(trade.symbol, exchange)
 
-            # Fail-closed: if price is missing or zero, abort to prevent NaN/division errors
+            # Fail-closed: if price is missing or zero, abort BUYs.
+            # SELLs can proceed with avg_cost fallback (market orders don't need price).
             if price <= 0:
-                logger.error(f"Trade aborted for {trade.symbol}: Invalid or missing price ({price})")
-                machine.transition_to(TradeState.IBKR_ERROR)
-                trade.state = machine.state
-                self._persist_trade_history(db, trade)
-                return trade
+                if trade.side == "SELL":
+                    positions = self.worker.get_positions()
+                    for p in positions:
+                        if p.get("symbol") == trade.symbol:
+                            price = float(p.get("avg_cost", 0))
+                            break
+                    if price > 0:
+                        logger.info("Price fallback for SELL %s: using avg_cost %.2f", trade.symbol, price)
+                if price <= 0:
+                    logger.error(f"Trade aborted for {trade.symbol}: Invalid or missing price ({price})")
+                    machine.transition_to(TradeState.IBKR_ERROR)
+                    trade.state = machine.state
+                    self._persist_trade_history(db, trade)
+                    return trade
 
             trade.signal_price = price
 
@@ -660,6 +670,16 @@ class Trader:
                 .first()
             )
             if not oldest_submitted:
+                # Position exists in IBKR but no bot BUY record at all —
+                # externally acquired, settlement long passed.
+                any_buy = (
+                    db.query(TradeHistory)
+                    .filter(TradeHistory.symbol == symbol, TradeHistory.side == "BUY")
+                    .first()
+                )
+                if any_buy is None:
+                    logger.info("_is_possession_confirmed: %s held in IBKR with no bot BUY record — external acquisition", symbol)
+                    return True
                 return False
 
             buy_time = oldest_submitted.updated_at

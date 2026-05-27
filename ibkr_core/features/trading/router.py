@@ -478,13 +478,17 @@ async def batch_sell(body: BatchSellRequest, request: Request):
         try:
             compliance = await asyncio.to_thread(live_shariah_screen, symbol)
             trade_req = TradeCreate(symbol=symbol, quantity=qty, side="SELL")
-            await trader.execute_trade(
+            result = await trader.execute_trade(
                 trade_req,
                 exchange=compliance.exchange or "NMS",
                 pre_screened=compliance,
             )
-            logger.info("BATCH SELL: sold %s qty=%.4f", symbol, qty)
-            sold.append(symbol)
+            if result.state in (TradeState.SUBMITTED, TradeState.FILLED, TradeState.SETTLED):
+                logger.info("BATCH SELL: sold %s qty=%.4f", symbol, qty)
+                sold.append(symbol)
+            else:
+                logger.warning("BATCH SELL: %s ended in state %s", symbol, result.state)
+                skipped.append({"symbol": symbol, "error": f"trade state: {result.state}"})
         except Exception as exc:
             logger.error("BATCH SELL: failed %s: %s", symbol, exc)
             skipped.append({"symbol": symbol, "error": str(exc)})
