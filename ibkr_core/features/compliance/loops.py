@@ -38,7 +38,8 @@ async def _check_vix_tier_change(current_vix: float, health: dict, channels: lis
 
 from ibkr_core.core.monitoring import PORTFOLIO_COMPLIANCE_PCT
 
-async def compliance_audit_loop(worker, manager: ConnectionManager, health: dict) -> None:
+async def compliance_audit_loop(worker, manager: ConnectionManager, health: dict,
+                                account_manager=None) -> None:
     logger.info("Starting Compliance Audit Loop...")
     health["compliance_audit_loop"]["status"] = "running"
     trader = Trader(worker)
@@ -71,6 +72,17 @@ async def compliance_audit_loop(worker, manager: ConnectionManager, health: dict
 
             loop = asyncio.get_running_loop()
             positions = await loop.run_in_executor(None, worker.get_positions)
+            # Merge positions from all accounts to audit every held symbol
+            if account_manager:
+                seen = {p["symbol"] for p in positions}
+                for aid in account_manager.list_account_ids():
+                    w = account_manager.get_worker_by_id(aid)
+                    if w and w.ib.isConnected() and w is not worker:
+                        extra = await loop.run_in_executor(None, w.get_positions)
+                        for p in extra:
+                            if p["symbol"] not in seen:
+                                positions.append(p)
+                                seen.add(p["symbol"])
 
             if not positions:
                 logger.info("Compliance audit: no positions held.")

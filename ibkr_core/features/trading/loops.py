@@ -211,7 +211,7 @@ from ibkr_core.core.state import TradeState
 logger = logging.getLogger(__name__)
 
 
-def _exceeds_daily_loss_limit(worker, settings: dict) -> bool:
+def _exceeds_daily_loss_limit(worker, settings: dict, account_id: Optional[int] = None) -> bool:
     """Returns True if today's realised + unrealised loss exceeds max_daily_loss_pct of open NLV."""
     max_loss_pct = float(settings.get("max_daily_loss_pct", 5.0))
     if max_loss_pct <= 0:
@@ -221,12 +221,14 @@ def _exceeds_daily_loss_limit(worker, settings: dict) -> bool:
         from ibkr_core.core.models import PortfolioSnapshot
         today_start = datetime.combine(date.today(), dtime(0, 0))
         with SessionLocal() as db:
-            snap = (
-                db.query(PortfolioSnapshot)
-                .filter(PortfolioSnapshot.timestamp >= today_start)
-                .order_by(PortfolioSnapshot.timestamp.asc())
-                .first()
+            q = db.query(PortfolioSnapshot).filter(
+                PortfolioSnapshot.timestamp >= today_start,
             )
+            if account_id is not None:
+                q = q.filter(PortfolioSnapshot.account_id == account_id)
+            else:
+                q = q.filter(PortfolioSnapshot.account_id.is_(None))
+            snap = q.order_by(PortfolioSnapshot.timestamp.asc()).first()
         if snap is None:
             return False
         current_nlv = worker.get_net_liquidation()
@@ -234,8 +236,8 @@ def _exceeds_daily_loss_limit(worker, settings: dict) -> bool:
         max_loss = snap.total_value * (max_loss_pct / 100)
         if daily_pnl < -max_loss:
             logger.error(
-                "Daily loss limit hit: P&L $%.2f < -$%.2f. Pausing trading.",
-                daily_pnl, max_loss,
+                "Daily loss limit hit (account %s): P&L $%.2f < -$%.2f. Pausing trading.",
+                account_id, daily_pnl, max_loss,
             )
             return True
     except Exception as e:
@@ -352,38 +354,61 @@ async def _dispatch_signal(
             source=source,
             account_id=account_id,
         )))
+        # Resolve account label for alert
+        acct_label = ""
+        if account_id is not None:
+            try:
+                from ibkr_core.core.database import SessionLocal as _SL
+                from ibkr_core.core.models import Account as _Acc
+                with _SL() as _db:
+                    _row = _db.query(_Acc).filter(_Acc.id == account_id).first()
+                    acct_label = _row.label if _row else f"Account {account_id}"
+            except Exception:
+                acct_label = f"Account {account_id}"
+
         emoji = "🟢" if signal.action == "BUY" else "🔴"
+        acct_line = f"\n🏦 <b>{acct_label}</b>" if acct_label else ""
         body = (
             f"{emoji} <b>{signal.action} {signal.symbol}</b>\n"
             f"Confidence: {signal.confidence}%\n"
             f"<i>{signal.reasoning}</i>"
+            f"{acct_line}"
         )
         markup = None
         if signal.action == "BUY":
+            cb = f"approve:{signal.symbol}:{account_id}" if account_id else f"approve:{signal.symbol}"
             markup = {"inline_keyboard": [[
-                {"text": f"✅ Approve BUY {signal.symbol}", "callback_data": f"approve:{signal.symbol}"}
+                {"text": f"✅ Approve BUY {signal.symbol}", "callback_data": cb}
             ]]}
         today = date.today()
-        dedup_key = (signal.symbol, signal.action)
+        dedup_key = (signal.symbol, signal.action, account_id)
         if _signal_alerted.get(dedup_key) == today:
-            logger.debug("Signal alert suppressed (already sent today): %s %s", signal.action, signal.symbol)
+            logger.debug("Signal alert suppressed (already sent today): %s %s acct=%s", signal.action, signal.symbol, account_id)
             return
         _signal_alerted[dedup_key] = today
         await send_alert(f"{signal.action} Signal: {signal.symbol}", body, channels,
                          reply_markup=markup)
 
 
-async def main_loop(worker, manager: ConnectionManager, health: dict, account_id: Optional[int] = None) -> None:
-    logger.info("Starting Ironclad Main Loop...")
-    health["main_loop"]["status"] = "running"
+async def main_loop(worker, manager: ConnectionManager, health: dict,
+                    account_id: Optional[int] = None, manage_connection: bool = True) -> None:
+    loop_key = f"main_loop_{account_id}" if account_id else "main_loop"
+    health.setdefault(loop_key, {"last_run": None, "status": "starting"})
+    logger.info("Starting Main Loop for account %s...", account_id or "primary")
+    health[loop_key]["status"] = "running"
     trader = Trader(worker)
-    connected = False
-    while not connected:
-        worker.disconnect()  # reset stale IB state before each attempt
-        connected = await worker.connect()
-        if not connected:
-            logger.warning("IBKR not reachable, retrying in 30s...")
-            await asyncio.sleep(30)
+    if manage_connection:
+        connected = False
+        while not connected:
+            worker.disconnect()
+            connected = await worker.connect()
+            if not connected:
+                logger.warning("IBKR not reachable, retrying in 30s...")
+                await asyncio.sleep(30)
+    else:
+        while not worker.ib.isConnected():
+            logger.info("main_loop(%s): waiting for connection...", account_id)
+            await asyncio.sleep(10)
     tick = 0
     last_symbol: Optional[str] = None
     while True:
@@ -395,19 +420,24 @@ async def main_loop(worker, manager: ConnectionManager, health: dict, account_id
                     tick, last_symbol,
                     extra={"heartbeat": "main_loop", "tick": tick},
                 )
-            health["main_loop"]["last_run"] = datetime.now().isoformat()
-            health["main_loop"]["status"] = "running"
+            health[loop_key]["last_run"] = datetime.now().isoformat()
+            health[loop_key]["status"] = "running"
 
             # Reconnect if IBKR dropped
             if not worker.ib.isConnected():
-                logger.warning("main_loop: IBKR disconnected — reconnecting...")
-                worker.disconnect()
-                if not await worker.connect():
-                    logger.warning("main_loop: reconnect failed, retrying in 30s...")
-                    await asyncio.sleep(30)
+                if manage_connection:
+                    logger.warning("main_loop(%s): IBKR disconnected — reconnecting...", account_id)
+                    worker.disconnect()
+                    if not await worker.connect():
+                        logger.warning("main_loop(%s): reconnect failed, retrying in 30s...", account_id)
+                        await asyncio.sleep(30)
+                        continue
+                else:
+                    logger.warning("main_loop(%s): IBKR disconnected — waiting...", account_id)
+                    await asyncio.sleep(10)
                     continue
 
-            settings = load_settings()
+            settings = load_settings(account_id)
 
             # --- Risk guards (fail-closed) ---
             if health.get("drawdown_triggered"):
@@ -415,7 +445,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict, account_id
                 await asyncio.sleep(300)
                 continue
 
-            if _exceeds_daily_loss_limit(worker, settings):
+            if _exceeds_daily_loss_limit(worker, settings, account_id):
                 await asyncio.sleep(3600)
                 continue
 
@@ -751,8 +781,8 @@ async def main_loop(worker, manager: ConnectionManager, health: dict, account_id
             break
         except Exception as e:
             logger.error(f"main_loop cycle error: {e}", exc_info=True)
-            set_loop_error(health["main_loop"], 60, e)
-            channels = load_settings().get("alert_channels", [])
+            set_loop_error(health[loop_key], 60, e)
+            channels = load_settings(account_id).get("alert_channels", [])
             await send_alert("Main Loop Error", f"Cycle error: {e}\nWill auto-retry in 60s.", channels)
             await asyncio.sleep(60)
 
@@ -778,7 +808,7 @@ async def cash_sweep_loop(worker, manager: ConnectionManager, health: dict, acco
                 continue
             health["cash_sweep_loop"]["status"] = "running"
             health["cash_sweep_loop"]["last_run"] = datetime.now().isoformat()
-            settings = load_settings()
+            settings = load_settings(account_id)
             sleep_s = int(settings.get("cash_sweep_interval_min", 30)) * 60
 
             if not settings.get("cash_sweep_enabled", True):
@@ -791,7 +821,7 @@ async def cash_sweep_loop(worker, manager: ConnectionManager, health: dict, acco
                 await asyncio.sleep(sleep_s)
                 continue
 
-            if _exceeds_daily_loss_limit(worker, settings):
+            if _exceeds_daily_loss_limit(worker, settings, account_id):
                 await asyncio.sleep(sleep_s)
                 continue
 
@@ -1110,7 +1140,7 @@ async def discovery_loop(worker, manager: ConnectionManager, health: dict, accou
 
     while True:
         try:
-            settings = load_settings()
+            settings = load_settings(account_id)
             if not settings.get("enable_discovery_auto", False):
                 await asyncio.sleep(3600)
                 continue
@@ -1120,7 +1150,7 @@ async def discovery_loop(worker, manager: ConnectionManager, health: dict, accou
                 await asyncio.sleep(3600)
                 continue
 
-            if _exceeds_daily_loss_limit(worker, settings):
+            if _exceeds_daily_loss_limit(worker, settings, account_id):
                 await asyncio.sleep(3600)
                 continue
 
@@ -1179,7 +1209,7 @@ async def position_rerating_loop(worker, manager: ConnectionManager, health: dic
 
     while True:
         try:
-            settings = load_settings()
+            settings = load_settings(account_id)
             if not worker.ib.isConnected():
                 await asyncio.sleep(3600)
                 continue

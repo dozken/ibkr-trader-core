@@ -21,6 +21,16 @@ from ibkr_core.features.settings.service import load_settings
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
+
+def _resolve_worker(request: Request, account_id: Optional[int] = None):
+    if account_id is not None:
+        mgr = getattr(request.app.state, "account_manager", None)
+        if mgr:
+            w = mgr.get_worker_by_id(account_id)
+            if w:
+                return w
+    return getattr(request.app.state, "worker", None)
+
 class SimulationRequest(BaseModel):
     symbol: str
     quantity: float
@@ -204,12 +214,11 @@ async def get_rebalance_preview(request: Request) -> List[TradeCreate]:
 
 @router.get("/value", response_model=PortfolioValue)
 def get_portfolio_value(request: Request, account_id: Optional[int] = None) -> PortfolioValue:
-    worker = getattr(request.app.state, "worker", None)
-    
-    # Detect account type via port (matches database separation logic)
-    live_ports = {"7496", "4001"}
-    port = os.environ.get("IBKR_PORT", "7497")
-    account_type = "LIVE" if port in live_ports else "PAPER"
+    worker = _resolve_worker(request, account_id)
+
+    live_ports = {7496, 4001, 4003}
+    worker_port = worker.port if worker else int(os.environ.get("IBKR_PORT", "7497"))
+    account_type = "LIVE" if worker_port in live_ports else "PAPER"
     
     try:
         if worker and worker.ib.isConnected():
@@ -230,7 +239,7 @@ def get_market_status():
 
 @router.get("/positions", response_model=List[Position])
 def get_positions(request: Request, account_id: Optional[int] = None) -> List[Position]:
-    worker = getattr(request.app.state, "worker", None)
+    worker = _resolve_worker(request, account_id)
     try:
         if worker and worker.ib.isConnected():
             return [Position(**p) for p in worker.get_positions()]
@@ -490,7 +499,7 @@ def get_pnl(request: Request, db: Session = Depends(get_db),
             account_id: Optional[int] = None) -> PnLSummary:
     # 1. Fetch live positions from IBKR (graceful fallback on disconnect)
     live_positions: List[Position] = []
-    worker = getattr(request.app.state, "worker", None)
+    worker = _resolve_worker(request, account_id)
     try:
         if worker and worker.ib.isConnected():
             live_positions = [Position(**p) for p in worker.get_positions()]
@@ -666,7 +675,7 @@ def get_pending_purification(request: Request, db: Session = Depends(get_db),
     Returns pending Tazkiyah (purification) amounts per held position.
     Computed as: past-12m dividends × impure_revenue_pct − already recorded donations.
     """
-    worker = getattr(request.app.state, "worker", None)
+    worker = _resolve_worker(request, account_id)
     if not worker or not worker.ib.isConnected():
         return []
 
@@ -747,11 +756,11 @@ class PortfolioSummaryResponse(BaseModel):
 @router.get("/summary", response_model=PortfolioSummaryResponse)
 def get_portfolio_summary(request: Request, db: Session = Depends(get_db),
                           account_id: Optional[int] = None) -> PortfolioSummaryResponse:
-    live_ports = {"7496", "4001"}
-    port = os.environ.get("IBKR_PORT", "7497")
-    account_type: Literal["PAPER", "LIVE"] = "LIVE" if port in live_ports else "PAPER"
+    worker = _resolve_worker(request, account_id)
 
-    worker = getattr(request.app.state, "worker", None)
+    live_ports = {7496, 4001, 4003}
+    worker_port = worker.port if worker else int(os.environ.get("IBKR_PORT", "7497"))
+    account_type: Literal["PAPER", "LIVE"] = "LIVE" if worker_port in live_ports else "PAPER"
     connected = False
     available_funds = 0.0
     positions: list = []

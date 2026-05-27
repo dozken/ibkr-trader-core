@@ -4,7 +4,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel
 
-SETTINGS_DIR = os.path.join(os.path.dirname(__file__), "../../../data")
+SETTINGS_DIR = os.environ.get("SETTINGS_DIR", os.path.join(os.path.dirname(__file__), "../../../data"))
 # Legacy single-file path — kept for callers that haven't migrated
 SETTINGS_FILE = os.path.join(SETTINGS_DIR, "settings.json")
 

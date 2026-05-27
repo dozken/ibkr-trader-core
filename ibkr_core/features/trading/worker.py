@@ -23,7 +23,7 @@ def _ibkr_symbol(symbol: str) -> str:
 
 
 class IBKRWorker:
-    def __init__(self, host=None, port=None, client_id=1):
+    def __init__(self, host=None, port=None, client_id=1, ibkr_account_id=None, readonly=False):
         # TWS paper=7497, live=7496 | IB Gateway paper=4002, live=4001
         host = host or os.getenv("IBKR_HOST", "127.0.0.1")
         port = port or int(os.getenv("IBKR_PORT", "7497"))
@@ -32,6 +32,8 @@ class IBKRWorker:
         self.host = host
         self.port = port
         self.client_id = client_id
+        self.ibkr_account_id = ibkr_account_id
+        self.readonly = readonly
         # Fix #11: track per-symbol pending-tickers callbacks to prevent leaks
         self._ticker_callbacks: Dict[str, Any] = {}
         # Fix #25: guard against concurrent reconnection attempts
@@ -49,26 +51,28 @@ class IBKRWorker:
             await asyncio.sleep(0.1 - elapsed)
         self._last_request_time = asyncio.get_event_loop().time()
 
-    async def connect(self, timeout=10):
+    async def connect(self, timeout=30):
         """
         Establishes a connection to IBKR TWS or Gateway.
         Ref: ARCHITECTURE.md Track C
         """
         try:
-            # Ensure clean state before connect — prevents stale subscriptions
-            # causing Error 322 "Max account summary requests exceeded" on reconnect.
             if self.ib.isConnected():
                 try:
                     self.ib.disconnect()
                 except Exception:
                     pass
 
-            await asyncio.wait_for(
-                self.ib.connectAsync(self.host, self.port, clientId=self.client_id),
-                timeout=timeout
-            )
-            logger.info(f"Connected to IBKR at {self.host}:{self.port}")
-            # Remove before adding to prevent accumulation across reconnects
+            if self.readonly:
+                await self._connect_readonly(timeout)
+            else:
+                await asyncio.wait_for(
+                    self.ib.connectAsync(self.host, self.port, clientId=self.client_id),
+                    timeout=timeout
+                )
+
+            logger.info(f"Connected to IBKR at {self.host}:{self.port}"
+                        f"{' (readonly)' if self.readonly else ''}")
             self.ib.orderStatusEvent -= self._on_order_status
             self.ib.execDetailsEvent -= self._on_exec_details
             self.ib.disconnectedEvent -= self._on_disconnect
@@ -77,19 +81,49 @@ class IBKRWorker:
             self.ib.execDetailsEvent += self._on_exec_details
             self.ib.disconnectedEvent += self._on_disconnect
             self.ib.errorEvent += self._on_error
-            # Request delayed market data for paper accounts (avoids Error 10089)
-            _LIVE_PORTS = {7496, 4001}
+            _LIVE_PORTS = {7496, 4001, 4003}
             if self.port not in _LIVE_PORTS:
-                self.ib.reqMarketDataType(3)  # 3 = delayed, 4 = delayed frozen
+                self.ib.reqMarketDataType(3)
             return True
         except asyncio.CancelledError:
-            # CancelledError is BaseException in Python 3.8+ — must catch explicitly.
-            # ib_insync raises it when the Gateway rejects or drops the handshake.
             logger.error("Failed to connect to IBKR: connection cancelled by Gateway")
             return False
         except Exception as e:
             logger.error(f"Failed to connect to IBKR: {e}")
             return False
+
+    async def _connect_readonly(self, timeout=30):
+        """
+        Connect for read-only accounts. The standard connectAsync fails because
+        reqExecutionsAsync times out on gateways with Read-Only API. We replicate
+        the connect sequence but skip that final step.
+        """
+        self.ib.wrapper.clientId = self.client_id
+        await self.ib.client.connectAsync(self.host, self.port, self.client_id, timeout)
+
+        accounts = self.ib.client.getAccounts()
+        account = accounts[0] if len(accounts) == 1 else ""
+
+        reqs = {}
+        reqs['positions'] = self.ib.reqPositionsAsync()
+        if account:
+            reqs['account updates'] = self.ib.reqAccountUpdatesAsync(account)
+        if len(accounts) <= self.ib.MaxSyncedSubAccounts:
+            for acc in accounts:
+                reqs[f'account updates for {acc}'] = \
+                    self.ib.reqAccountUpdatesMultiAsync(acc)
+
+        tasks = [asyncio.wait_for(req, timeout) for req in reqs.values()]
+        resps = await asyncio.gather(*tasks, return_exceptions=True)
+        for name, resp in zip(reqs, resps):
+            if isinstance(resp, (asyncio.TimeoutError, Exception)):
+                logger.debug(f"Readonly connect: {name} timed out (expected)")
+
+        if not self.ib.client.isReady():
+            raise ConnectionError("Socket broken during readonly connect")
+
+        self.ib._logger.info("Synchronization complete (readonly)")
+        self.ib.connectedEvent.emit()
 
     @staticmethod
     def _on_error(reqId, errorCode: int, errorString: str, contract) -> None:
@@ -299,23 +333,31 @@ class IBKRWorker:
 
     # ------------------------------------------------------------------
 
+    def _match_account(self, account: str) -> bool:
+        if not self.ibkr_account_id:
+            return True
+        return account == self.ibkr_account_id
+
     def get_available_funds(self) -> float:
         """
         Retrieves the available cash balance from the account.
         Ref: COMPLIANCE.md - Zero Leverage/Margin.
         """
-        # Fix #12: only use AvailableFunds; CashBalance includes unsettled T+2 proceeds
         for v in self.ib.accountValues():
-            if v.tag == 'AvailableFunds':
+            if v.tag == 'AvailableFunds' and self._match_account(v.account):
                 val = float(v.value)
                 return 0.0 if math.isnan(val) else val
         return 0.0
 
     def get_net_liquidation(self) -> float:
         for v in self.ib.accountValues():
-            if v.tag == 'NetLiquidation':
+            if v.tag == 'NetLiquidation' and self._match_account(v.account):
                 val = float(v.value)
                 return 0.0 if math.isnan(val) else val
+        # Readonly accounts: accountValues empty, approximate from positions
+        if self.readonly:
+            positions = self.get_positions()
+            return sum(float(p.get("market_value", 0)) for p in positions)
         return 0.0
 
     def get_open_orders(self) -> list:
@@ -481,22 +523,54 @@ class IBKRWorker:
     def get_positions(self) -> List[Dict]:
         """
         Retrieves current account positions with live market value and unrealized P&L.
-        Falls back to cost-basis estimate when IBKR portfolio data is unavailable.
+        Falls back to yfinance prices when IBKR portfolio data is unavailable (readonly).
         """
         portfolio_map: dict = {}
         for item in self.ib.portfolio():
-            portfolio_map[item.contract.symbol] = item
+            if self._match_account(item.account):
+                portfolio_map[item.contract.symbol] = item
+
+        raw = []
+        for p in self.ib.positions():
+            if not self._match_account(p.account):
+                continue
+            raw.append(p)
+
+        need_prices = not portfolio_map and raw
+        price_map: dict = {}
+        if need_prices:
+            try:
+                import yfinance as yf
+                symbols = [p.contract.symbol for p in raw]
+                tickers = yf.Tickers(" ".join(symbols))
+                for sym in symbols:
+                    try:
+                        info = tickers.tickers[sym].fast_info
+                        price_map[sym] = float(info.last_price)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
         positions = []
-        for p in self.ib.positions():
+        for p in raw:
             sym = p.contract.symbol
             item = portfolio_map.get(sym)
+            if item:
+                mkt_val = item.marketValue
+                pnl = item.unrealizedPNL
+            elif sym in price_map:
+                mkt_val = p.position * price_map[sym]
+                pnl = mkt_val - p.position * p.avgCost
+            else:
+                mkt_val = p.position * p.avgCost
+                pnl = 0.0
             positions.append({
                 "symbol": sym,
                 "quantity": p.position,
                 "avg_cost": p.avgCost,
-                "market_value": item.marketValue if item else p.position * p.avgCost,
-                "unrealized_pnl": item.unrealizedPNL if item else 0.0,
+                "market_value": mkt_val,
+                "unrealized_pnl": pnl,
             })
         return positions
 
