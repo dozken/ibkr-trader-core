@@ -8,7 +8,13 @@ from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from ibkr_core.features.compliance.schemas import ComplianceStatus
-from ibkr_core.features.compliance.screening import check_shariah_compliance, live_shariah_screen
+from ibkr_core.features.compliance.screening import (
+    check_shariah_compliance,
+    live_shariah_screen,
+    manual_verify,
+    manual_unverify,
+    list_manual_verifications,
+)
 from ibkr_core.features.compliance.service import persist_compliance
 from ibkr_core.features.compliance.data_fetcher import normalize_ticker, search_symbol
 from ibkr_core.core.database import get_db
@@ -40,6 +46,13 @@ class ManualScreenRequest(BaseModel):
     prohibited_income: float
     mkt_cap: float
     sector: str
+
+
+class ManualVerifyRequest(BaseModel):
+    symbol: str
+    source: str = "Zoya App"
+    note: str = ""
+    ttl_days: int | None = None
 
 
 class ScreenPositionsRequest(BaseModel):
@@ -160,3 +173,20 @@ def export_audit_csv(db: Session = Depends(get_db)) -> StreamingResponse:
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=shariah_audit_log.csv"},
     )
+
+
+@router.get("/manual-verifications")
+def get_manual_verifications() -> dict:
+    return list_manual_verifications()
+
+
+@router.post("/manual-verify")
+def verify_symbol(req: ManualVerifyRequest) -> dict:
+    entry = manual_verify(req.symbol, source=req.source, note=req.note, ttl_days=req.ttl_days)
+    return {"symbol": req.symbol.upper(), **entry}
+
+
+@router.delete("/manual-verify/{symbol}")
+def unverify_symbol(symbol: str) -> dict:
+    removed = manual_unverify(symbol)
+    return {"symbol": symbol.upper(), "removed": removed}

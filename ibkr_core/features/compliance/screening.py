@@ -1,8 +1,10 @@
 import asyncio
+import json
 import os
 import time
 import logging
-from datetime import date
+from datetime import date, timedelta
+from pathlib import Path
 from threading import Lock
 from dotenv import load_dotenv
 from ibkr_core.features.compliance.schemas import ComplianceStatus, SourceResult
@@ -21,10 +23,108 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 _STALENESS_DAYS = int(os.getenv("COMPLIANCE_STALENESS_DAYS", 90))
+_MANUAL_VERIFY_TTL_DAYS = int(os.getenv("MANUAL_VERIFY_TTL_DAYS", 90))
 
 _screen_cache: dict[str, tuple["ComplianceStatus", float]] = {}
 _cache_lock = Lock()
 _CACHE_TTL_SECONDS = 86400  # 24 hours
+
+_DATA_DIR = Path(os.getenv("DATA_DIR", "data"))
+_MANUAL_FILE = _DATA_DIR / "manual_compliance.json"
+
+
+def _load_manual_verifications() -> dict:
+    try:
+        if _MANUAL_FILE.exists():
+            return json.loads(_MANUAL_FILE.read_text())
+    except Exception as e:
+        logger.debug("Failed to load manual_compliance.json: %s", e)
+    return {}
+
+
+def _save_manual_verifications(data: dict) -> None:
+    _MANUAL_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _MANUAL_FILE.write_text(json.dumps(data, indent=2))
+
+
+def manual_verify(symbol: str, source: str = "Zoya App", note: str = "",
+                  ttl_days: int | None = None) -> dict:
+    """Mark a symbol as manually verified halal. Returns the entry."""
+    data = _load_manual_verifications()
+    ttl = ttl_days if ttl_days is not None else _MANUAL_VERIFY_TTL_DAYS
+    entry = {
+        "status": "COMPLIANT",
+        "source": source,
+        "note": note,
+        "verified_at": date.today().isoformat(),
+        "expires_at": (date.today() + timedelta(days=ttl)).isoformat(),
+    }
+    data[symbol.upper()] = entry
+    _save_manual_verifications(data)
+    _invalidate_cache(symbol)
+    return entry
+
+
+def manual_unverify(symbol: str) -> bool:
+    """Remove manual verification for a symbol."""
+    data = _load_manual_verifications()
+    if symbol.upper() in data:
+        del data[symbol.upper()]
+        _save_manual_verifications(data)
+        _invalidate_cache(symbol)
+        return True
+    return False
+
+
+def list_manual_verifications() -> dict:
+    """Return all manual verifications with expiry status."""
+    data = _load_manual_verifications()
+    today = date.today()
+    for sym, entry in data.items():
+        try:
+            exp = date.fromisoformat(entry["expires_at"])
+            entry["expired"] = today > exp
+            entry["days_remaining"] = (exp - today).days
+        except (KeyError, ValueError):
+            entry["expired"] = True
+            entry["days_remaining"] = 0
+    return data
+
+
+def _check_manual_verification(symbol: str) -> ComplianceStatus | None:
+    """Check if symbol has a valid (non-expired) manual verification."""
+    data = _load_manual_verifications()
+    sym = symbol.strip().upper().split(".")[0]
+    entry = data.get(sym)
+    if not entry:
+        return None
+    try:
+        expires = date.fromisoformat(entry["expires_at"])
+        if date.today() > expires:
+            logger.info("Manual verification expired for %s (was %s)", sym, entry["expires_at"])
+            return None
+    except (KeyError, ValueError):
+        return None
+    days_left = (expires - date.today()).days
+    return ComplianceStatus(
+        symbol=symbol, sector="Manual",
+        is_compliant=True, verdict="COMPLIANT",
+        debt_to_mkt_cap=0.0, cash_to_mkt_cap=0.0, impure_revenue_pct=0.0,
+        reason=None,
+        data_source=f"Manual ({entry.get('source', 'user')})",
+        sources_detail=[SourceResult(
+            source="Manual", verdict="COMPLIANT",
+            note=f"Verified via {entry.get('source', 'user')} on {entry['verified_at']}. "
+                 f"Expires {entry['expires_at']} ({days_left}d remaining). {entry.get('note', '')}".strip(),
+        )],
+    )
+
+
+def _invalidate_cache(symbol: str) -> None:
+    with _cache_lock:
+        for key in list(_screen_cache.keys()):
+            if symbol.upper() in key.upper():
+                del _screen_cache[key]
 
 _PROHIBITED_SECTORS = {
     "Conventional Finance", "Conventional Insurance", "Alcohol", "Tobacco",
@@ -113,6 +213,11 @@ def _live_shariah_screen_uncached(symbol: str, ratio_buffer_override: float | No
                 exchange=normalized.split(".", 1)[1] if "." in normalized else "NMS",
                 sources_detail=sources_detail,
             )
+
+        # ── Manual verification — user-confirmed halal with TTL ──────────────────
+        manual_result = _check_manual_verification(symbol)
+        if manual_result is not None:
+            return manual_result
 
         # ── Step 1: dedicated Shariah APIs (Zoya, Musaffa) ────────────────────────
         verdict = fetch_shariah_verdict(symbol)
