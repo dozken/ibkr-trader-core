@@ -17,6 +17,31 @@ MUSAFFA_API_KEY = os.getenv("MUSAFFA_API_KEY")
 AV_API_KEY      = os.getenv("ALPHA_VANTAGE_API_KEY", "demo")
 FMP_API_KEY     = os.getenv("FMP_API_KEY")
 
+# FX rate cache: {(from_ccy, to_ccy): (rate, fetched_at_epoch)}
+_FX_CACHE: Dict[tuple, tuple] = {}
+_FX_TTL_SECONDS = 3600  # 1 hour
+
+
+def _get_fx_rate(from_ccy: str, to_ccy: str) -> Optional[float]:
+    """
+    Yahoo Finance FX rate for {from_ccy}{to_ccy}=X (e.g. TWDUSD=X).
+    Returns rate to multiply a value-in-from_ccy by to convert to to_ccy.
+    """
+    if not from_ccy or not to_ccy or from_ccy == to_ccy:
+        return 1.0
+    key = (from_ccy.upper(), to_ccy.upper())
+    cached = _FX_CACHE.get(key)
+    if cached and (time.time() - cached[1]) < _FX_TTL_SECONDS:
+        return cached[0]
+    try:
+        rate = yf.Ticker(f"{key[0]}{key[1]}=X").fast_info.last_price
+        if isinstance(rate, (int, float)) and rate > 0:
+            _FX_CACHE[key] = (float(rate), time.time())
+            return float(rate)
+    except Exception as e:
+        logger.debug("FX fetch %s%s=X failed: %s", key[0], key[1], e)
+    return None
+
 # Maps exchange suffix → Yahoo Finance dot suffix
 _EXCHANGE_SUFFIX = {
     # Japan
@@ -413,6 +438,25 @@ def _fetch_yfinance(symbol: str) -> Optional[Dict[str, Any]]:
         debt     = float(info.get("totalDebt")    or 0)
         cash     = float(info.get("totalCash")    or 0)
         revenue  = float(info.get("totalRevenue") or 0)
+
+        # yfinance returns marketCap in trading currency but balance sheet
+        # (totalDebt/totalCash/totalRevenue) in financialCurrency. For ADRs
+        # of foreign companies (e.g. TSM: USD market cap, TWD financials)
+        # this inflates ratios by the FX factor. Convert to trading currency.
+        trade_ccy = (info.get("currency") or "").upper()
+        fin_ccy   = (info.get("financialCurrency") or "").upper()
+        if trade_ccy and fin_ccy and trade_ccy != fin_ccy:
+            fx = _get_fx_rate(fin_ccy, trade_ccy)
+            if fx and fx > 0:
+                debt    *= fx
+                cash    *= fx
+                revenue *= fx
+            else:
+                logger.warning(
+                    "%s: no FX %s→%s — ratios may be wrong, skipping",
+                    symbol, fin_ccy, trade_ccy,
+                )
+                return None
         # Yahoo Finance has no impure-income breakdown. Sector exclusion catches
         # prohibited industries; ratio screening uses 0 here (unknown, not zero).
         # Zoya/Musaffa paths (see fetch_shariah_verdict) provide accurate purification %.

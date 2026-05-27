@@ -176,6 +176,85 @@ class TestFetchFinancialData(unittest.TestCase):
         self.assertIn("AlphaVantage", result["sources"])
 
 
+class TestCurrencyConversion(unittest.TestCase):
+    """yfinance balance-sheet (financialCurrency) vs marketCap (trading currency)."""
+
+    def _ticker(self, info):
+        m = MagicMock()
+        m.info = info
+        fi = MagicMock()
+        fi.shares = None
+        fi.last_price = None
+        m.fast_info = fi
+        return m
+
+    @patch("ibkr_core.features.compliance.data_fetcher._get_fx_rate")
+    @patch("yfinance.Ticker")
+    def test_adr_converts_financials_to_trading_ccy(self, MockTicker, mock_fx):
+        # TSM-like: USD market cap, TWD balance sheet
+        MockTicker.return_value = self._ticker({
+            "quoteType": "EQUITY", "exchange": "NYQ",
+            "marketCap": 2_000_000_000_000,    # USD
+            "totalDebt": 1_000_000_000_000,    # TWD
+            "totalCash": 3_000_000_000_000,    # TWD
+            "totalRevenue": 4_000_000_000_000, # TWD
+            "currency": "USD", "financialCurrency": "TWD",
+            "sector": "Technology", "industry": "Semiconductors",
+        })
+        mock_fx.return_value = 0.032  # 1 TWD ≈ 0.032 USD
+        result = fetch_financial_data("TSM")
+        self.assertIsNotNone(result)
+        mock_fx.assert_called_once_with("TWD", "USD")
+        self.assertAlmostEqual(result["debt"],    32_000_000_000.0)
+        self.assertAlmostEqual(result["cash"],    96_000_000_000.0)
+        self.assertAlmostEqual(result["revenue"], 128_000_000_000.0)
+
+    @patch("ibkr_core.features.compliance.data_fetcher._get_fx_rate")
+    @patch("yfinance.Ticker")
+    def test_same_currency_no_fx_call(self, MockTicker, mock_fx):
+        MockTicker.return_value = self._ticker({
+            "quoteType": "EQUITY", "exchange": "NMS",
+            "marketCap": 1_000_000, "totalDebt": 100_000,
+            "totalCash": 50_000, "totalRevenue": 500_000,
+            "currency": "USD", "financialCurrency": "USD",
+            "sector": "Technology", "industry": "SW",
+        })
+        result = fetch_financial_data("AAPL")
+        self.assertEqual(result["debt"], 100_000)
+        mock_fx.assert_not_called()
+
+    @patch("ibkr_core.features.compliance.data_fetcher._get_fx_rate")
+    @patch("yfinance.Ticker")
+    def test_missing_currency_metadata_no_conversion(self, MockTicker, mock_fx):
+        MockTicker.return_value = self._ticker({
+            "quoteType": "EQUITY", "exchange": "NMS",
+            "marketCap": 1_000_000, "totalDebt": 100_000,
+            "totalCash": 50_000, "totalRevenue": 500_000,
+            "sector": "Technology", "industry": "SW",
+        })
+        result = fetch_financial_data("XYZ")
+        self.assertEqual(result["debt"], 100_000)
+        mock_fx.assert_not_called()
+
+    @patch("ibkr_core.features.compliance.data_fetcher._get_fx_rate")
+    @patch("yfinance.Ticker")
+    def test_fx_unavailable_returns_none(self, MockTicker, mock_fx):
+        """Fail closed: bad FX data is worse than no data — caller falls back to FMP."""
+        MockTicker.return_value = self._ticker({
+            "quoteType": "EQUITY", "exchange": "NYQ",
+            "marketCap": 2_000_000_000_000,
+            "totalDebt": 1_000_000_000_000, "totalCash": 3_000_000_000_000,
+            "totalRevenue": 4_000_000_000_000,
+            "currency": "USD", "financialCurrency": "TWD",
+            "sector": "Technology", "industry": "SW",
+        })
+        mock_fx.return_value = None
+        with patch("ibkr_core.features.compliance.data_fetcher._fetch_morningstar", return_value=None), \
+             patch("ibkr_core.features.compliance.data_fetcher._fetch_fmp_profile", return_value=None):
+            result = fetch_financial_data("TSM")
+        self.assertIsNone(result)
+
+
 class TestFetchShariahVerdict(unittest.TestCase):
     def test_returns_none_when_no_api_keys(self):
         import os
