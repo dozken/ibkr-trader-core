@@ -84,6 +84,7 @@ class IBKRWorker:
             _LIVE_PORTS = {7496, 4001, 4003}
             if self.port not in _LIVE_PORTS:
                 self.ib.reqMarketDataType(3)
+
             return True
         except asyncio.CancelledError:
             logger.error("Failed to connect to IBKR: connection cancelled by Gateway")
@@ -520,11 +521,23 @@ class IBKRWorker:
         if symbol in self._ticker_callbacks:
             self.ib.pendingTickersEvent -= self._ticker_callbacks.pop(symbol)
 
+    _positions_cache: Dict[str, tuple] = {}
+    _POSITIONS_CACHE_TTL = 30
+
     def get_positions(self) -> List[Dict]:
         """
         Retrieves current account positions with live market value and unrealized P&L.
         Falls back to yfinance prices when IBKR portfolio data is unavailable (readonly).
+        Results cached 30s to avoid repeated yfinance calls from concurrent endpoints.
         """
+        import time as _time
+        cache_key = self.ibkr_account_id or "_default"
+        cached = IBKRWorker._positions_cache.get(cache_key)
+        if cached:
+            result, ts = cached
+            if _time.time() - ts < self._POSITIONS_CACHE_TTL:
+                return result
+
         portfolio_map: dict = {}
         for item in self.ib.portfolio():
             if self._match_account(item.account):
@@ -542,13 +555,18 @@ class IBKRWorker:
             try:
                 import yfinance as yf
                 symbols = [p.contract.symbol for p in raw]
-                tickers = yf.Tickers(" ".join(symbols))
-                for sym in symbols:
-                    try:
-                        info = tickers.tickers[sym].fast_info
-                        price_map[sym] = float(info.last_price)
-                    except Exception:
-                        pass
+                df = yf.download(symbols, period="1d", progress=False, threads=True)
+                if not df.empty:
+                    close = df["Close"]
+                    if hasattr(close, "columns"):
+                        for sym in symbols:
+                            if sym in close.columns:
+                                val = close[sym].dropna()
+                                if not val.empty:
+                                    price_map[sym] = float(val.iloc[-1])
+                    else:
+                        if len(symbols) == 1 and not close.dropna().empty:
+                            price_map[symbols[0]] = float(close.dropna().iloc[-1])
             except Exception:
                 pass
 
@@ -573,6 +591,8 @@ class IBKRWorker:
                 "unrealized_pnl": pnl,
                 "exchange": p.contract.primaryExchange or p.contract.exchange or "",
             })
+
+        IBKRWorker._positions_cache[cache_key] = (positions, _time.time())
         return positions
 
     def get_dividends_batch(self, positions: List[Dict]) -> List[Dict]:
