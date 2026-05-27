@@ -571,6 +571,7 @@ class IBKRWorker:
                 "avg_cost": p.avgCost,
                 "market_value": mkt_val,
                 "unrealized_pnl": pnl,
+                "exchange": p.contract.primaryExchange or p.contract.exchange or "",
             })
         return positions
 

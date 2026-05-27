@@ -6,7 +6,14 @@ from datetime import date
 from threading import Lock
 from dotenv import load_dotenv
 from ibkr_core.features.compliance.schemas import ComplianceStatus, SourceResult
-from ibkr_core.features.compliance.data_fetcher import fetch_financial_data, fetch_shariah_verdict
+from ibkr_core.features.compliance.data_fetcher import (
+    fetch_financial_data,
+    fetch_shariah_verdict,
+    normalize_ticker,
+    GOLD_ETC_ALLOWLIST,
+    SHARIAH_ETF_ALLOWLIST,
+    ZOYA_API_KEY,
+)
 from ibkr_core.features.settings.service import load_settings as _load_settings
 
 logger = logging.getLogger(__name__)
@@ -74,6 +81,38 @@ def _live_shariah_screen_uncached(symbol: str, ratio_buffer_override: float | No
         if ratio_buffer_override is not None:
             ratio_buffer = max(ratio_buffer, ratio_buffer_override)
         extra_excluded_sectors: list[str] = settings.get("sector_exclusion", [])
+
+        # ── Static allowlists — short-circuit before any network call ─────────────
+        normalized = normalize_ticker(symbol)
+        sym_upper = symbol.strip().upper()
+        if normalized in GOLD_ETC_ALLOWLIST or sym_upper in GOLD_ETC_ALLOWLIST:
+            sources_detail.append(SourceResult(
+                source="Allowlist", verdict="COMPLIANT",
+                note="Physical gold ETC — fully allocated, no leverage, spot-settled. "
+                     "Halal per AAOIFI Shari'ah Standard No. 57 and OIC Fiqh Academy Resolution 153 (2006).",
+            ))
+            return ComplianceStatus(
+                symbol=symbol, sector="Commodity-Gold",
+                is_compliant=True, verdict="COMPLIANT",
+                debt_to_mkt_cap=0.0, cash_to_mkt_cap=0.0, impure_revenue_pct=0.0,
+                reason=None, data_source="Allowlist",
+                exchange=normalized.split(".", 1)[1] if "." in normalized else "Unknown",
+                sources_detail=sources_detail,
+            )
+        if normalized in SHARIAH_ETF_ALLOWLIST or sym_upper in SHARIAH_ETF_ALLOWLIST:
+            sources_detail.append(SourceResult(
+                source="Allowlist", verdict="COMPLIANT",
+                note="Shariah-certified ETF — fund mandates AAOIFI/MSCI Islamic screening. "
+                     "Verified against fund prospectus and Shariah board certification.",
+            ))
+            return ComplianceStatus(
+                symbol=symbol, sector="Shariah-ETF",
+                is_compliant=True, verdict="COMPLIANT",
+                debt_to_mkt_cap=0.0, cash_to_mkt_cap=0.0, impure_revenue_pct=0.0,
+                reason=None, data_source="Allowlist",
+                exchange=normalized.split(".", 1)[1] if "." in normalized else "NMS",
+                sources_detail=sources_detail,
+            )
 
         # ── Step 1: dedicated Shariah APIs (Zoya, Musaffa) ────────────────────────
         verdict = fetch_shariah_verdict(symbol)
@@ -163,32 +202,52 @@ def _live_shariah_screen_uncached(symbol: str, ratio_buffer_override: float | No
                 sources_detail=sources_detail,
             )
 
-        # ── If authoritative API verdict available, use it + add ratio note ───────
+        # ── AAOIFI ratio screening (our own independent assessment) ───────────────
         mkt_cap  = financial_data["mkt_cap"]
         debt_r   = financial_data["debt"] / mkt_cap
         cash_r   = financial_data["cash"] / mkt_cap
         rev      = financial_data.get("revenue") or 0
         imp_r    = financial_data["prohibited_income"] / rev if rev > 0 else 0.0
 
-        ratio_note = (
-            f"Debt {debt_r:.1%} · Cash {cash_r:.1%} · Impure {imp_r:.2%}"
-        )
+        # Interest-bearing securities / market cap (AAOIFI Standard 21)
+        ibs = financial_data.get("interest_bearing_securities", 0)
+        ibs_r = ibs / mkt_cap if mkt_cap > 0 and ibs > 0 else 0.0
+
+        ratio_parts = [f"Debt {debt_r:.1%}", f"Cash {cash_r:.1%}", f"Impure {imp_r:.2%}"]
+        if ibs_r > 0:
+            ratio_parts.append(f"Interest-bearing securities {ibs_r:.1%} of mktcap")
+        ratio_note = " · ".join(ratio_parts)
+
+        ratio_reasons = []
+        if debt_r >= (0.33 - ratio_buffer / 100):
+            ratio_reasons.append(f"Debt ratio {debt_r:.1%} >= {0.33 - ratio_buffer / 100:.0%}")
+        if cash_r >= (0.33 - ratio_buffer / 100):
+            ratio_reasons.append(f"Cash ratio {cash_r:.1%} >= {0.33 - ratio_buffer / 100:.0%}")
+        if imp_r >= (0.05 - ratio_buffer / 100):
+            ratio_reasons.append(f"Impure revenue {imp_r:.2%} >= {0.05 - ratio_buffer / 100:.0%}")
+        if ibs_r >= 0.33:
+            ratio_reasons.append(f"Interest-bearing securities {ibs_r:.1%} >= 33% of market cap")
+
+        ratio_verdict = "COMPLIANT" if len(ratio_reasons) == 0 else "NON_COMPLIANT"
         for src in financial_data.get("sources", ["YahooFinance"]):
-            ratio_verdict = "COMPLIANT" if (debt_r < 0.33 and cash_r < 0.33 and imp_r < 0.05) else "NON_COMPLIANT"
             sources_detail.append(SourceResult(source=src, verdict=ratio_verdict, note=ratio_note))
 
         if verdict:
-            is_compliant = verdict["compliant"] and not verdict.get("doubtful")
-            v = "COMPLIANT" if is_compliant else ("DOUBTFUL" if verdict.get("doubtful") else "NON_COMPLIANT")
-            return ComplianceStatus(
-                symbol=symbol, company_name=company_name, sector=financial_data["sector"],
-                is_compliant=is_compliant, verdict=v,
-                debt_to_mkt_cap=debt_r, cash_to_mkt_cap=cash_r, impure_revenue_pct=imp_r,
-                reason=verdict.get("status") if not is_compliant else None,
-                data_source="+".join([*verdict["sources"], *financial_data.get("sources", [])]),
-                exchange=financial_data.get("exchange", "NMS"),
-                sources_detail=sources_detail,
-            )
+            zoya_is_live = ZOYA_API_KEY and not ZOYA_API_KEY.startswith("sandbox-")
+            if zoya_is_live:
+                # Live Zoya key — authoritative, trust their verdict
+                is_compliant = verdict["compliant"] and not verdict.get("doubtful")
+                v = "COMPLIANT" if is_compliant else ("DOUBTFUL" if verdict.get("doubtful") else "NON_COMPLIANT")
+                return ComplianceStatus(
+                    symbol=symbol, company_name=company_name, sector=financial_data["sector"],
+                    is_compliant=is_compliant, verdict=v,
+                    debt_to_mkt_cap=debt_r, cash_to_mkt_cap=cash_r, impure_revenue_pct=imp_r,
+                    reason=verdict.get("status") if not is_compliant else None,
+                    data_source="+".join([*verdict["sources"], *financial_data.get("sources", [])]),
+                    exchange=financial_data.get("exchange", "NMS"),
+                    sources_detail=sources_detail,
+                )
+            # Sandbox Zoya — advisory only, our AAOIFI ratios decide
 
         # ── Staleness check ───────────────────────────────────────────────────────
         data_as_of_str = financial_data.get("data_as_of")
@@ -207,27 +266,36 @@ def _live_shariah_screen_uncached(symbol: str, ratio_buffer_override: float | No
             except ValueError:
                 pass
 
-        # ── Pure ratio screening ──────────────────────────────────────────────────
-        result = check_shariah_compliance(
-            symbol=financial_data["symbol"],
-            debt=financial_data["debt"], cash=financial_data["cash"],
-            revenue=financial_data["revenue"],
-            prohibited_income=financial_data["prohibited_income"],
-            mkt_cap=mkt_cap, sector=financial_data["sector"],
-            ratio_buffer=ratio_buffer,
-            extra_excluded_sectors=extra_excluded_sectors,
-        )
-        result.company_name   = company_name
-        result.country        = financial_data.get("country")
-        result.verdict        = "COMPLIANT" if result.is_compliant else "NON_COMPLIANT"
-        result.data_source    = "+".join(financial_data.get("sources", ["YahooFinance"]))
-        result.exchange       = financial_data.get("exchange", "NMS")
-        result.sources_detail = sources_detail
-        result.data_as_of     = data_as_of_str
-        result.data_stale     = data_stale
+        # ── Sector + ratio screening ─────────────────────────────────────────────
+        effective_sectors = _PROHIBITED_SECTORS | set(extra_excluded_sectors)
+        sector_str = financial_data["sector"]
+        for ps in effective_sectors:
+            if ps.lower() in sector_str.lower():
+                ratio_reasons.insert(0, f"Prohibited sector: {sector_str}")
+                break
+
+        is_compliant = len(ratio_reasons) == 0
+        reason_str = "; ".join(ratio_reasons) if ratio_reasons else None
         if data_stale and staleness_note:
-            result.reason = "; ".join(filter(None, [result.reason, staleness_note]))
-        return result
+            reason_str = "; ".join(filter(None, [reason_str, staleness_note]))
+
+        return ComplianceStatus(
+            symbol=symbol,
+            company_name=company_name,
+            sector=sector_str,
+            is_compliant=is_compliant,
+            verdict="COMPLIANT" if is_compliant else "NON_COMPLIANT",
+            debt_to_mkt_cap=debt_r,
+            cash_to_mkt_cap=cash_r,
+            impure_revenue_pct=imp_r,
+            reason=reason_str,
+            data_source="+".join(financial_data.get("sources", ["YahooFinance"])),
+            exchange=financial_data.get("exchange", "NMS"),
+            country=financial_data.get("country"),
+            sources_detail=sources_detail,
+            data_as_of=data_as_of_str,
+            data_stale=data_stale,
+        )
 
     except Exception as e:
         logger.error(f"Error in _live_shariah_screen_uncached for {symbol}: {e}")

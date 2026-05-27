@@ -119,24 +119,47 @@ _EXCHANGE_SUFFIX = {
 # Tickers verified against fund prospectus / AAOIFI mandate.
 # Allowlist takes priority over keyword matching to prevent name spoofing.
 SHARIAH_ETF_ALLOWLIST: frozenset = frozenset({
-    "SPUS",   # SP Funds S&P 500 Sharia ETF
-    "SPSK",   # SP Funds S&P Sukuk ETF
-    "SPRE",   # SP Funds S&P Global REIT Sharia
-    "HLAL",   # Wahed FTSE USA Shariah ETF
-    "UMMA",   # Wahed Dow Jones Islamic World ETF
-    "ISDE",   # iShares MSCI World Islamic UCITS ETF
+    # SP Funds — Shariah Advisory: Ratings Intelligence (AAOIFI-certified)
+    "SPUS",   # SP Funds S&P 500 Sharia ETF — tracks S&P 500 Shariah Index
+    "SPSK",   # SP Funds S&P Sukuk ETF — sukuk bond fund, no riba
+    "SPRE",   # SP Funds S&P Global REIT Sharia — Shariah-screened REITs
+    # Wahed Invest — Shariah Board: independent panel per wahedinvest.com/shariah
+    "HLAL",   # Wahed FTSE USA Shariah ETF — tracks FTSE USA Shariah Index
+    "UMMA",   # Wahed Dow Jones Islamic World ETF — global, DJ Islamic Market Index
+    # iShares MSCI Islamic — Screening: MSCI Islamic Index methodology (AAOIFI-based)
+    "ISDE",   # iShares MSCI EM Islamic UCITS ETF
+    "ISDW",   # iShares MSCI World Islamic UCITS ETF (US listing)
+    "ISDU.L", # iShares MSCI USA Islamic UCITS ETF (LSE)
+    "ISEW.L", # iShares MSCI World Islamic UCITS ETF (LSE)
+    "ISWD.L", # iShares MSCI World Islamic UCITS ETF (Acc, LSE)
+    "ISDW.L", # iShares MSCI World Islamic UCITS ETF (Dist, GBP, LSE)
+    "ISDE.L", # iShares MSCI EM Islamic UCITS ETF (LSE)
+    # Saturna Capital — Shariah: Amana Mutual Funds Trust, screened by Saturna
     "AMAL",   # Amal Invest Shariah ETF
-    "ISDU.L", # iShares MSCI USA Islamic UCITS ETF
-    "ISEW.L", # iShares MSCI World Islamic UCITS ETF
-    "ISWD.L", # iShares MSCI World Islamic UCITS ETF (Acc)
-    "AMAGX",  # Amana Growth
-    "AMANX",  # Amana Income
-    "AMDWX",  # Amana Developing World
+    "AMAGX",  # Amana Growth Fund
+    "AMANX",  # Amana Income Fund
+    "AMDWX",  # Amana Developing World Fund
 })
 
 SHARIAH_ETF_FAMILIES: frozenset = frozenset({
     "sp funds", "wahed", "saturna", "amana", "iman",
     "hsbc amanah", "ishares msci world islamic",
+})
+
+# Physical gold ETCs — fully allocated, no riba, spot-settled.
+# Halal per majority scholarly view (AAOIFI Standard 57 on Gold):
+#   Gold is a ribawi commodity; physical-backed ETCs with full allocation
+#   and no leverage are permissible. Source: AAOIFI Shari'ah Standard No. 57
+#   "Sale of Debt and Securities", and OIC Fiqh Academy Resolution 153 (2006).
+GOLD_ETC_ALLOWLIST: frozenset = frozenset({
+    "RMAU",     # Royal Mint Responsibly Sourced Physical Gold ETC (US/intl listing)
+    "RMAU.L",   # Royal Mint Responsibly Sourced Physical Gold ETC (LSE)
+    "SGLN.L",   # iShares Physical Gold ETC (LSE) — fully backed by allocated gold bars
+    "PHAU.L",   # WisdomTree Physical Gold (LSE) — backed by London Good Delivery bars
+    "SGLD.L",   # Invesco Physical Gold ETC (LSE) — JP Morgan custodied allocated gold
+    "GLDA.L",   # Amundi Physical Gold ETC (LSE) — allocated gold, London vaults
+    "IGLN.L",   # iShares Physical Gold ETC (LSE, alt ticker)
+    "PHGP.L",   # WisdomTree Physical Gold GBP-hedged (LSE)
 })
 
 
@@ -176,38 +199,87 @@ def _is_shariah_etf(fund_family: str, long_name: str, symbol: str = "") -> bool:
 
 # ── Zoya ──────────────────────────────────────────────────────────────────────
 
+_ZOYA_GRAPHQL_QUERY = """
+query ComplianceReport($symbol: String!) {
+  advancedCompliance {
+    report(input: { symbol: $symbol, methodology: AAOIFI }) {
+      symbol name exchange status
+      businessScreen financialScreen
+      compliantRevenue nonCompliantRevenue questionableRevenue
+      purificationRatio reportDate
+    }
+  }
+}
+"""
+
+_ZOYA_BASIC_QUERY = """
+query BasicReport($symbol: String!) {
+  basicCompliance {
+    report(symbol: $symbol) {
+      symbol name exchange status purificationRatio reportDate
+    }
+  }
+}
+"""
+
+
 def _fetch_zoya(symbol: str) -> Optional[Dict[str, Any]]:
     """
-    Zoya Shariah screening API.
-    Returns authoritative compliance verdict — skips ratio calculation if available.
-    Docs: https://docs.zoya.finance/api
+    Zoya Shariah screening — GraphQL API with AAOIFI methodology.
+    Returns business + financial screen breakdown and revenue split.
+    Docs: https://zoya.finance/docs
     """
     if not ZOYA_API_KEY:
         return None
     start_time = time.time()
     try:
         API_REQUESTS.labels(provider="Zoya").inc()
-        # Zoya uses the base ticker without exchange suffix for lookup
         base = symbol.split(".")[0]
         zoya_host = "sandbox-api.zoya.finance" if ZOYA_API_KEY.startswith("sandbox-") else "api.zoya.finance"
-        r = httpx.get(
-            f"https://{zoya_host}/v1/stock/{base}/compliance",
-            headers={"Authorization": f"Bearer {ZOYA_API_KEY}"},
-            timeout=8,
+        headers = {"Authorization": ZOYA_API_KEY}
+
+        r = httpx.post(
+            f"https://{zoya_host}/graphql",
+            json={"query": _ZOYA_GRAPHQL_QUERY, "variables": {"symbol": base}},
+            headers=headers,
+            timeout=10,
         )
         API_LATENCY.labels(provider="Zoya").observe(time.time() - start_time)
+
         if r.status_code != 200:
             return None
-        data = r.json()
-        status = data.get("status") or data.get("complianceStatus")
-        if not status:
-            return None
+
+        body = r.json()
+        report = (body.get("data") or {}).get("advancedCompliance", {}).get("report")
+
+        if not report:
+            r2 = httpx.post(
+                f"https://{zoya_host}/graphql",
+                json={"query": _ZOYA_BASIC_QUERY, "variables": {"symbol": base}},
+                headers=headers,
+                timeout=10,
+            )
+            if r2.status_code == 200:
+                report = (r2.json().get("data") or {}).get("basicCompliance", {}).get("report")
+            if not report:
+                return None
+
+        status = (report.get("status") or "").upper()
+        biz_screen = (report.get("businessScreen") or "").upper()
+        fin_screen = (report.get("financialScreen") or "").upper()
+
         return {
-            "compliant":        status.upper() == "COMPLIANT",
-            "doubtful":         status.upper() == "DOUBTFUL",
-            "status":           status.upper(),
-            "purification_pct": float(data.get("purificationPercentage") or 0),
-            "source":           "Zoya",
+            "compliant":            status == "COMPLIANT",
+            "doubtful":             status == "DOUBTFUL",
+            "status":               status,
+            "business_screen":      biz_screen,
+            "financial_screen":     fin_screen,
+            "compliant_revenue":    report.get("compliantRevenue"),
+            "non_compliant_revenue": report.get("nonCompliantRevenue"),
+            "questionable_revenue": report.get("questionableRevenue"),
+            "purification_pct":     float(report.get("purificationRatio") or 0),
+            "report_date":          report.get("reportDate"),
+            "source":               "Zoya",
         }
     except Exception as e:
         logger.debug(f"Zoya fetch failed for {symbol}: {e}")
@@ -457,10 +529,32 @@ def _fetch_yfinance(symbol: str) -> Optional[Dict[str, Any]]:
                     symbol, fin_ccy, trade_ccy,
                 )
                 return None
-        # Yahoo Finance has no impure-income breakdown. Sector exclusion catches
-        # prohibited industries; ratio screening uses 0 here (unknown, not zero).
-        # Zoya/Musaffa paths (see fetch_shariah_verdict) provide accurate purification %.
-        prohibited_income = 0.0
+        # Extract interest/non-operating income from financial statements
+        # for AAOIFI impure revenue screening (Standard 21)
+        interest_income = 0.0
+        other_non_operating = 0.0
+        interest_bearing_securities = 0.0
+        try:
+            import math as _math
+            _fs = ticker.financials
+            if _fs is not None and not _fs.empty:
+                _col = _fs.iloc[:, 0]
+                _ii = _col.get("Interest Income Non Operating") or _col.get("Interest Income")
+                if _ii is not None and not (_math.isnan(_ii) if isinstance(_ii, float) else False):
+                    interest_income = abs(float(_ii))
+                _ono = _col.get("Other Non Operating Income Expenses")
+                if _ono is not None and not (_math.isnan(_ono) if isinstance(_ono, float) else False):
+                    other_non_operating = abs(float(_ono))
+            _bs = ticker.balance_sheet
+            if _bs is not None and not _bs.empty:
+                _bcol = _bs.iloc[:, 0]
+                _afs = _bcol.get("Available For Sale Securities") or _bcol.get("Investmentin Financial Assets")
+                if _afs is not None and not (_math.isnan(_afs) if isinstance(_afs, float) else False):
+                    interest_bearing_securities = float(_afs)
+        except Exception as _e:
+            logger.debug("Financial statement extraction failed for %s: %s", symbol, _e)
+
+        prohibited_income = interest_income if interest_income > 0 else other_non_operating
 
         # Staleness: mostRecentQuarter is a Unix timestamp of latest filing
         mrq = info.get("mostRecentQuarter")
@@ -485,6 +579,8 @@ def _fetch_yfinance(symbol: str) -> Optional[Dict[str, Any]]:
             "exchange":         exchange,
             "sources":          ["YahooFinance"],
             "data_as_of":       data_as_of,
+            "interest_income":  interest_income,
+            "interest_bearing_securities": interest_bearing_securities,
         }
     except Exception as e:
         logger.error(f"YahooFinance fetch failed for {symbol}: {e}")
@@ -562,6 +658,7 @@ def fetch_shariah_verdict(symbol: str) -> Optional[Dict[str, Any]]:
     Try dedicated Shariah APIs first (Zoya → Musaffa).
     Returns {compliant, doubtful, purification_pct, sources} or None.
     """
+    symbol = normalize_ticker(symbol)
     sources = []
     verdict = None
 

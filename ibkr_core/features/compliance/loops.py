@@ -101,6 +101,8 @@ async def compliance_audit_loop(worker, manager: ConnectionManager, health: dict
             for pos in positions:
                 symbol = str(pos["symbol"])
                 qty = int(pos["quantity"])
+                exch = str(pos.get("exchange") or "")
+                screen_key = f"{symbol}:{exch}" if exch else symbol
 
                 ca_alerts = await asyncio.to_thread(check_corporate_actions, symbol)
                 for ca in ca_alerts:
@@ -113,7 +115,7 @@ async def compliance_audit_loop(worker, manager: ConnectionManager, health: dict
                     )
 
                 compliance_status = await loop.run_in_executor(
-                    None, live_shariah_screen, symbol, vix_buffer
+                    None, live_shariah_screen, screen_key, vix_buffer
                 )
                 await asyncio.to_thread(persist_compliance, symbol, compliance_status)
 
