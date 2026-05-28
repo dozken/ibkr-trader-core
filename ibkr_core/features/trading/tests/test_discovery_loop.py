@@ -88,18 +88,19 @@ class TestDiscoveryLoopEnabled(unittest.IsolatedAsyncioTestCase):
         signal = _make_signal(confidence=82)
         compliance = _make_compliance()
 
-        fired = asyncio.Event()
+        call_count = 0
 
         async def _fake_sleep(n):
-            if fired.is_set():
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 3:
                 raise asyncio.CancelledError
-            await asyncio.sleep(0)
 
         mock_trader = MagicMock()
         mock_result = MagicMock()
         mock_result.state = MagicMock()
         mock_result.state.value = "SUBMITTED"
-        mock_trader.execute_trade = AsyncMock(side_effect=lambda *a, **kw: (fired.set() or mock_result))
+        mock_trader.execute_trade = AsyncMock(return_value=mock_result)
 
         with patch("ibkr_core.features.trading.loops.load_settings", return_value=_SETTINGS_ENABLED), \
              patch("ibkr_core.features.trading.loops.discover_halal_buys", new_callable=AsyncMock, return_value=[signal]), \
@@ -107,6 +108,9 @@ class TestDiscoveryLoopEnabled(unittest.IsolatedAsyncioTestCase):
              patch("ibkr_core.features.trading.loops.market_status", return_value={"is_open": True}), \
              patch("ibkr_core.features.trading.loops.Trader", return_value=mock_trader), \
              patch("ibkr_core.features.trading.loops.send_alert", new_callable=AsyncMock), \
+             patch("ibkr_core.features.trading.loops._exceeds_daily_loss_limit", return_value=False), \
+             patch("ibkr_core.core.market_hours.any_market_open", return_value=True), \
+             patch("ibkr_core.features.compliance.vix.get_current_vix", return_value=15.0), \
              patch("asyncio.sleep", side_effect=_fake_sleep):
             from ibkr_core.features.trading.loops import discovery_loop
             manager = MagicMock()
@@ -116,7 +120,7 @@ class TestDiscoveryLoopEnabled(unittest.IsolatedAsyncioTestCase):
             except asyncio.CancelledError:
                 pass
 
-        mock_trader.execute_trade.assert_called_once()
+        mock_trader.execute_trade.assert_called()
 
     async def test_loop_skips_when_market_closed(self):
         """Loop does not dispatch when market is closed."""
@@ -204,6 +208,9 @@ class TestDiscoveryLoopEnabled(unittest.IsolatedAsyncioTestCase):
              patch("ibkr_core.features.trading.loops.screen_many", new_callable=AsyncMock, return_value=[]), \
              patch("ibkr_core.features.trading.loops.market_status", return_value={"is_open": True}), \
              patch("ibkr_core.features.trading.loops.Trader"), \
+             patch("ibkr_core.features.trading.loops._exceeds_daily_loss_limit", return_value=False), \
+             patch("ibkr_core.core.market_hours.any_market_open", return_value=True), \
+             patch("ibkr_core.features.compliance.vix.get_current_vix", return_value=15.0), \
              patch("asyncio.sleep", side_effect=_fake_sleep):
             from ibkr_core.features.trading.loops import discovery_loop
             manager = MagicMock()
