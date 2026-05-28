@@ -27,8 +27,8 @@ class TestPricePushLoop(unittest.IsolatedAsyncioTestCase):
             health = {}
 
         task = asyncio.create_task(price_push_loop(worker, health))
-        await asyncio.sleep(0)   # yield 1: lets task start + reach asyncio.to_thread
-        await asyncio.sleep(0)   # yield 2: lets to_thread complete + reach subscribe_ticker
+        for _ in range(10):
+            await asyncio.sleep(0)
         task.cancel()
         try:
             await task
