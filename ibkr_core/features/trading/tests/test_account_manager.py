@@ -37,7 +37,10 @@ def test_get_worker_creates_worker_on_first_call():
     mgr = AccountManager()
     with patch("ibkr_core.features.trading.account_manager.IBKRWorker") as MockWorker:
         worker = mgr.get_worker(account_id=1, host="127.0.0.1", port=7497, client_id=1)
-        MockWorker.assert_called_once_with(host="127.0.0.1", port=7497, client_id=1)
+        MockWorker.assert_called_once_with(
+            host="127.0.0.1", port=7497, client_id=1,
+            ibkr_account_id=None, readonly=False,
+        )
         assert worker is MockWorker.return_value
 
 

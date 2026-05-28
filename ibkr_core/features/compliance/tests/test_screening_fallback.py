@@ -57,7 +57,8 @@ class TestScreeningFallbackZoyaHit(unittest.TestCase):
              patch("ibkr_core.features.compliance.screening.fetch_financial_data",
                    return_value=_financial_data()), \
              patch("ibkr_core.features.compliance.screening._load_settings",
-                   return_value={"ratio_buffer": 0.0, "sector_exclusion": []}):
+                   return_value={"ratio_buffer": 0.0, "sector_exclusion": []}), \
+             patch("ibkr_core.features.compliance.screening.ZOYA_API_KEY", "live-key-123"):
             result = _live_shariah_screen_uncached("AAPL")
 
         self.assertTrue(result.is_compliant)
@@ -70,7 +71,8 @@ class TestScreeningFallbackZoyaHit(unittest.TestCase):
              patch("ibkr_core.features.compliance.screening.fetch_financial_data",
                    return_value=_financial_data()), \
              patch("ibkr_core.features.compliance.screening._load_settings",
-                   return_value={"ratio_buffer": 0.0, "sector_exclusion": []}):
+                   return_value={"ratio_buffer": 0.0, "sector_exclusion": []}), \
+             patch("ibkr_core.features.compliance.screening.ZOYA_API_KEY", "live-key-123"):
             result = _live_shariah_screen_uncached("AAPL")
 
         self.assertFalse(result.is_compliant)
@@ -88,7 +90,8 @@ class TestScreeningFallbackMusaffaOnly(unittest.TestCase):
              patch("ibkr_core.features.compliance.screening.fetch_financial_data",
                    return_value=_financial_data()), \
              patch("ibkr_core.features.compliance.screening._load_settings",
-                   return_value={"ratio_buffer": 0.0, "sector_exclusion": []}):
+                   return_value={"ratio_buffer": 0.0, "sector_exclusion": []}), \
+             patch("ibkr_core.features.compliance.screening.ZOYA_API_KEY", "live-key-123"):
             result = _live_shariah_screen_uncached("MSFT")
 
         self.assertTrue(result.is_compliant)
@@ -101,7 +104,8 @@ class TestScreeningFallbackMusaffaOnly(unittest.TestCase):
              patch("ibkr_core.features.compliance.screening.fetch_financial_data",
                    return_value=_financial_data()), \
              patch("ibkr_core.features.compliance.screening._load_settings",
-                   return_value={"ratio_buffer": 0.0, "sector_exclusion": []}):
+                   return_value={"ratio_buffer": 0.0, "sector_exclusion": []}), \
+             patch("ibkr_core.features.compliance.screening.ZOYA_API_KEY", "live-key-123"):
             result = _live_shariah_screen_uncached("MSFT")
 
         self.assertFalse(result.is_compliant)
@@ -121,7 +125,8 @@ class TestScreeningFallbackDisagreement(unittest.TestCase):
              patch("ibkr_core.features.compliance.screening.fetch_financial_data",
                    return_value=_financial_data()), \
              patch("ibkr_core.features.compliance.screening._load_settings",
-                   return_value={"ratio_buffer": 0.0, "sector_exclusion": []}):
+                   return_value={"ratio_buffer": 0.0, "sector_exclusion": []}), \
+             patch("ibkr_core.features.compliance.screening.ZOYA_API_KEY", "live-key-123"):
             result = _live_shariah_screen_uncached("XYZ")
 
         self.assertFalse(result.is_compliant)

@@ -93,7 +93,11 @@ class TestDailyLossLimit(unittest.TestCase):
         mock_db = MagicMock()
         mock_db.__enter__ = MagicMock(return_value=mock_db)
         mock_db.__exit__ = MagicMock(return_value=False)
-        mock_db.query.return_value.filter.return_value.order_by.return_value.first.return_value = snap
+        # Chain: .query().filter().filter().order_by().first()
+        # The implementation calls .filter() twice (timestamp + account_id),
+        # so we need the second .filter() to continue the chain properly.
+        chain = mock_db.query.return_value.filter.return_value
+        chain.filter.return_value.order_by.return_value.first.return_value = snap
 
         settings = {"max_daily_loss_pct": max_loss_pct}
         with patch("ibkr_core.core.database.SessionLocal", return_value=mock_db):

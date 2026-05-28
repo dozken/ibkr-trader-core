@@ -14,6 +14,7 @@ def _make_worker(connected=True, nlv=100_000.0, cash=20_000.0, positions=None):
     worker.get_net_liquidation.return_value = nlv
     worker.get_available_funds.return_value = cash
     worker.get_positions.return_value = positions or []
+    worker.readonly = False
     return worker
 
 
@@ -97,8 +98,9 @@ class TestHandleCommand(unittest.IsolatedAsyncioTestCase):
         if worker is None:
             worker = _make_worker()
         send_mock = AsyncMock()
-        with patch("ibkr_core.features.alerts.telegram_bot._send_message", send_mock):
-            await _handle_command(command, args or [], worker, TOKEN, CHAT_ID)
+        with patch("ibkr_core.features.alerts.telegram_bot._send_message", send_mock), \
+             patch("ibkr_core.features.alerts.telegram_bot._get_account_labels", return_value={}):
+            await _handle_command(command, args or [], worker, None, TOKEN, CHAT_ID)
         return send_mock
 
     def _last_text(self, mock):
@@ -163,12 +165,12 @@ class TestHandleCommand(unittest.IsolatedAsyncioTestCase):
 
     async def test_liquidate_no_position_sends_warning(self):
         mock = await self._run("/liquidate", ["AAPL"], worker=_make_worker(positions=[]))
-        self.assertIn("hold any shares", self._last_text(mock))
+        self.assertIn("does not hold", self._last_text(mock))
 
     async def test_liquidate_zero_qty_sends_warning(self):
         worker = _make_worker(positions=[{"symbol": "AAPL", "quantity": 0}])
         mock = await self._run("/liquidate", ["AAPL"], worker=worker)
-        self.assertIn("hold any shares", self._last_text(mock))
+        self.assertIn("does not hold", self._last_text(mock))
 
     async def test_liquidate_success(self):
         worker = _make_worker(positions=[{"symbol": "AAPL", "quantity": 10}])

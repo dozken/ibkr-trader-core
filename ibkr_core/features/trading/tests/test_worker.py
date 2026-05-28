@@ -16,6 +16,7 @@ def _make_worker():
     w.host = "127.0.0.1"
     w.port = 7497
     w.client_id = 1
+    w.ibkr_account_id = None
     w._ticker_callbacks = {}
     w._reconnecting = False
     w._limiter = asyncio.Semaphore(5)
