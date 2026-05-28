@@ -232,6 +232,8 @@ def _exceeds_daily_loss_limit(worker, settings: dict, account_id: Optional[int] 
         if snap is None:
             return False
         current_nlv = worker.get_net_liquidation()
+        if current_nlv <= 0:
+            return False
         daily_pnl = current_nlv - snap.total_value
         max_loss = snap.total_value * (max_loss_pct / 100)
         if daily_pnl < -max_loss:

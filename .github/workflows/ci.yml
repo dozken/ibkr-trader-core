@@ -14,17 +14,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r ibkr_core/requirements.txt
+      - run: pip install -e ".[dev]"
       - name: Smoke import
         run: |
-          cd ${{ github.workspace }}
           python -c "from ibkr_core.core.strategy import Strategy, load_strategy, get_active_strategy; print('strategy ok')"
           python -c "from ibkr_core.strategies.sma_crossover import SMACrossover; s = SMACrossover(); print(f'sma ok: {s.name}')"
       - name: Tests
-        run: |
-          cd ${{ github.workspace }}
-          PYTHONPATH=. pytest backend/strategies/tests -q || true
-          PYTHONPATH=. pytest backend/core/tests -q || true
+        run: PYTHONPATH=. pytest ibkr_core/ -q --tb=short
 
   frontend:
     runs-on: ubuntu-latest
@@ -32,4 +28,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: cd frontend && bun install
-      - run: cd frontend && bun run typecheck || true
+      - run: cd frontend && bun run typecheck
