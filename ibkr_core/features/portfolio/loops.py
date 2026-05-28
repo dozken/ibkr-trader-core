@@ -16,26 +16,29 @@ logger = logging.getLogger(__name__)
 from ibkr_core.core.monitoring import TOTAL_NLV, CASH_AVAILABLE, ACTIVE_POSITIONS
 
 
-def _load_peak_nlv_from_db() -> float:
+def _load_peak_nlv_from_db(account_id: int | None = None) -> float:
     """Seed peak NLV from historical snapshots so drawdown CB survives restarts."""
     try:
         with SessionLocal() as db:
-            result = db.query(func.max(PortfolioSnapshot.total_value)).scalar()
+            q = db.query(func.max(PortfolioSnapshot.total_value))
+            if account_id is not None:
+                q = q.filter(PortfolioSnapshot.account_id == account_id)
+            result = q.scalar()
             return float(result) if result else 0.0
     except Exception as e:
         logger.warning("Could not load peak NLV from DB: %s", e)
         return 0.0
 
 
-async def portfolio_snapshot_loop(worker, health: dict) -> None:
+async def portfolio_snapshot_loop(worker, health: dict, *, account_id: int | None = None) -> None:
     health["portfolio_snapshot_loop"]["status"] = "running"
     health.setdefault("drawdown_triggered", False)
     health.setdefault("current_drawdown_pct", 0.0)
 
     # Seed from DB so drawdown CB is accurate immediately after restart
-    health["peak_nlv"] = _load_peak_nlv_from_db()
+    health["peak_nlv"] = _load_peak_nlv_from_db(account_id)
     if health["peak_nlv"] > 0:
-        logger.info("Peak NLV seeded from DB: $%.2f", health["peak_nlv"])
+        logger.info("Peak NLV seeded from DB (account=%s): $%.2f", account_id, health["peak_nlv"])
 
     while True:
         try:
@@ -83,6 +86,7 @@ async def portfolio_snapshot_loop(worker, health: dict) -> None:
                 def _save():
                     with SessionLocal() as db:
                         db.add(PortfolioSnapshot(
+                            account_id=account_id,
                             total_value=nlv,
                             cash_balance=cash,
                             unrealized_pnl=upnl,
