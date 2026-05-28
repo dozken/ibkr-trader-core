@@ -1,5 +1,6 @@
 # ibkr-trader-core
 
+[![CI](https://github.com/dozken/ibkr-trader-core/actions/workflows/ci.yml/badge.svg)](https://github.com/dozken/ibkr-trader-core/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
@@ -8,10 +9,6 @@
 Shariah-compliant trading bot framework for Interactive Brokers, with a pluggable strategy interface.
 
 > Open-core of [ibkr-trader](https://github.com/dozken/ibkr-trader) — the framework is MIT, run it with the bundled SMA reference strategy or plug in your own.
-
-## Screenshots
-
-_Coming soon — add to `docs/screenshots/` and link here once deployment screenshots are captured._
 
 ## What you get
 
@@ -63,7 +60,7 @@ Then run:
 STRATEGY_CLASS=my_alpha.strategy:MyAlpha docker compose up
 ```
 
-See [`ibkr_core/core/strategy/base.py`](ibkr_core/core/strategy/base.py) for the full interface.
+See [`ibkr_core/core/strategy/base.py`](ibkr_core/core/strategy/base.py) for the full interface, or the [example momentum strategy](examples/momentum_strategy/) for a complete external plugin.
 
 ## Compliance
 
@@ -93,7 +90,11 @@ docs/                    architecture + ops guides
 
 ## Status
 
-Early. APIs may change before 1.0. See [`docs/ROADMAP.md`](docs/ROADMAP.md) if/when public.
+Early beta (v0.3.x). Strategy interface is stable; other APIs may change before 1.0.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Bug fixes, new reference strategies, and compliance improvements welcome.
 
 ## License
 
