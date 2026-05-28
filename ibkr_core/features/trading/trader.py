@@ -163,31 +163,43 @@ def _exceeds_concentration_limit(
                 .order_by(PositionCompliance.timestamp.desc())
                 .first()
             )
+            _UNCLASSIFIED = {"Unknown", "Manual", ""}
+
             def _norm_sector(s: str | None) -> str:
-                return (s or "Unknown").split("/")[0].strip()
+                raw = (s or "Unknown").split("/")[0].strip()
+                return raw if raw not in _UNCLASSIFIED else ""
 
             target_sector = _norm_sector(
                 target_rec.metrics.get("sector") if target_rec and target_rec.metrics else None
             )
 
-            if target_sector and target_sector not in ("Unknown", None, ""):
-                sector_value = existing_value
-                held_sectors: set[str] = set()
-                for pos in positions:
-                    if pos["symbol"] == symbol:
-                        continue
-                    pos_rec = (
-                        db.query(PositionCompliance)
-                        .filter(PositionCompliance.symbol == pos["symbol"])
-                        .order_by(PositionCompliance.timestamp.desc())
-                        .first()
-                    )
-                    if pos_rec and pos_rec.metrics:
-                        ps = _norm_sector(pos_rec.metrics.get("sector"))
+            sector_value = existing_value
+            held_sectors: set[str] = set()
+            sector_values: dict[str, float] = {}
+            for pos in positions:
+                if pos["symbol"] == symbol:
+                    continue
+                pos_rec = (
+                    db.query(PositionCompliance)
+                    .filter(PositionCompliance.symbol == pos["symbol"])
+                    .order_by(PositionCompliance.timestamp.desc())
+                    .first()
+                )
+                if pos_rec and pos_rec.metrics:
+                    ps = _norm_sector(pos_rec.metrics.get("sector"))
+                    if ps:
                         held_sectors.add(ps)
+                        mv = float(pos.get("market_value", 0.0))
+                        sector_values[ps] = sector_values.get(ps, 0.0) + mv
                         if ps == target_sector:
-                            sector_value += float(pos.get("market_value", 0.0))
+                            sector_value += mv
 
+            # If target sector unknown, conservatively treat as largest held sector
+            if not target_sector and sector_values:
+                target_sector = max(sector_values, key=sector_values.get)
+                sector_value = existing_value + sector_values.get(target_sector, 0.0)
+
+            if target_sector:
                 if (sector_value + new_qty * price) > max_sector:
                     logger.warning(
                         "%s: sector '%s' limit exceeded (%.2f > %.2f)",
@@ -195,11 +207,8 @@ def _exceeds_concentration_limit(
                     )
                     return True
 
-                # Enforce minimum sector diversification: if portfolio has fewer than
-                # min_sector_count distinct sectors, block adding more to an existing one.
                 min_sectors = settings.get("min_sector_count", 4)
-                all_sectors = held_sectors | {target_sector}
-                if len(all_sectors) < min_sectors and target_sector in held_sectors:
+                if len(held_sectors) < min_sectors and target_sector in held_sectors:
                     logger.warning(
                         "%s: only %d sector(s) held, need %d before adding more '%s'",
                         symbol, len(held_sectors), min_sectors, target_sector,

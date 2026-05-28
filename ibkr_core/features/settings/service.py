@@ -92,6 +92,7 @@ class Settings(BaseModel):
     use_limit_orders: bool = False
     limit_order_slippage_pct: float = 0.1
     max_correlation: float = 0.85
+    rl_weight: float = 0.2
     rerate_sell_threshold: int = 35
     max_vix_for_buys: float = 30.0
     position_size_pct: float = 5.0
