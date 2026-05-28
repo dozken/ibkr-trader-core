@@ -15,7 +15,33 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
+    "alembic",
+    "aiohttp",
+    "eventkit",
     "exchange_calendars>=4.5",
+    "fastapi",
+    "httpx",
+    "ib-insync",
+    "mstarpy",
+    "nest-asyncio",
+    "numpy",
+    "pandas",
+    "prometheus-client",
+    "psycopg2-binary",
+    "pydantic",
+    "python-dotenv",
+    "python-multipart",
+    "requests",
+    "sqlalchemy",
+    "uvicorn[standard]",
+    "yfinance",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
 ]
 
 [project.urls]
