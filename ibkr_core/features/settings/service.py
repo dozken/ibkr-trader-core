@@ -97,6 +97,11 @@ class Settings(BaseModel):
     max_vix_for_buys: float = 30.0
     position_size_pct: float = 5.0
     trading_paused: bool = False
+    # Supervised alpha model (trained on realized SignalLog outcomes)
+    supervised_weight: float = 0.3
+    rl_enabled: bool = True
+    # EV-optimal BUY cutoff derived from SignalLog history; None = region default
+    buy_threshold: Optional[int] = None
 
 
 def _settings_path(account_id: Optional[int]) -> str:

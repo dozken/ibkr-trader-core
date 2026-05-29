@@ -212,6 +212,7 @@ class SignalLog(Base):
     f_score = Column(Float, nullable=True)
     t_score = Column(Float, nullable=True)
     s_score = Column(Float, nullable=True)
+    features = Column(JSON, nullable=True)        # full feature vector at signal time (for supervised training)
     signal_price = Column(Float, nullable=True)   # price at signal time (filled async)
     outcome_7d_pct = Column(Float, nullable=True) # % return 7 days later
     outcome_30d_pct = Column(Float, nullable=True)
