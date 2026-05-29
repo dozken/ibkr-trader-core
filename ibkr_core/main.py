@@ -10,7 +10,7 @@ from ibkr_core.core.logging_config import setup_logging, install_asyncio_excepth
 
 setup_logging()
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response
+from fastapi import APIRouter, FastAPI, Request, WebSocket, WebSocketDisconnect, Response
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
@@ -30,6 +30,7 @@ from ibkr_core.features.settings.router import router as settings_router
 from ibkr_core.features.trading.loops import cash_sweep_loop, main_loop, halal_drip_loop, discovery_loop, position_rerating_loop
 from ibkr_core.features.trading.trader import resume_pending_twap
 from ibkr_core.features.trading.accounts_router import router as accounts_router
+from ibkr_core.features.trading.gateway_router import router as gateway_router
 from ibkr_core.features.trading.router import router as trading_router
 from ibkr_core.features.trading.worker import IBKRWorker
 from ibkr_core.features.trading.account_manager import get_account_manager
@@ -54,6 +55,12 @@ except ImportError:
     signal_outcome_loop = None
 
 logger = logging.getLogger(__name__)
+
+# Populated by create_app() so extension dists (e.g. the AI fork) can inject
+# their own background loops + routers without re-declaring the application.
+# Each extra loop is an async callable invoked as loop_fn(health).
+_EXTRA_LOOPS: list = []
+_EXTRA_ROUTERS: list = []
 
 async def audit_integrity_loop(worker, health: dict) -> None:
     """Hourly verification of the cryptographic AuditLog chain. Ref: Polish & Guard #3."""
@@ -239,33 +246,80 @@ async def lifespan(app: FastAPI):
             health["ml_retraining_loop"]  = {"last_run": None, "status": "starting"}
             health["signal_outcome_loop"] = {"last_run": None, "status": "starting"}
             health["halal_universe_loop"] = {"last_run": None, "status": "starting"}
+        for _fn in _EXTRA_LOOPS:
+            health.setdefault(getattr(_fn, "__name__", "extra_loop"), {"last_run": None, "status": "starting"})
         app.state.loop_health = health
 
         async def _on_fill(symbol: str, side: str, qty: float, avg_price: float) -> None:
             pass
 
+        async def _connect_secondary_workers():
+            """Connect workers for non-primary accounts (multi-account). Shares
+            a connection when accounts point at the same gateway."""
+            connected_ibs = set()
+            if worker:
+                connected_ibs.add(id(worker.ib))
+            for aid in account_manager.list_account_ids():
+                if aid == primary_account_id:
+                    continue
+                w = account_manager.get_worker_by_id(aid)
+                if not w:
+                    continue
+                if id(w.ib) in connected_ibs:
+                    logger.info(f"Secondary worker for account {aid} shares existing connection")
+                    continue
+                while True:
+                    try:
+                        if await w.connect():
+                            logger.info(f"Secondary worker connected: account {aid}")
+                            connected_ibs.add(id(w.ib))
+                            break
+                    except Exception:
+                        pass
+                    await asyncio.sleep(30)
+
         worker._fill_callback = _on_fill
         tasks = [
             asyncio.create_task(main_loop(worker, manager, health, account_id=primary_account_id)),
-            asyncio.create_task(compliance_audit_loop(worker, manager, health)),
+            asyncio.create_task(compliance_audit_loop(worker, manager, health, account_manager=account_manager)),
             asyncio.create_task(cash_sweep_loop(worker, manager, health, account_id=primary_account_id)),
             asyncio.create_task(halal_drip_loop(worker, manager, health)),
             asyncio.create_task(discovery_loop(worker, manager, health, account_id=primary_account_id)),
             asyncio.create_task(position_rerating_loop(worker, manager, health, account_id=primary_account_id)),
             asyncio.create_task(portfolio_snapshot_loop(worker, health, account_id=primary_account_id)),
             asyncio.create_task(daily_report_loop(worker, health)),
-            asyncio.create_task(telegram_bot_loop(worker, health)),
+            asyncio.create_task(telegram_bot_loop(worker, health, account_manager=account_manager)),
             asyncio.create_task(purification_reminder_loop(health)),
             asyncio.create_task(zakat_monitoring_loop(worker, health)),
             asyncio.create_task(audit_integrity_loop(worker, health)),
             asyncio.create_task(price_push_loop(worker, health)),
+            asyncio.create_task(_connect_secondary_workers()),
         ]
+        # Multi-account: spawn per-account trading loops for each secondary
+        # account (connection managed by _connect_secondary_workers above).
+        for aid in account_manager.list_account_ids():
+            if aid == primary_account_id:
+                continue
+            sec_worker = account_manager.get_worker_by_id(aid)
+            if sec_worker:
+                health[f"main_loop_{aid}"] = {"last_run": None, "status": "starting"}
+                tasks.append(asyncio.create_task(
+                    main_loop(sec_worker, manager, health, account_id=aid, manage_connection=False)
+                ))
+                tasks.append(asyncio.create_task(
+                    cash_sweep_loop(sec_worker, manager, health, account_id=aid)
+                ))
+                tasks.append(asyncio.create_task(
+                    position_rerating_loop(sec_worker, manager, health, account_id=aid)
+                ))
         if HAS_AI_MODULE:
             tasks.extend([
                 asyncio.create_task(ml_retraining_loop(health)),
                 asyncio.create_task(signal_outcome_loop(health)),
                 asyncio.create_task(halal_universe_refresh_loop(health)),
             ])
+        for _fn in _EXTRA_LOOPS:
+            tasks.append(asyncio.create_task(_fn(health)))
     except BaseException as _startup_exc:
         import traceback as _tb
         print(f"LIFESPAN STARTUP CRASH: {type(_startup_exc).__name__}: {_startup_exc}", flush=True)
@@ -280,55 +334,53 @@ async def lifespan(app: FastAPI):
             worker.disconnect()
 
 
-app = FastAPI(title="IBKR Shariah Trader", lifespan=lifespan)
-
-app.add_middleware(RequestIDMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
-)
-
-app.include_router(compliance_router)
-app.include_router(accounts_router)
-app.include_router(trading_router)
-app.include_router(zakat_router)
-app.include_router(portfolio_router)
-if HAS_AI_MODULE and ai_router is not None:
-    app.include_router(ai_router)
-app.include_router(settings_router)
+# ---------------------------------------------------------------------------
+# System + WebSocket routes — mounted by create_app()
+# ---------------------------------------------------------------------------
+system_router = APIRouter()
 
 
-@app.get("/")
+@system_router.get("/")
 def read_root():
     return {"status": "Ironclad System Active"}
 
 
-@app.get("/health")
+@system_router.get("/health")
 def health():
     return {"status": "ok"}
 
 
-@app.get("/api/system/health")
-def system_health():
-    return app.state.loop_health
+@system_router.get("/api/system/health")
+def system_health(request: Request):
+    return request.app.state.loop_health
 
 
-@app.get("/api/system/markets")
+@system_router.get("/api/system/markets")
 def system_markets():
     """All configured exchanges with open/closed status + UTC session times + halal symbol count."""
     from ibkr_core.core.market_hours import (
         EXCHANGE_CONFIG, market_status, infer_exchange_from_symbol,
         get_exchange_config, SUNDAY_THURSDAY_EXCHANGES,
     )
-    try:
-        from ibkr_core.features.ai.halal_universe import SEED_UNIVERSE, REGIONAL_HALAL  # type: ignore
-    except ImportError:
-        # Public install: fall back to bundled reference seed list. Override by
-        # shipping your own `backend/features/ai/halal_universe.py` exporting
-        # `SEED_UNIVERSE` (list[str]) and `REGIONAL_HALAL` (dict[str, list[str]]).
-        from ibkr_core.strategies.halal_universe_seed import SEED_UNIVERSE, REGIONAL_HALAL
+    # Universe source resolution order:
+    #   1. HALAL_UNIVERSE_MODULE env var (extension dists point here, e.g. the
+    #      AI fork sets it to `backend.features.ai.halal_universe`)
+    #   2. ibkr_core.features.ai.halal_universe (namespace-package extension)
+    #   3. bundled reference seed list (public standalone)
+    SEED_UNIVERSE = REGIONAL_HALAL = None
+    _um = os.getenv("HALAL_UNIVERSE_MODULE")
+    if _um:
+        try:
+            import importlib
+            _mod = importlib.import_module(_um)
+            SEED_UNIVERSE, REGIONAL_HALAL = _mod.SEED_UNIVERSE, _mod.REGIONAL_HALAL
+        except Exception as e:
+            logger.warning("HALAL_UNIVERSE_MODULE=%s failed to load: %s", _um, e)
+    if SEED_UNIVERSE is None:
+        try:
+            from ibkr_core.features.ai.halal_universe import SEED_UNIVERSE, REGIONAL_HALAL  # type: ignore
+        except ImportError:
+            from ibkr_core.strategies.halal_universe_seed import SEED_UNIVERSE, REGIONAL_HALAL
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
@@ -400,8 +452,8 @@ def system_markets():
     }
 
 
-@app.get("/api/system/readiness")
-def system_readiness():
+@system_router.get("/api/system/readiness")
+def system_readiness(request: Request):
     """
     Automated paper→live readiness gate check.
     Returns structured pass/fail for each gate plus a top-level ready flag.
@@ -411,8 +463,8 @@ def system_readiness():
     from datetime import datetime, timezone, timedelta
     import os
 
-    health = getattr(app.state, "loop_health", {})
-    worker = getattr(app.state, "worker", None)
+    health = getattr(request.app.state, "loop_health", {})
+    worker = getattr(request.app.state, "worker", None)
 
     # ── Loop health ────────────────────────────────────────────────────────────
     critical_loops = ["main_loop", "compliance_audit_loop", "portfolio_snapshot_loop"]
@@ -566,12 +618,12 @@ def system_readiness():
     }
 
 
-@app.get("/metrics")
+@system_router.get("/metrics")
 def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-@app.websocket(WS_TICKERS)
+@system_router.websocket(WS_TICKERS)
 async def websocket_tickers(websocket: WebSocket):
     await manager.connect(websocket)
     try:
@@ -598,3 +650,51 @@ async def websocket_tickers(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
         logger.info("Client disconnected from WebSocket")
+
+
+# ---------------------------------------------------------------------------
+# Application factory
+# ---------------------------------------------------------------------------
+def create_app(extra_routers=(), extra_loops=(), title: str = "IBKR Shariah Trader") -> FastAPI:
+    """Build the FastAPI app.
+
+    Extension dists (e.g. the AI fork) call this with their own routers and
+    background loops instead of re-declaring the whole application:
+
+        from ibkr_core.main import create_app
+        from backend.features.ai.router import router as ai_router
+        from backend.features.ai.loops import ml_retraining_loop
+        app = create_app(extra_routers=[ai_router], extra_loops=[ml_retraining_loop])
+
+    `extra_loops` are async callables invoked as loop_fn(health) at startup.
+    """
+    global _EXTRA_LOOPS, _EXTRA_ROUTERS
+    _EXTRA_LOOPS = list(extra_loops)
+    _EXTRA_ROUTERS = list(extra_routers)
+
+    app = FastAPI(title=title, lifespan=lifespan)
+    app.add_middleware(RequestIDMiddleware)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3000", "http://localhost:5173"],
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(compliance_router)
+    app.include_router(accounts_router)
+    app.include_router(trading_router)
+    app.include_router(zakat_router)
+    app.include_router(portfolio_router)
+    app.include_router(gateway_router)
+    if HAS_AI_MODULE and ai_router is not None:
+        app.include_router(ai_router)
+    app.include_router(settings_router)
+    for r in _EXTRA_ROUTERS:
+        app.include_router(r)
+    app.include_router(system_router)
+    return app
+
+
+# Default app for standalone core deployment: `uvicorn ibkr_core.main:app`.
+app = create_app()
