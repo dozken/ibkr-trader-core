@@ -15,3 +15,11 @@ TOTAL_NLV = Gauge("portfolio_net_liquidation_value_usd", "Total Net Liquidation 
 CASH_AVAILABLE = Gauge("cash_available_usd", "Total available cash in the account")
 ACTIVE_POSITIONS = Gauge("active_positions_count", "Total number of open positions")
 TRADES_EXECUTED = Counter("trades_executed_total", "Total number of trades executed", ["side"])
+
+# P&L and signal quality metrics
+TRADE_PNL_USD = Histogram("trade_pnl_usd", "Realized P&L per closed trade in USD", buckets=[-5000, -2000, -1000, -500, -100, 0, 100, 500, 1000, 2000, 5000, 10000])
+DAILY_PNL_USD = Gauge("daily_pnl_usd", "Unrealized P&L today in USD")
+SIGNAL_ACCURACY_7D = Gauge("signal_accuracy_7d_pct", "Rolling 7-day signal hit rate")
+SIGNAL_ACCURACY_30D = Gauge("signal_accuracy_30d_pct", "Rolling 30-day signal hit rate")
+SECTOR_EXPOSURE = Gauge("sector_exposure_pct", "Portfolio exposure per sector", ["sector"])
+WIN_RATE = Gauge("win_rate_pct", "Overall win rate of closed trades")

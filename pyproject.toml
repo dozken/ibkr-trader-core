@@ -57,6 +57,9 @@ where = ["."]
 include = ["ibkr_core*"]
 exclude = ["ibkr_core.features.ai*", "tests*"]
 
+[tool.ruff.lint]
+ignore = ["E402"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["ibkr_core"]

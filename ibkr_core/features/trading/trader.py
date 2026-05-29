@@ -1,7 +1,6 @@
 import asyncio
 import math
 import logging
-from copy import copy
 from datetime import datetime, timezone
 from typing import Optional
 from ibkr_core.core.state import TradeState, TradeStateMachine
@@ -582,9 +581,24 @@ class Trader:
             try:
                 from ibkr_core.features.alerts.dispatcher import alert
                 emoji = "🟢" if trade.side == "BUY" else "🔴"
-                body = f"{emoji} {trade.symbol} {trade.side} {trade.quantity:.4f} @ ~${price:.2f} · Order #{order_id}"
+                value = trade.quantity * price
+                sector = getattr(compliance_status, "sector", None) or "—"
+                confidence = getattr(trade_req, "confidence", None)
+                lines = [
+                    f"{emoji} <b>{trade.symbol}</b> {trade.side} {trade.quantity:.4f} shares",
+                    f"💰 ~${price:,.2f}/share · ${value:,.0f} total",
+                    f"🏢 Sector: {sector}",
+                ]
+                if confidence is not None:
+                    lines.append(f"📊 Score: {confidence}")
+                _sl = locals().get("stop_price")
+                _tp = locals().get("tp_price")
+                if _sl and _tp:
+                    lines.append(f"🛡️ SL: ${stop_price:,.2f} / TP: ${tp_price:,.2f}")
+                lines.append(f"🔖 Order #{order_id}")
+                body = "\n".join(lines)
                 channels = settings.get("alert_channels", [])
-                asyncio.create_task(alert("Order Submitted", body, channels))
+                asyncio.create_task(alert(f"Order {trade.side}: {trade.symbol}", body, channels))
             except Exception:
                 logger.exception("Submit alert dispatch failed")
 

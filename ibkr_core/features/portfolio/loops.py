@@ -13,7 +13,7 @@ from ibkr_core.features.settings.service import load_settings
 logger = logging.getLogger(__name__)
 
 
-from ibkr_core.core.monitoring import TOTAL_NLV, CASH_AVAILABLE, ACTIVE_POSITIONS
+from ibkr_core.core.monitoring import TOTAL_NLV, CASH_AVAILABLE, ACTIVE_POSITIONS, DAILY_PNL_USD, SECTOR_EXPOSURE
 
 
 def _load_peak_nlv_from_db(account_id: int | None = None) -> float:
@@ -82,6 +82,16 @@ async def portfolio_snapshot_loop(worker, health: dict, *, account_id: int | Non
                 TOTAL_NLV.set(nlv)
                 CASH_AVAILABLE.set(cash)
                 ACTIVE_POSITIONS.set(len(positions))
+                DAILY_PNL_USD.set(upnl)
+
+                # Sector exposure breakdown
+                sector_values: dict[str, float] = {}
+                for p in positions:
+                    sec = (p.get("sector") or "Unknown").split("/")[0].strip()
+                    sector_values[sec] = sector_values.get(sec, 0.0) + abs(float(p.get("market_value", 0)))
+                total_pos_value = sum(sector_values.values()) or 1.0
+                for sec, val in sector_values.items():
+                    SECTOR_EXPOSURE.labels(sector=sec).set(round(val / total_pos_value * 100, 1))
 
                 def _save():
                     with SessionLocal() as db:
