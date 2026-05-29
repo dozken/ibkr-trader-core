@@ -1,4 +1,27 @@
 services:
+  # Containerized IB Gateway (paper). Turnkey alternative to running TWS on the
+  # host. Supply your own IBKR paper credentials in ./ibkr_core/.env. To connect
+  # to a host-run TWS/Gateway instead, set IBKR_HOST=host.docker.internal.
+  ib-gateway-paper:
+    image: ghcr.io/gnzsnz/ib-gateway:latest
+    container_name: ibkr-gateway-paper
+    restart: unless-stopped
+    environment:
+      TWS_USERID: ${TWS_USERID}
+      TWS_PASSWORD: ${TWS_PASSWORD}
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      TWS_ACCEPT_INCOMING: "accept"
+      TWOFA_TIMEOUT_ACTION: restart
+      RELOGIN_AFTER_TWOFA_TIMEOUT: "yes"
+      EXISTING_SESSION_DETECTED_ACTION: primary
+      TIME_ZONE: ${TIME_ZONE:-Etc/UTC}
+      TZ: ${TIME_ZONE:-Etc/UTC}
+    ports:
+      - "127.0.0.1:5900:5900"   # VNC — for 2FA and debugging only
+    # API ports NOT exposed to host — backend connects via Docker network
+    volumes:
+      - ib-gateway-paper-settings:/home/ibgateway/Jts
+
   backend:
     build:
       context: .
@@ -8,13 +31,19 @@ services:
     env_file:
       - ./ibkr_core/.env
     environment:
-      - IBKR_HOST=host.docker.internal
+      # Defaults to the containerized paper gateway. Override IBKR_HOST/IBKR_PORT
+      # (e.g. IBKR_HOST=host.docker.internal, IBKR_PORT=7497) to use host TWS.
+      - IBKR_HOST=${IBKR_HOST:-ib-gateway-paper}
+      - IBKR_PORT=${IBKR_PORT:-4004}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
       - "8000"
     volumes:
       - ibkr_trader_data:/home/trader/app/ibkr_core/data
+    depends_on:
+      ib-gateway-paper:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/system/health"]
       interval: 30s
@@ -60,3 +89,4 @@ services:
 
 volumes:
   ibkr_trader_data:
+  ib-gateway-paper-settings:
