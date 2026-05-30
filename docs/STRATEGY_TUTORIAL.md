@@ -12,7 +12,8 @@ For the full extension contract (routers, loops, universe seam) see
 ## 1. The `Strategy` interface
 
 ```python
-from ibkr_core.core.strategy import Strategy, MarketContext, TradeSignal
+from ibkr_core.core.strategy.base import Strategy, MarketContext
+from ibkr_core.features.trading.schemas import TradeSignal
 
 class Strategy:
     name: str
@@ -65,7 +66,8 @@ include = ["my_alpha*"]
 ```python
 # my_alpha/strategy.py
 import yfinance as yf
-from ibkr_core.core.strategy import MarketContext, Strategy, TradeSignal
+from ibkr_core.core.strategy.base import MarketContext, Strategy
+from ibkr_core.features.trading.schemas import TradeSignal
 
 class MyAlpha(Strategy):
     name = "MyAlpha"

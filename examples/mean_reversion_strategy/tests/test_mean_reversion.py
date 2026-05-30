@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
-from ibkr_core.core.strategy import MarketContext
+from ibkr_core.core.strategy.base import MarketContext
 from mean_reversion_strategy import MeanReversionStrategy
 from mean_reversion_strategy.strategy import zscore
 

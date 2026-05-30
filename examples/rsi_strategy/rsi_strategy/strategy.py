@@ -11,7 +11,8 @@ import asyncio
 import pandas as pd
 import yfinance as yf
 
-from ibkr_core.core.strategy import MarketContext, Strategy, TradeSignal
+from ibkr_core.core.strategy.base import MarketContext, Strategy
+from ibkr_core.features.trading.schemas import TradeSignal
 
 
 def rsi(closes: pd.Series, period: int = 14) -> float:

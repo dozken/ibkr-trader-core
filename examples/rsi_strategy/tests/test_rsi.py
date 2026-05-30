@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
-from ibkr_core.core.strategy import MarketContext
+from ibkr_core.core.strategy.base import MarketContext
 from rsi_strategy import RSIStrategy
 from rsi_strategy.strategy import rsi
 
