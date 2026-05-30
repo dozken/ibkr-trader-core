@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { AlertTriangle, CheckCircle2, Plus, Server, ShieldCheck, Trash2, Edit2, Check, X, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Plus, Server, ShieldCheck, Trash2, Edit2, Check, X, XCircle, Power, PowerOff, Loader2, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,6 +27,7 @@ interface Account {
   ibkr_account_id: string | null
   is_paper: boolean
   is_active: boolean
+  read_only: boolean
   created_at: string
 }
 
@@ -37,6 +38,7 @@ interface AccountCreate {
   client_id: number
   ibkr_account_id: string
   is_paper: boolean
+  read_only: boolean
 }
 
 interface ReadinessGates {
@@ -247,6 +249,170 @@ function GoLiveReadiness() {
   )
 }
 
+interface GatewayInfo {
+  name: string
+  running: boolean
+  status: string
+}
+
+function GatewayControl() {
+  const qc = useQueryClient()
+  const { data, isLoading } = useQuery<Record<string, GatewayInfo>>({
+    queryKey: ['gateway-status'],
+    queryFn: () => fetch(ROUTES.GATEWAY_STATUS).then((r) => r.json()),
+    refetchInterval: 5_000,
+  })
+
+  const stopMutation = useMutation({
+    mutationFn: (gw: string) =>
+      fetch(ROUTES.GATEWAY_STOP(gw), { method: 'POST', headers: { 'X-API-Key': API_KEY } }).then(async (r) => {
+        if (!r.ok) throw new Error((await r.json()).detail || `Error ${r.status}`)
+        return r.json()
+      }),
+    onSuccess: (_, gw) => {
+      qc.invalidateQueries({ queryKey: ['gateway-status'] })
+      toast.success(`${gw} gateway stopped — you can now trade on IBKR web`)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const startMutation = useMutation({
+    mutationFn: (gw: string) =>
+      fetch(ROUTES.GATEWAY_START(gw), { method: 'POST', headers: { 'X-API-Key': API_KEY } }).then(async (r) => {
+        if (!r.ok) throw new Error((await r.json()).detail || `Error ${r.status}`)
+        return r.json()
+      }),
+    onSuccess: (_, gw) => {
+      qc.invalidateQueries({ queryKey: ['gateway-status'] })
+      toast.success(
+        gw === 'paper'
+          ? `${gw} gateway started`
+          : `${gw} gateway started — approve 2FA on IBKR mobile`
+      )
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const restartMutation = useMutation({
+    mutationFn: (gw: string) =>
+      fetch(ROUTES.GATEWAY_RESTART(gw), { method: 'POST', headers: { 'X-API-Key': API_KEY } }).then(async (r) => {
+        if (!r.ok) throw new Error((await r.json()).detail || `Error ${r.status}`)
+        return r.json()
+      }),
+    onSuccess: (_, gw) => {
+      qc.invalidateQueries({ queryKey: ['gateway-status'] })
+      toast.success(
+        gw === 'paper'
+          ? `${gw} gateway restarting`
+          : `${gw} gateway restarting — approve 2FA on IBKR mobile app`
+      )
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const reconnectMutation = useMutation({
+    mutationFn: () =>
+      fetch(ROUTES.GATEWAY_RECONNECT, { method: 'POST', headers: { 'X-API-Key': API_KEY } }).then(async (r) => {
+        if (!r.ok) throw new Error((await r.json()).detail || `Error ${r.status}`)
+        return r.json()
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['gateway-status'] })
+      toast.success('Reconnecting to gateways — may take ~10s')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  if (isLoading || !data) return null
+
+  const busy = stopMutation.isPending || startMutation.isPending || restartMutation.isPending || reconnectMutation.isPending
+
+  return (
+    <div className="card p-0 overflow-hidden mb-6">
+      <header className="px-6 py-4 border-b border-brand-divider/50 bg-brand-elevated/50 flex items-start justify-between gap-4">
+        <div>
+          <Text variant="h3" className="flex items-center gap-2">
+            <Power size={18} className="text-brand-primary" />
+            IB Gateway Control
+          </Text>
+          <Text variant="tiny" className="mt-1 opacity-70">
+            Stop a gateway to free your IBKR session for web/mobile trading. Restarting the live gateway requires 2FA.
+          </Text>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={() => reconnectMutation.mutate()}
+          className="shrink-0"
+        >
+          {reconnectMutation.isPending
+            ? <Loader2 size={14} className="animate-spin mr-1.5" />
+            : <RefreshCw size={14} className="mr-1.5" />}
+          Reconnect
+        </Button>
+      </header>
+      <div className="grid sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-brand-divider/40">
+        {Object.entries(data).map(([key, gw]) => (
+          <div key={key} className="px-6 py-4 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <Text variant="body" className="font-semibold capitalize">{key} Gateway</Text>
+              <Text variant="tiny" className="mt-0.5 t-num opacity-70">{gw.name}</Text>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <Badge variant={gw.running ? 'success' : 'destructive'}>
+                {gw.running ? 'Running' : 'Stopped'}
+              </Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => restartMutation.mutate(key)}
+                className="text-brand-primary border-brand-primary/40 hover:bg-brand-primary/10"
+                title={key === 'paper'
+                  ? 'Restart paper gateway (no 2FA needed)'
+                  : 'Restart gateway and send 2FA to IBKR mobile'}
+              >
+                {restartMutation.isPending && restartMutation.variables === key
+                  ? <Loader2 size={14} className="animate-spin mr-1" />
+                  : <RefreshCw size={14} className="mr-1" />}
+                {key === 'paper' ? 'Restart' : '2FA'}
+              </Button>
+              {gw.running ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => stopMutation.mutate(key)}
+                  className="text-brand-danger border-brand-danger/40 hover:bg-brand-danger/10"
+                >
+                  {stopMutation.isPending && stopMutation.variables === key
+                    ? <Loader2 size={14} className="animate-spin mr-1" />
+                    : <PowerOff size={14} className="mr-1" />}
+                  Stop
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => startMutation.mutate(key)}
+                  className="text-brand-success border-brand-success/40 hover:bg-brand-success/10"
+                >
+                  {startMutation.isPending && startMutation.variables === key
+                    ? <Loader2 size={14} className="animate-spin mr-1" />
+                    : <Power size={14} className="mr-1" />}
+                  Start
+                </Button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 const EMPTY_FORM: AccountCreate = {
   label: '',
   host: '127.0.0.1',
@@ -254,6 +420,7 @@ const EMPTY_FORM: AccountCreate = {
   client_id: 1,
   ibkr_account_id: '',
   is_paper: true,
+  read_only: false,
 }
 
 export default function AccountsPage() {
@@ -348,6 +515,7 @@ export default function AccountsPage() {
         </Button>
       </header>
 
+      <GatewayControl />
       <GoLiveReadiness />
 
       {showForm && (
@@ -391,6 +559,15 @@ export default function AccountsPage() {
                     className="accent-brand-primary"
                   />
                   <span className="text-brand-light text-sm">Paper trading</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.read_only}
+                    onChange={(e) => set('read_only', e.target.checked)}
+                    className="accent-brand-warning"
+                  />
+                  <span className="text-brand-light text-sm">Read-only (monitor only, no trades)</span>
                 </label>
               </div>
             </div>
@@ -460,6 +637,11 @@ export default function AccountsPage() {
                 </div>
 
                 <div className="flex items-center gap-3 shrink-0">
+                  {acc.read_only && (
+                    <Badge variant="secondary" className="text-[9px]">
+                      Read-Only
+                    </Badge>
+                  )}
                   <Badge variant={acc.is_paper ? 'warning' : 'success'}>
                     {acc.is_paper ? 'Paper' : 'Live'}
                   </Badge>

@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { AIModuleGate } from './AIModuleGate'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import {
   LineChart,
   Line,
@@ -84,6 +84,7 @@ export default function BacktestPage() {
   const [threshold, setThreshold] = useState(65)
   const [tradeFilter, setTradeFilter] = useState<'ALL' | 'BUY' | 'SELL'>('ALL')
   const [showAllTrades, setShowAllTrades] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
 
   const mutation = useMutation<BacktestResult, Error, BacktestRequest>({
     mutationFn: async (req) => {
@@ -98,6 +99,12 @@ export default function BacktestPage() {
       }
       return r.json()
     },
+    onSuccess: () => {
+      toast.success('Backtest completed successfully')
+    },
+    onError: (e: Error) => {
+      toast.error(e.message || 'Backtest failed')
+    },
   })
 
   const run = () =>
@@ -109,6 +116,18 @@ export default function BacktestPage() {
       take_profit_pct: takeProfit,
       buy_threshold: threshold,
     })
+
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  useEffect(() => {
+    if (mutation.isPending) {
+      setElapsed(0)
+      timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000)
+    } else if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current) }
+  }, [mutation.isPending])
 
   const result = mutation.data
 
@@ -125,7 +144,6 @@ export default function BacktestPage() {
   const alpha = result ? result.total_return_pct - result.benchmark_return_pct : 0
 
   return (
-    <AIModuleGate pageTitle="Strategy Backtest">
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Portfolio Backtest</h1>
@@ -197,8 +215,26 @@ export default function BacktestPage() {
           </div>
         </div>
         <Button onClick={run} disabled={mutation.isPending} className="w-full md:w-auto">
-          {mutation.isPending ? 'Running… (30–90 sec)' : 'Run Backtest'}
+          {mutation.isPending ? (
+            <span className="flex items-center gap-2">
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Running… {elapsed}s
+            </span>
+          ) : 'Run Backtest'}
         </Button>
+        {mutation.isPending && (
+          <div className="mt-3 space-y-1">
+            <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-emerald-500/70 rounded-full transition-all duration-1000"
+                style={{ width: `${Math.min(95, (elapsed / 90) * 100)}%` }}
+              />
+            </div>
+            <p className="text-xs text-zinc-500">
+              {elapsed < 10 ? 'Fetching historical data…' : elapsed < 40 ? 'Simulating trades…' : elapsed < 70 ? 'Computing metrics…' : 'Almost done…'}
+            </p>
+          </div>
+        )}
         {mutation.isError && (
           <p className="text-red-400 text-sm mt-2">{mutation.error.message}</p>
         )}
@@ -398,6 +434,5 @@ export default function BacktestPage() {
         </>
       )}
     </div>
-    </AIModuleGate>
   )
 }

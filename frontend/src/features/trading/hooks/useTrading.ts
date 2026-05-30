@@ -1,7 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ROUTES, withAccount } from '../../../shared/routes'
 import { useAccount } from '../context/AccountContext'
+
+function notify(title: string, body: string) {
+  if (Notification.permission !== 'granted') return
+  if (document.visibilityState === 'visible') return
+  new Notification(title, { body, icon: '/favicon.svg' })
+}
 
 async function fetchSystemHealth() {
   const r = await fetch('/api/system/health')
@@ -80,12 +86,20 @@ export function useTrading() {
               const filtered = prev.filter((s) => s.symbol !== msg.payload.symbol)
               return [msg.payload, ...filtered]
             })
+            notify(
+              `${msg.payload.action} Signal: ${msg.payload.symbol}`,
+              msg.payload.reasoning || `${msg.payload.action} ${msg.payload.symbol}`,
+            )
             break
           case 'compliance_violation':
             setComplianceViolations((prev) => {
               const filtered = prev.filter((v) => v.symbol !== msg.payload.symbol)
               return [msg.payload, ...filtered]
             })
+            notify(
+              `Compliance: ${msg.payload.symbol}`,
+              msg.payload.reason || 'Status changed',
+            )
             break
         }
       } catch (e) {

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/App.tsx",
+    "src/router.ts",
+    "src/test/**/*.{ts,tsx}",
+    "src/**/*.test.{ts,tsx}",
+    "e2e/**/*.{ts,tsx}"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx}",
+    "e2e/**/*.{ts,tsx}"
+  ],
+  "ignoreDependencies": [
+    "tw-animate-css",
+    "@fontsource-variable/geist",
+    "shadcn"
+  ]
+}

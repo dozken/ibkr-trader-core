@@ -43,6 +43,10 @@ export const SOURCE_COLORS: Record<string, string> = {
   YahooFinance: 'bg-brand-primary/10 text-brand-primary border-brand-primary/20',
   FMP: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
   AlphaVantage: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20',
+  Manual: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+  Allowlist: 'bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20',
+  DataQuality: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20',
+  System: 'bg-gray-500/10 text-gray-500 dark:text-gray-400 border-gray-500/20',
 }
 
 export const verdictColor = (v: string) =>

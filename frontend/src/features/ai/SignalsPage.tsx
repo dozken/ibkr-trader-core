@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AIModuleGate } from './AIModuleGate'
+import toast from 'react-hot-toast'
 import {
   AlertTriangle,
   BrainCircuit,
@@ -577,8 +577,12 @@ const SignalRow: React.FC<{
       setResult(data)
       setError(null)
       queryClient.invalidateQueries({ queryKey: ['trades'] })
+      toast.success(`Signal for ${signal.symbol} approved`)
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => {
+      setError(e.message)
+      toast.error(e.message || `Failed to approve ${signal.symbol}`)
+    },
   })
 
   const actionable = signal.action !== 'HOLD'
@@ -922,15 +926,32 @@ const SignalsPage = () => {
         body: JSON.stringify({ watchlist: [...existing, symbol] }),
       })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      return r.json()
+      return { symbol, data: await r.json() }
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      if (res) {
+        toast.success(`${res.symbol} added to watchlist`)
+      }
+    },
+    onError: (e: Error) => {
+      toast.error(e.message || 'Failed to add symbol to watchlist')
+    },
   })
 
   const retrain = useMutation({
     mutationFn: () =>
       fetch(`${API_BASE}/api/ai/retrain`, { method: 'POST', headers: { 'X-API-Key': API_KEY } })
-        .then((r) => r.json()),
+        .then(async (r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`)
+          return r.json()
+        }),
+    onSuccess: () => {
+      toast.success('AI retraining initiated')
+    },
+    onError: (e: Error) => {
+      toast.error(e.message || 'Failed to initiate AI retraining')
+    },
   })
 
   const filtered = signals.filter((s) => s.confidence >= settings.signal_min_confidence)
@@ -1091,10 +1112,8 @@ import { ErrorBoundary } from '../../components/ErrorBoundary'
 
 export default function SignalsPageWithBoundary() {
   return (
-    <AIModuleGate pageTitle="Signals">
-      <ErrorBoundary title="AI Signals unavailable">
-        <SignalsPage />
-      </ErrorBoundary>
-    </AIModuleGate>
+    <ErrorBoundary title="AI Signals unavailable">
+      <SignalsPage />
+    </ErrorBoundary>
   )
 }

@@ -31,6 +31,7 @@ const ITEMS = [
   { label: 'Backtest', to: '/backtest', Icon: FlaskConical, keywords: 'portfolio backtest simulate history' },
   { label: 'Signal Quality', to: '/signal-quality', Icon: TrendingUp, keywords: 'accuracy win rate outcomes' },
   { label: 'Signal Log', to: '/signal-log', Icon: History, keywords: 'signal history log ai' },
+  { label: 'Growth Projection', to: '/growth', Icon: TrendingUp, keywords: 'growth projection compound calculator future' },
   { label: 'Zakat', to: '/zakat', Icon: Coins, keywords: 'purification zakat hawl charity' },
   { label: 'Accounts', to: '/accounts', Icon: Server, keywords: 'ibkr account paper live' },
   { label: 'Guide', to: '/faq', Icon: BookOpen, keywords: 'faq help shariah halal guide' },

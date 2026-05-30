@@ -1,16 +1,19 @@
 {
   "name": "IBKR Shariah Trader",
   "short_name": "IBKR Trader",
-  "description": "Trading bot for IBKR with Shariah compliance checks.",
+  "description": "Shariah-compliant IBKR trading with AI signals and compliance screening.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#000000",
+  "orientation": "any",
+  "background_color": "#0a0a0f",
+  "theme_color": "#6366f1",
+  "categories": ["finance"],
   "icons": [
     {
       "src": "/favicon.svg",
       "sizes": "any",
-      "type": "image/svg+xml"
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ]
 }

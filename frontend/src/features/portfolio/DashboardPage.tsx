@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Briefcase,
   CheckCircle2,
+  Download,
   Globe,
   RefreshCw,
   ScanSearch,
@@ -36,6 +37,15 @@ import { Page, PageHeader, PageSection, CardGrid, ActionRow, InfoRow, Stack } fr
 import { Text, Eyebrow } from '@/components/ui/text'
 import { Abbr, InfoTip, TextTip, Tooltip as AppTooltip } from '../../components/Tooltip'
 import { API_KEY, ROUTES, withAccount } from '../../shared/routes'
+import {
+  PortfolioValueSchema,
+  PortfolioSummarySchema,
+  PnLSummarySchema,
+  PositionSchema,
+  HistorySnapshotSchema,
+  validatedFetch,
+  validatedFetchArray,
+} from '../../shared/schemas'
 import { useAccount } from '../trading/context/AccountContext'
 import {
   type ComplianceResult,
@@ -154,9 +164,14 @@ const relativeTime = (iso: string | null) => {
   return `${days}d ago`
 }
 
-const ComplianceDetail: React.FC<{ result: ComplianceResult; colSpan: number }> = ({
+const ComplianceDetail: React.FC<{
+  result: ComplianceResult
+  colSpan: number
+  onVerify?: (symbol: string) => void
+}> = ({
   result,
   colSpan,
+  onVerify,
 }) => {
   const debtPass = result.debt_to_mkt_cap < 0.33
   const cashPass = result.cash_to_mkt_cap < 0.33
@@ -248,6 +263,17 @@ const ComplianceDetail: React.FC<{ result: ComplianceResult; colSpan: number }> 
               <XCircle size={13} className="shrink-0 mt-0.5" />
               <span>{result.reason}</span>
             </div>
+          )}
+
+          {/* Manual verify button */}
+          {result.verdict !== 'COMPLIANT' && onVerify && (
+            <button
+              onClick={() => onVerify(result.symbol)}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-brand-primary/30 bg-brand-primary/5 hover:bg-brand-primary/10 text-xs font-bold text-brand-primary transition-colors"
+            >
+              <ShieldCheck size={14} />
+              Mark as Halal (90 days)
+            </button>
           )}
         </div>
       </td>
@@ -585,7 +611,7 @@ const Sparkline: React.FC<{ data: number[]; positive: boolean; w?: number; h?: n
   )
 }
 
-export type PortfolioSummary = {
+type PortfolioSummary = {
   connected: boolean
   account_type: 'PAPER' | 'LIVE'
   total_value: number | null
@@ -605,18 +631,18 @@ export type PortfolioSummary = {
   purify_label: string | null
 }
 
-const SimplePortfolioSummary: React.FC<{ summary: PortfolioSummary }> = ({ summary }) => {
+const SimplePortfolioSummary: React.FC<{ summary: PortfolioSummary; historyValues?: number[] }> = ({ summary, historyValues }) => {
   const value = summary.total_value ?? 0
   const cashAvailable = summary.cash_available ?? 0
   const costBasis = summary.cost_basis ?? 0
   const unrealizedPnl = summary.unrealized_pnl ?? 0
   const returnPct = summary.return_pct ?? 0
-  const purity = summary.purity
+  const purity = summary.purity ?? null
   const purificationDue = summary.purification_due ?? 0
-  const compliancePct = summary.compliance_pct
+  const compliancePct = summary.compliance_pct ?? null
   const zakatEstimate = summary.zakat_estimate ?? 0
-  const sectorCount = summary.sector_count
-  const maxImpure = summary.max_impure_revenue_pct
+  const sectorCount = summary.sector_count ?? null
+  const maxImpure = summary.max_impure_revenue_pct ?? null
 
   const pnlPositive = unrealizedPnl >= 0
   const accentColor = pnlPositive ? 'rgba(34,197,94,0.07)' : 'rgba(239,68,68,0.07)'
@@ -657,6 +683,9 @@ const SimplePortfolioSummary: React.FC<{ summary: PortfolioSummary }> = ({ summa
         <p className="t-eyebrow !tracking-[0.25em] mb-3">Total Portfolio</p>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="t-hero leading-none">{formatUSD(value)}</span>
+          {historyValues && historyValues.length >= 2 && (
+            <Sparkline data={historyValues} positive={pnlPositive} w={80} h={28} />
+          )}
           <TextTip text="Unrealized gain or loss on open positions vs. what you paid for them.">
             <span className={`inline-flex items-center gap-1.5 text-sm font-bold px-3 py-1.5 rounded-xl leading-none ${
               pnlPositive ? 'bg-brand-success/12 text-brand-success border border-brand-success/20' : 'bg-brand-danger/12 text-brand-danger border border-brand-danger/20'
@@ -992,6 +1021,26 @@ const Dashboard = () => {
   const [dismissedOnboarding, setDismissedOnboarding] = useState(() => localStorage.getItem('onboarding_dismissed') === '1')
   const { selectedAccountId } = useAccount()
 
+  const handleManualVerify = async (symbol: string) => {
+    try {
+      const res = await fetch(ROUTES.COMPLIANCE_MANUAL_VERIFY, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, source: 'Zoya App', note: `Verified via UI ${new Date().toISOString().slice(0, 10)}` }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      toast.success(`${symbol} marked as halal (90 days)`)
+      // Re-screen to update DB record
+      const screenRes = await fetch(ROUTES.COMPLIANCE_SCREEN(symbol))
+      if (screenRes.ok) {
+        const updated = await screenRes.json()
+        setComplianceResults((prev) => ({ ...prev, [symbol]: { ...updated, last_checked: new Date().toISOString() } }))
+      }
+    } catch (e: any) {
+      toast.error(`Failed: ${e.message}`)
+    }
+  }
+
   const { data: settingsData } = useQuery<{ trading_paused?: boolean; watchlist?: string[]; auto_compliance_check?: boolean }>({
     queryKey: ['settings-paused', selectedAccountId],
     queryFn: () => fetch(withAccount(ROUTES.SETTINGS, selectedAccountId)).then((r) => r.json()),
@@ -1020,25 +1069,25 @@ const Dashboard = () => {
     isLoading: portfolioLoading,
   } = useQuery<PortfolioValue>({
     queryKey: ['portfolio-value', selectedAccountId],
-    queryFn: () => fetch(withAccount(ROUTES.PORTFOLIO_VALUE, selectedAccountId)).then((r) => r.json()),
+    queryFn: () => validatedFetch(withAccount(ROUTES.PORTFOLIO_VALUE, selectedAccountId), PortfolioValueSchema),
     refetchInterval: 60_000,
   })
 
   const { data: positions = [] } = useQuery<Position[]>({
     queryKey: ['positions', selectedAccountId],
-    queryFn: () => fetch(withAccount(ROUTES.PORTFOLIO_POSITIONS, selectedAccountId)).then((r) => r.json()),
+    queryFn: () => validatedFetchArray(withAccount(ROUTES.PORTFOLIO_POSITIONS, selectedAccountId), PositionSchema),
     refetchInterval: 60_000,
   })
 
   const { data: pnlSummary, isLoading: pnlLoading } = useQuery<PnLSummary>({
     queryKey: ['portfolio-pnl', selectedAccountId],
-    queryFn: () => fetch(withAccount(ROUTES.PORTFOLIO_PNL, selectedAccountId)).then((r) => r.json()),
+    queryFn: () => validatedFetch(withAccount(ROUTES.PORTFOLIO_PNL, selectedAccountId), PnLSummarySchema),
     refetchInterval: 60_000,
   })
 
   const { data: portfolioSummary } = useQuery<PortfolioSummary>({
     queryKey: ['portfolio-summary', selectedAccountId],
-    queryFn: () => fetch(withAccount(ROUTES.PORTFOLIO_SUMMARY, selectedAccountId)).then((r) => r.json()),
+    queryFn: () => validatedFetch(withAccount(ROUTES.PORTFOLIO_SUMMARY, selectedAccountId), PortfolioSummarySchema),
     refetchInterval: 60_000,
   })
 
@@ -1068,7 +1117,7 @@ const Dashboard = () => {
       const url = historyDays === 'all'
         ? withAccount(ROUTES.PORTFOLIO_HISTORY, selectedAccountId)
         : withAccount(`${ROUTES.PORTFOLIO_HISTORY}?days=${historyDays}`, selectedAccountId)
-      return fetch(url).then((r) => r.json())
+      return validatedFetchArray(url, HistorySnapshotSchema)
     },
     refetchInterval: 300_000,
   })
@@ -1180,6 +1229,56 @@ const Dashboard = () => {
     },
   })
 
+  const batchSellMutation = useMutation({
+    mutationFn: (symbols: string[]) =>
+      fetch(ROUTES.TRADES_BATCH_SELL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Api-Key': API_KEY },
+        body: JSON.stringify({ symbols, account_id: selectedAccountId }),
+      }).then(async (r) => {
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}))
+          throw new Error(err.detail ?? `HTTP ${r.status}`)
+        }
+        return r.json()
+      }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['positions'] })
+      qc.invalidateQueries({ queryKey: ['portfolio-pnl'] })
+      setSelected(new Set())
+      if (data.sold.length) toast.success(`Sold ${data.sold.join(', ')}`)
+      if (data.skipped.length) toast.error(`Failed: ${data.skipped.map((s: any) => s.symbol).join(', ')}`)
+    },
+    onError: (e: Error) => {
+      toast.error(e.message || 'Batch sell failed')
+    },
+  })
+
+  const exportCSV = () => {
+    const rows = positions.map((p) => {
+      const pnlEntry = pnlSummary?.positions.find((pp) => pp.symbol === p.symbol)
+      return [
+        p.symbol,
+        p.quantity,
+        p.avg_cost.toFixed(2),
+        (p.market_value ?? 0).toFixed(2),
+        (p.unrealized_pnl ?? 0).toFixed(2),
+        (pnlEntry?.realized_pnl ?? 0).toFixed(2),
+        (pnlEntry?.halal_pnl ?? 0).toFixed(2),
+        complianceResults[p.symbol]?.verdict ?? '',
+      ].join(',')
+    })
+    const csv = ['Symbol,Quantity,AvgCost,MarketValue,UnrealizedPnL,RealizedPnL,HalalPnL,Compliance', ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `positions_${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success('Positions exported to CSV')
+  }
+
   // Load stored compliance results from DB on mount
   useEffect(() => {
     fetch(ROUTES.COMPLIANCE_POSITIONS)
@@ -1202,8 +1301,16 @@ const Dashboard = () => {
     return () => clearTimeout(t)
   }, [tickerUpdates])
 
-  const totalMarketValue = positions.reduce((s, p) => s + (p.market_value ?? 0), 0)
-  const totalPnl = positions.reduce((s, p) => s + (p.unrealized_pnl ?? 0), 0)
+  const totalMarketValue = positions.reduce((s, p) => {
+    const tick = tickerUpdates[p.symbol]
+    const lp = tick?.last && !isNaN(tick.last) ? tick.last : null
+    return s + (lp != null ? lp * p.quantity : (p.market_value ?? p.quantity * p.avg_cost))
+  }, 0)
+  const totalPnl = positions.reduce((s, p) => {
+    const tick = tickerUpdates[p.symbol]
+    const lp = tick?.last && !isNaN(tick.last) ? tick.last : null
+    return s + (lp != null ? (lp - p.avg_cost) * p.quantity : (p.unrealized_pnl ?? 0))
+  }, 0)
   const totalCostBasis = positions.reduce((s, p) => s + p.quantity * p.avg_cost, 0)
   const returnPct = totalCostBasis > 0 ? (totalPnl / totalCostBasis) * 100 : 0
   const portfolioValue = portfolio.available_funds
@@ -1328,8 +1435,10 @@ const Dashboard = () => {
         // Only flag positions actually held — ignore stale screenings for symbols no longer in portfolio
         const heldSymbols = new Set(positions.map(p => p.symbol))
         const nonCompliant = Object.entries(complianceResults)
-          .filter(([sym, r]) => heldSymbols.has(sym) && !r.is_compliant)
-        const hasError = nonCompliant.length > 0
+          .filter(([sym, r]) => heldSymbols.has(sym) && !r.is_compliant && r.verdict !== 'UNKNOWN')
+        const unknown = Object.entries(complianceResults)
+          .filter(([sym, r]) => heldSymbols.has(sym) && r.verdict === 'UNKNOWN')
+        const unscreened = positions.filter(p => !complianceResults[p.symbol])
         const purificationDue = (pnlSummary?.total_purification_cost ?? 0) > 0
         const posCount = positions.length
 
@@ -1340,7 +1449,7 @@ const Dashboard = () => {
             <span className="text-brand-light/60">Start IBKR TWS or Gateway, then refresh.</span>
           </div>
         )
-        if (hasError) return (
+        if (nonCompliant.length > 0) return (
           <a
             href="#positions-table"
             className="mb-4 flex items-center gap-3 rounded-lg border border-brand-danger/40 bg-brand-danger/5 hover:bg-brand-danger/10 hover:border-brand-danger/60 px-4 py-3 text-sm transition-colors group"
@@ -1349,6 +1458,20 @@ const Dashboard = () => {
             <span className="text-brand-danger font-medium">{nonCompliant.length} position{nonCompliant.length > 1 ? 's' : ''} flagged as non-Halal.</span>
             <span className="text-brand-light/60 flex-1">Review the compliance column below and consider selling.</span>
             <span className="text-brand-danger/80 text-xs font-bold uppercase tracking-wider flex items-center gap-1 shrink-0">
+              Jump to positions
+              <span className="group-hover:translate-x-0.5 transition-transform">→</span>
+            </span>
+          </a>
+        )
+        if (unknown.length > 0 || unscreened.length > 0) return (
+          <a
+            href="#positions-table"
+            className="mb-4 flex items-center gap-3 rounded-lg border border-brand-warning/40 bg-brand-warning/5 hover:bg-brand-warning/10 hover:border-brand-warning/60 px-4 py-3 text-sm transition-colors group"
+          >
+            <span className="text-xl">🔍</span>
+            <span className="text-brand-warning font-medium">{unknown.length + unscreened.length} position{unknown.length + unscreened.length > 1 ? 's' : ''} not yet screened.</span>
+            <span className="text-brand-light/60 flex-1">Compliance data pending — run screening or verify manually.</span>
+            <span className="text-brand-warning/80 text-xs font-bold uppercase tracking-wider flex items-center gap-1 shrink-0">
               Jump to positions
               <span className="group-hover:translate-x-0.5 transition-transform">→</span>
             </span>
@@ -1563,12 +1686,53 @@ const Dashboard = () => {
         </div>
       )}
 
-      <SimplePortfolioSummary summary={portfolioSummary ?? summaryFallback} />
+      <SimplePortfolioSummary
+        summary={portfolioSummary ?? summaryFallback}
+        historyValues={history.length >= 2 ? history.map((h) => h.total_value) : undefined}
+      />
+
+      {/* Growth Projection Mini Card */}
+      {(portfolioSummary?.total_value ?? 0) > 0 && (() => {
+        const v = portfolioSummary!.total_value!
+        const proj = (rate: number, years: number) => Math.round(v * Math.pow(1 + rate, years))
+        return (
+          <Link to="/growth" className="card p-0 mb-6 overflow-hidden hover:border-brand-primary/30 transition-colors group block">
+            <div className="px-5 py-4 flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-brand-primary/10 border border-brand-primary/20">
+                  <TrendingUp size={16} className="text-brand-primary" />
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-light/50">Growth Projection</p>
+                  <p className="text-xs text-brand-light/60">Compound growth at different rates</p>
+                </div>
+              </div>
+              <div className="flex gap-6 items-center">
+                {([
+                  { label: '1Y', years: 1 },
+                  { label: '3Y', years: 3 },
+                  { label: '5Y', years: 5 },
+                  { label: '10Y', years: 10 },
+                ] as const).map(({ label, years }) => (
+                  <div key={label} className="text-center">
+                    <p className="text-[10px] text-brand-light/40 font-bold">{label}</p>
+                    <p className="text-sm font-bold font-mono text-brand-light">{formatUSD(proj(0.15, years), true)}</p>
+                    <p className="text-[10px] font-mono text-brand-success">+{((Math.pow(1.15, years) - 1) * 100).toFixed(0)}%</p>
+                  </div>
+                ))}
+                <span className="text-brand-primary/60 group-hover:text-brand-primary text-xs font-bold transition-colors">
+                  Calculator →
+                </span>
+              </div>
+            </div>
+          </Link>
+        )
+      })()}
 
       <GlobalMarketsPanel />
 
       {/* ── Readiness strip ── */}
-      {readiness && readiness.blockers.length > 0 && (
+      {readiness && readiness.blockers.length > 0 && portfolio?.account_type !== 'LIVE' && (
         <div className="mb-4 rounded-lg border border-brand-warning/40 bg-brand-warning/10 px-4 py-3">
           <div className="flex items-start gap-2">
             <AlertTriangle size={14} className="text-brand-warning mt-0.5 shrink-0" />
@@ -1689,20 +1853,48 @@ const Dashboard = () => {
               </div>
             )}
             {selected.size > 0 && (
-              <Button
-                size="sm"
-                onClick={() => checkCompliance(Array.from(selected))}
-                disabled={isChecking}
-                className="text-xs flex items-center gap-1.5"
-              >
-                {isChecking ? (
-                  <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <ScanSearch size={13} />
-                )}
-                Screen {selected.size} position{selected.size !== 1 ? 's' : ''}
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  onClick={() => checkCompliance(Array.from(selected))}
+                  disabled={isChecking}
+                  className="text-xs flex items-center gap-1.5"
+                >
+                  {isChecking ? (
+                    <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <ScanSearch size={13} />
+                  )}
+                  Screen {selected.size}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => {
+                    if (confirm(`Sell ${selected.size} position${selected.size !== 1 ? 's' : ''} at market price?`)) {
+                      batchSellMutation.mutate(Array.from(selected))
+                    }
+                  }}
+                  disabled={batchSellMutation.isPending}
+                  className="text-xs flex items-center gap-1.5"
+                >
+                  {batchSellMutation.isPending
+                    ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    : <XCircle size={13} />}
+                  Sell {selected.size}
+                </Button>
+              </>
             )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={exportCSV}
+              disabled={positions.length === 0}
+              className="text-xs flex items-center gap-1.5 border-brand-divider"
+            >
+              <Download size={13} />
+              Export CSV
+            </Button>
           </ActionRow>
         </div>
         {/* Mobile position cards */}
@@ -1925,7 +2117,7 @@ const Dashboard = () => {
                       </td>
                     </tr>
                     {isExpanded && compliance && (
-                      <ComplianceDetail result={compliance} colSpan={colCount} />
+                      <ComplianceDetail result={compliance} colSpan={colCount} onVerify={handleManualVerify} />
                     )}
                   </React.Fragment>
                 )

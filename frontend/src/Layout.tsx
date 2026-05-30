@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, Outlet, useRouterState } from '@tanstack/react-router'
 import {
+  Bell,
+  BellOff,
   BrainCircuit,
   ClipboardList,
   Coins,
@@ -16,7 +18,7 @@ import { Toaster } from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
 import CommandPalette from './components/CommandPalette'
 import { Logo } from './components/Logo'
-import { ROUTES } from './shared/routes'
+import { ROUTES, withAccount } from './shared/routes'
 import { useAccount } from './features/trading/context/AccountContext'
 
 interface PortfolioValue {
@@ -57,8 +59,8 @@ export default function Layout() {
   const { selectedAccountId, setSelectedAccountId } = useAccount()
 
   const { data: portfolio } = useQuery<PortfolioValue>({
-    queryKey: ['portfolio-value'],
-    queryFn: () => fetch(ROUTES.PORTFOLIO_VALUE).then((r) => r.json()),
+    queryKey: ['portfolio-value', selectedAccountId],
+    queryFn: () => fetch(withAccount(ROUTES.PORTFOLIO_VALUE, selectedAccountId)).then((r) => r.json()),
     refetchInterval: 60_000,
   })
 
@@ -120,6 +122,7 @@ export default function Layout() {
       p.startsWith('/signal-quality') ? 'Signal Quality' :
       p.startsWith('/signal-log') ? 'Signal Log' :
       p.startsWith('/scanner') ? 'Scanner' :
+      p.startsWith('/growth') ? 'Growth' :
       p.startsWith('/faq') ? 'Guide' : 'App'
       
     document.title = `${routeName} - IBKR Shariah`
@@ -135,11 +138,9 @@ export default function Layout() {
             <h2 className="text-brand-light font-bold text-sm sm:text-base tracking-tight whitespace-nowrap leading-none">
               IBKR <span className="text-brand-primary">Shariah</span>
             </h2>
-            {portfolio?.account_type === 'PAPER' && (
-              <span className="text-[8px] sm:text-[9px] font-black text-brand-warning uppercase tracking-tighter mt-0.5 sm:mt-1 leading-none">
-                Paper Trading
-              </span>
-            )}
+            <span className={`text-[8px] sm:text-[9px] font-black uppercase tracking-tighter mt-0.5 sm:mt-1 leading-none ${portfolio?.account_type === 'LIVE' ? 'text-brand-success' : 'text-brand-warning'}`}>
+              {portfolio?.account_type === 'LIVE' ? 'Live Trading' : 'Paper Trading'}
+            </span>
           </div>
         </div>
 
@@ -185,7 +186,7 @@ export default function Layout() {
             <select
               value={selectedAccountId ?? ''}
               onChange={(e) => setSelectedAccountId(e.target.value ? Number(e.target.value) : null)}
-              className="text-[11px] bg-brand-elevated border border-brand-divider text-brand-light rounded-md px-2 py-1 cursor-pointer focus:outline-none focus:border-brand-primary"
+              className="text-xs font-semibold bg-brand-elevated border-2 border-brand-primary/40 text-brand-light rounded-lg px-3 py-1.5 cursor-pointer focus:outline-none focus:border-brand-primary shadow-sm"
               title="Switch account"
             >
               <option value="">All accounts</option>
@@ -196,6 +197,20 @@ export default function Layout() {
               ))}
             </select>
           )}
+
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={async () => {
+              if (!('Notification' in window)) return
+              if (Notification.permission === 'granted') return
+              await Notification.requestPermission()
+            }}
+            className="text-brand-light/70 hover:text-brand-light transition-all"
+            title={typeof Notification !== 'undefined' && Notification.permission === 'granted' ? 'Notifications enabled' : 'Enable notifications'}
+          >
+            {typeof Notification !== 'undefined' && Notification.permission === 'granted' ? <Bell size={18} /> : <BellOff size={18} />}
+          </Button>
 
           <Button
             variant="ghost"

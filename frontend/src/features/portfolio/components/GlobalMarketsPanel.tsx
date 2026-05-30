@@ -20,6 +20,7 @@ interface RegionMarket {
   timezone: string
   local_time: string
   is_open: boolean
+  is_holiday: boolean
   sessions: string[]
   utc_sessions: UtcSession[]
   symbol_count: number
@@ -135,7 +136,9 @@ function Timeline({ regions, utcNow }: { regions: RegionMarket[]; utcNow: number
                           className={`absolute top-1/2 -translate-y-1/2 h-2 rounded-sm transition-all cursor-pointer ${
                             r.is_open
                               ? 'bg-brand-success/70 shadow-[0_0_8px_rgba(45,212,191,0.4)] hover:bg-brand-success hover:h-3'
-                              : 'bg-brand-light/15 hover:bg-brand-light/40 hover:h-3'
+                              : r.is_holiday
+                                ? 'bg-amber-500/30 hover:bg-amber-500/60 hover:h-3'
+                                : 'bg-brand-light/15 hover:bg-brand-light/40 hover:h-3'
                           }`}
                           style={{
                             left: `${(o / 24) * 100}%`,
@@ -172,9 +175,13 @@ function Timeline({ regions, utcNow }: { regions: RegionMarket[]; utcNow: number
             <span className="text-base leading-none">{REGION_FLAGS[hover.region.region] ?? '🌐'}</span>
             <span className="text-xs font-bold text-brand-light">{REGION_NAMES[hover.region.region]}</span>
             <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
-              hover.region.is_open ? 'bg-brand-success/20 text-brand-success' : 'bg-brand-light/10 text-brand-light/50'
+              hover.region.is_open
+                ? 'bg-brand-success/20 text-brand-success'
+                : hover.region.is_holiday
+                  ? 'bg-amber-500/20 text-amber-400'
+                  : 'bg-brand-light/10 text-brand-light/50'
             }`}>
-              {hover.region.is_open ? 'OPEN' : 'CLOSED'}
+              {hover.region.is_open ? 'OPEN' : hover.region.is_holiday ? 'HOLIDAY' : 'CLOSED'}
             </span>
           </div>
           <div className="text-[10px] text-brand-light/70 t-num space-y-0.5">

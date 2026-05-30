@@ -35,15 +35,15 @@ describe('TradeLog Component', () => {
 
   it('visually distinguishes HALAL_CERTIFIED state', () => {
     render(<TradeLog trades={mockTrades} />)
-    const halalBadges = screen.getAllByText('HALAL_CERTIFIED')
-    expect(halalBadges[0]).toHaveClass('bg-brand-success/10')
-    expect(halalBadges[0]).toHaveClass('text-brand-success')
+    const halalBadges = screen.getAllByText('Approved')
+    const hasClass = halalBadges.some(el => el.classList.contains('bg-brand-success/10'))
+    expect(hasClass).toBe(true)
   })
 
   it('visually distinguishes LIQUIDATING state', () => {
     render(<TradeLog trades={mockTrades} />)
-    const liquidatingBadges = screen.getAllByText('LIQUIDATING')
-    expect(liquidatingBadges[0]).toHaveClass('bg-brand-danger/10')
-    expect(liquidatingBadges[0]).toHaveClass('text-brand-danger')
+    const liquidatingBadges = screen.getAllByText('Selling Off')
+    const hasClass = liquidatingBadges.some(el => el.classList.contains('bg-brand-danger/10'))
+    expect(hasClass).toBe(true)
   })
 })

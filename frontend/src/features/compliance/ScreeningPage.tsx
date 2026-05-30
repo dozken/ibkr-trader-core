@@ -11,10 +11,13 @@ import {
   ShieldAlert,
   ShieldCheck,
   ShieldQuestion,
+  Trash2,
+  UserCheck,
   XCircle,
 } from 'lucide-react'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
 import { Page, PageHeader, PageSection, CardGrid, ActionRow, InfoRow, Stack } from '@/components/ui/layout'
 import { Input } from '@/components/ui/input'
@@ -28,6 +31,16 @@ import {
   type SourceDetail,
   verdictColor,
 } from './components'
+
+interface ManualEntry {
+  status: string
+  source: string
+  note: string
+  verified_at: string
+  expires_at: string
+  expired: boolean
+  days_remaining: number
+}
 
 const SourceBadges: React.FC<{ sources: SourceDetail[] }> = ({ sources }) => (
   <div className="flex flex-wrap gap-1.5">
@@ -141,6 +154,47 @@ const ScreeningPage = () => {
     left: number
     width: number
   } | null>(null)
+  const [manualEntries, setManualEntries] = useState<Record<string, ManualEntry>>({})
+  const [verifying, setVerifying] = useState(false)
+
+  const loadManualVerifications = useCallback(() => {
+    fetch(ROUTES.COMPLIANCE_MANUAL_VERIFICATIONS)
+      .then((r) => (r.ok ? r.json() : {}))
+      .then(setManualEntries)
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => { loadManualVerifications() }, [loadManualVerifications])
+
+  const handleManualVerify = async (symbol: string) => {
+    setVerifying(true)
+    try {
+      const res = await fetch(ROUTES.COMPLIANCE_MANUAL_VERIFY, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, source: 'Zoya App', note: `Verified via UI ${new Date().toISOString().slice(0, 10)}` }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      toast.success(`${symbol} marked as halal (90 days)`)
+      loadManualVerifications()
+      if (result?.symbol === symbol) screen(symbol)
+    } catch (e: any) {
+      toast.error(`Failed: ${e.message}`)
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  const handleUnverify = async (symbol: string) => {
+    try {
+      const res = await fetch(ROUTES.COMPLIANCE_MANUAL_UNVERIFY(symbol), { method: 'DELETE' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      toast.success(`${symbol} verification removed`)
+      loadManualVerifications()
+    } catch (e: any) {
+      toast.error(`Failed: ${e.message}`)
+    }
+  }
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -511,9 +565,128 @@ const ScreeningPage = () => {
                 <span className="font-medium leading-relaxed">{result.reason}</span>
               </div>
             )}
+
+            {/* Manual verify action */}
+            {result.verdict !== 'COMPLIANT' && (
+              <div className="flex items-center gap-3 p-4 rounded-xl border border-brand-divider bg-brand-elevated/40">
+                <UserCheck size={18} className="text-brand-primary shrink-0" />
+                <div className="flex-1">
+                  <p className="text-xs font-bold text-brand-light">Verified halal externally?</p>
+                  <p className="text-[10px] text-brand-light/60">Mark as compliant for 90 days if you checked via Zoya, Islamicly, or a scholar.</p>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => handleManualVerify(result.symbol)}
+                  disabled={verifying}
+                  className="shrink-0"
+                >
+                  {verifying ? <Loader size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                  Mark Halal
+                </Button>
+              </div>
+            )}
+            {result.verdict === 'COMPLIANT' && result.data_source?.startsWith('Manual') && (
+              <div className="flex items-center gap-3 p-4 rounded-xl border border-brand-success/20 bg-brand-success/5">
+                <UserCheck size={18} className="text-brand-success shrink-0" />
+                <div className="flex-1">
+                  <p className="text-xs font-bold text-brand-success">Manually verified</p>
+                  <p className="text-[10px] text-brand-light/60">
+                    {manualEntries[result.symbol]
+                      ? `Expires ${manualEntries[result.symbol].expires_at} (${manualEntries[result.symbol].days_remaining}d remaining)`
+                      : 'Verified via external source'}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleUnverify(result.symbol)}
+                  className="text-brand-danger/70 hover:text-brand-danger shrink-0"
+                >
+                  <Trash2 size={14} />
+                  Remove
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </PageSection>
+
+      {/* Manual Verifications Table */}
+      {Object.keys(manualEntries).length > 0 && (
+        <PageSection className="card p-5 sm:p-6">
+          <h2 className="heading-2 mb-4 flex items-center gap-2">
+            <UserCheck size={20} className="text-brand-success" />
+            Manual Verifications
+            <span className="text-xs font-normal text-brand-light/50 ml-1">
+              ({Object.keys(manualEntries).length})
+            </span>
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-brand-light/50 uppercase tracking-wider text-[10px] border-b border-brand-divider/40">
+                  <th className="pb-2 pr-4">Symbol</th>
+                  <th className="pb-2 pr-4">Source</th>
+                  <th className="pb-2 pr-4">Verified</th>
+                  <th className="pb-2 pr-4">Expires</th>
+                  <th className="pb-2 pr-4">Status</th>
+                  <th className="pb-2 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(manualEntries)
+                  .sort(([, a], [, b]) => a.days_remaining - b.days_remaining)
+                  .map(([sym, entry]) => (
+                    <tr key={sym} className="border-b border-brand-divider/20 hover:bg-brand-elevated/30 transition-colors">
+                      <td className="py-2.5 pr-4">
+                        <button
+                          className="font-mono font-bold text-brand-primary hover:underline cursor-pointer"
+                          onClick={() => { setQuery(sym); screen(sym) }}
+                        >
+                          {sym}
+                        </button>
+                      </td>
+                      <td className="py-2.5 pr-4 text-brand-light/70">{entry.source}</td>
+                      <td className="py-2.5 pr-4 text-brand-light/70">{entry.verified_at}</td>
+                      <td className="py-2.5 pr-4 text-brand-light/70">{entry.expires_at}</td>
+                      <td className="py-2.5 pr-4">
+                        {entry.expired ? (
+                          <span className="text-brand-danger font-bold">Expired</span>
+                        ) : entry.days_remaining <= 14 ? (
+                          <span className="text-brand-warning font-bold">{entry.days_remaining}d left</span>
+                        ) : (
+                          <span className="text-brand-success font-bold">{entry.days_remaining}d left</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => handleManualVerify(sym)}
+                            className="text-brand-primary/70 hover:text-brand-primary h-6 px-1.5"
+                            title="Renew verification"
+                          >
+                            <CheckCircle2 size={13} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => handleUnverify(sym)}
+                            className="text-brand-danger/50 hover:text-brand-danger h-6 px-1.5"
+                            title="Remove verification"
+                          >
+                            <Trash2 size={13} />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </PageSection>
+      )}
     </Page>
   )
 }

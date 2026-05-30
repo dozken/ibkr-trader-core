@@ -1,5 +1,6 @@
 import { ErrorBoundary } from '../../components/ErrorBoundary'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import { AlertCircle, Coins, ExternalLink, Heart, Info, RefreshCw, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -185,8 +186,11 @@ function ZakatPage() {
           purification_amount: row.purification,
           donation_receipt_link: row.receipt || null,
         }),
-      }).then((r) => {
-        if (!r.ok) throw new Error('Failed')
+      }).then(async (r) => {
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}))
+          throw new Error(body.detail || 'Failed to record purification donation')
+        }
         return r.json()
       }),
     onSuccess: (_data, vars) => {
@@ -203,6 +207,10 @@ function ZakatPage() {
         return n
       })
       setRecordingSymbol(null)
+      toast.success(`Purification of ${vars.symbol} recorded successfully`)
+    },
+    onError: (e: Error) => {
+      toast.error(e.message || 'Failed to record purification donation')
     },
   })
 
@@ -229,9 +237,19 @@ function ZakatPage() {
 
   const hawlResetMutation = useMutation({
     mutationFn: () =>
-      fetch(ROUTES.ZAKAT_HAWL_RESET, { method: 'POST' }).then((r) => r.json()),
+      fetch(ROUTES.ZAKAT_HAWL_RESET, { method: 'POST' }).then(async (r) => {
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}))
+          throw new Error(body.detail || 'Failed to reset Hawl period')
+        }
+        return r.json()
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['zakat-hawl'] })
+      toast.success('Zakat Hawl period reset successfully')
+    },
+    onError: (e: Error) => {
+      toast.error(e.message || 'Failed to reset Zakat Hawl')
     },
   })
 

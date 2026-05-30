@@ -116,7 +116,7 @@ export const TextTip: React.FC<{
 
 // ── Abbreviation dictionary ───────────────────────────────────────────────────
 
-export const ABBR: Record<string, string> = {
+const ABBR: Record<string, string> = {
   // Organisations & indices
   AAOIFI:
     'Accounting and Auditing Organisation for Islamic Financial Institutions — the international standard-setter for Islamic finance, founded in Bahrain (1990). Over 60 countries adopt its standards.',

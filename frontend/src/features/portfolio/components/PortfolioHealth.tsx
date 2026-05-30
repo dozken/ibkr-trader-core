@@ -1,9 +1,11 @@
+import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { Activity, Coins, Heart, PieChart } from 'lucide-react'
 import type React from 'react'
 import type { ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Text, Eyebrow } from '@/components/ui/text'
+import { ROUTES, API_KEY } from '../../../shared/routes'
 import type { ComplianceSnapshot } from '../../../shared/types/trade'
 
 interface PortfolioHealthProps {
@@ -76,7 +78,22 @@ const PortfolioHealth: React.FC<PortfolioHealthProps> = ({ audits, portfolioValu
   }))
   const compliantCount = source.filter((a) => a.is_compliant).length
   const compliancePct = source.length > 0 ? (compliantCount / source.length) * 100 : null
-  const zakatEstimate = portfolioValue * 0.025
+
+  const { data: zakatData } = useQuery({
+    queryKey: ['zakat-estimate', portfolioValue, API_KEY],
+    queryFn: async () => {
+      const res = await fetch(ROUTES.ZAKAT_CALCULATE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(API_KEY ? { 'X-API-Key': API_KEY } : {}) },
+        body: JSON.stringify({ zakatable_assets_value: portfolioValue }),
+      })
+      if (!res.ok) return null
+      return res.json() as Promise<{ zakat_due: number; below_nisab: boolean; nisab: number }>
+    },
+    enabled: portfolioValue > 0,
+    staleTime: 5 * 60 * 1000,
+  })
+
   const sectors = Array.from(new Set(source.map((a) => a.sector.split('/')[0].trim())))
   const maxImpurePct = source.length > 0 ? Math.max(...source.map((a) => a.impure_revenue_pct)) : 0
 
@@ -98,17 +115,19 @@ const PortfolioHealth: React.FC<PortfolioHealthProps> = ({ audits, portfolioValu
       <HealthCard
         icon={<Coins className="text-brand-accent" size={20} />}
         iconTone="accent"
-        badge={<Eyebrow>Est. 2.5%</Eyebrow>}
+        badge={zakatData && !zakatData.below_nisab ? <Eyebrow>Est. 2.5%</Eyebrow> : undefined}
         label="Zakat Liability"
         value={
-          <>
-            ${zakatEstimate.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-            <span className="text-sm font-normal opacity-60 ml-1 t-num">
-              .{(zakatEstimate % 1).toFixed(2).slice(2)}
-            </span>
-          </>
+          !zakatData || zakatData.below_nisab
+            ? '—'
+            : <>
+                ${zakatData.zakat_due.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                <span className="text-sm font-normal opacity-60 ml-1 t-num">
+                  .{(zakatData.zakat_due % 1).toFixed(2).slice(2)}
+                </span>
+              </>
         }
-        valueTone="accent"
+        valueTone={zakatData && !zakatData.below_nisab ? 'accent' : 'default'}
         footer={
           <Text variant="tiny" className="flex items-center gap-1 group-hover:text-brand-accent transition-colors">
             View calculator <span className="group-hover:translate-x-0.5 transition-transform">→</span>

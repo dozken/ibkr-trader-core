@@ -1,4 +1,4 @@
-export const TRADE_STATE_LABELS: Record<string, string> = {
+const TRADE_STATE_LABELS: Record<string, string> = {
   HALAL_CERTIFIED: 'Approved',
   LIQUIDATING: 'Selling Off',
   REJECTED_COMPLIANCE: 'Blocked — Not Halal',
@@ -12,22 +12,22 @@ export const TRADE_STATE_LABELS: Record<string, string> = {
   CANCELLED: 'Cancelled',
 }
 
-export function stateLabel(state: string): string {
-  return TRADE_STATE_LABELS[state] ?? state.replace(/_/g, ' ')
+const TRADE_STATE_TOOLTIPS: Record<string, string> = {
+  HALAL_CERTIFIED: 'Passed Shariah screen. Order queued — not yet sent to IBKR.',
+  LIQUIDATING: 'Held position turned non-compliant. Force-unwinding to restore halal portfolio.',
+  REJECTED_COMPLIANCE: 'Failed AAOIFI screen (debt, cash, or non-compliant revenue exceeded 33%). No order sent.',
+  REJECTED_FUNDS: 'Insufficient buying power. Cash-only — no margin allowed.',
+  IBKR_ERROR: 'IBKR rejected the order or network failed during submission.',
+  FILLED: 'Order filled at IBKR. Awaiting T+2 settlement.',
+  SETTLED: 'Trade settled (T+2). Cash cleared in account.',
+  SUBMITTED: 'Order sent to IBKR. Awaiting fill confirmation.',
+  PENDING_COMPLIANCE: 'Running Shariah compliance checks.',
+  PENDING: 'Queued for processing.',
+  CANCELLED: 'Order cancelled before fill.',
 }
 
-const TRADE_STATE_TOOLTIPS: Record<string, string> = {
-  HALAL_CERTIFIED: 'Passed Shariah screening — ready to execute',
-  LIQUIDATING: 'Position is being sold off due to compliance change',
-  REJECTED_COMPLIANCE: 'Failed AAOIFI screening — trade blocked',
-  REJECTED_FUNDS: 'Not enough cash available to place this order',
-  IBKR_ERROR: 'Interactive Brokers returned an error',
-  FILLED: 'Order has been filled by the broker',
-  SETTLED: 'Trade fully settled and recorded',
-  PENDING_COMPLIANCE: 'Waiting for Shariah compliance check',
-  PENDING: 'Trade is queued and waiting for execution',
-  SUBMITTED: 'Order submitted to Interactive Brokers',
-  CANCELLED: 'Order was cancelled',
+export function stateLabel(state: string): string {
+  return TRADE_STATE_LABELS[state] ?? state.replace(/_/g, ' ')
 }
 
 export function stateTooltip(state: string): string | null {

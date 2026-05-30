@@ -5,7 +5,7 @@
  * Citing: AGENT.md Engineering Standards.
  */
 
-export type TradeState =
+type TradeState =
   | 'IDLE'
   | 'AI_ANALYSIS'
   | 'SCREENING'

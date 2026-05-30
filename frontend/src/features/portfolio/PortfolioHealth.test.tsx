@@ -1,8 +1,14 @@
 import { render, screen } from '@testing-library/react'
 import React from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComplianceSnapshot } from '../../shared/types/trade'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import PortfolioHealth from './components/PortfolioHealth'
+
+function renderWithClient(ui: React.ReactElement) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>)
+}
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) =>
@@ -30,18 +36,28 @@ describe('PortfolioHealth Component', () => {
   ]
 
   it('calculates compliance percentage correctly', () => {
-    render(<PortfolioHealth audits={mockAudits} portfolioValue={100000} />)
+    renderWithClient(<PortfolioHealth audits={mockAudits} portfolioValue={100000} />)
     expect(screen.getByText('50%')).toBeInTheDocument()
   })
 
-  it('renders Zakat calculation based on portfolio value', () => {
-    // 2.5% of 100,000 = 2,500
-    render(<PortfolioHealth audits={mockAudits} portfolioValue={100000} />)
-    expect(screen.getByText(/\$2,500\.00/i)).toBeInTheDocument()
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('renders Zakat calculation based on portfolio value', async () => {
+    // 2.5% of 100,000 = 2,500 (component fetches the estimate from the API)
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ zakat_due: 2500, below_nisab: false, nisab: 5000 }),
+    } as Response)
+    renderWithClient(<PortfolioHealth audits={mockAudits} portfolioValue={100000} />)
+    expect(
+      await screen.findByText((_content, element) => element?.textContent === '$2,500.00')
+    ).toBeInTheDocument()
   })
 
   it('shows diversification status', () => {
-    render(<PortfolioHealth audits={mockAudits} portfolioValue={100000} />)
+    renderWithClient(<PortfolioHealth audits={mockAudits} portfolioValue={100000} />)
     expect(screen.getByText(/Diversification/i)).toBeInTheDocument()
   })
 })

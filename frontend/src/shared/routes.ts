@@ -1,7 +1,7 @@
-// In Docker (same-host), nginx proxies /api/ and /ws/ to the backend container.
-// For remote deployments, set VITE_API_BASE (e.g. https://api.example.com) at build time.
-export const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
-export const WS_BASE = API_BASE.replace(/^http/, 'ws')
+export const API_BASE = import.meta.env.VITE_API_BASE ?? ''
+const WS_BASE = API_BASE
+  ? API_BASE.replace(/^http/, 'ws')
+  : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`
 export const API_KEY = import.meta.env.VITE_IBKR_API_KEY || ''
 
 export const ROUTES = {
@@ -43,6 +43,7 @@ export const ROUTES = {
   AI_HALAL_UNIVERSE: `${API_BASE}/api/ai/halal-universe`,
   AI_PORTFOLIO_BACKTEST: `${API_BASE}/api/ai/portfolio-backtest`,
   AI_SIGNAL_LOG: `${API_BASE}/api/ai/signal-log`,
+  AI_SIGNAL_QUALITY: `${API_BASE}/api/ai/signal-quality`,
   AI_STRATEGY_AUDIT: `${API_BASE}/api/ai/strategy-audit`,
   AI_SCAN_REGIONS: `${API_BASE}/api/ai/scan/regions`,
   AI_SCAN: (region: string) => `${API_BASE}/api/ai/scan/${encodeURIComponent(region)}`,
@@ -53,6 +54,15 @@ export const ROUTES = {
   SETTINGS_PAUSE: `${API_BASE}/api/settings/pause`,
   SETTINGS_RESUME: `${API_BASE}/api/settings/resume`,
   TRADES_EMERGENCY_LIQUIDATE: `${API_BASE}/api/trades/emergency-liquidate`,
+  TRADES_BATCH_SELL: `${API_BASE}/api/trades/batch-sell`,
+  COMPLIANCE_MANUAL_VERIFICATIONS: `${API_BASE}/api/compliance/manual-verifications`,
+  COMPLIANCE_MANUAL_VERIFY: `${API_BASE}/api/compliance/manual-verify`,
+  COMPLIANCE_MANUAL_UNVERIFY: (symbol: string) => `${API_BASE}/api/compliance/manual-verify/${encodeURIComponent(symbol)}`,
+  GATEWAY_STATUS: `${API_BASE}/api/gateway/status`,
+  GATEWAY_STOP: (gw: string) => `${API_BASE}/api/gateway/${gw}/stop`,
+  GATEWAY_START: (gw: string) => `${API_BASE}/api/gateway/${gw}/start`,
+  GATEWAY_RESTART: (gw: string) => `${API_BASE}/api/gateway/${gw}/restart`,
+  GATEWAY_RECONNECT: `${API_BASE}/api/gateway/reconnect`,
 } as const
 
 export function withAccount(url: string, accountId: number | null): string {

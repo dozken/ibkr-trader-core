@@ -51,11 +51,6 @@ export const Text = forwardRef<HTMLElement, TextProps>(
 )
 Text.displayName = 'Text'
 
-export function Heading({ level = 1, ...rest }: { level?: 1 | 2 | 3 } & Omit<TextProps, 'variant'>) {
-  const v: Variant = level === 1 ? 'h1' : level === 2 ? 'h2' : 'h3'
-  return <Text variant={v} {...rest} />
-}
-
 export function Eyebrow(props: Omit<TextProps, 'variant'>) {
   return <Text variant="eyebrow" {...props} />
 }

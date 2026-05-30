@@ -15,6 +15,7 @@ import AuditPage from './features/compliance/AuditPage'
 import ScreeningPage from './features/compliance/ScreeningPage'
 import FAQPage from './features/faq/FAQPage'
 import Dashboard from './features/portfolio/DashboardPage'
+import GrowthPage from './features/portfolio/GrowthPage'
 import AccountsPage from './features/settings/AccountsPage'
 import Settings from './features/settings/Settings'
 import ZakatPage from './features/zakat/ZakatPage'
@@ -61,6 +62,7 @@ const zakatRoute = createRoute({
   path: '/zakat',
   component: ZakatPage,
 })
+const growthRoute = createRoute({ getParentRoute: () => rootRoute, path: '/growth', component: GrowthPage })
 const backtestRoute = createRoute({ getParentRoute: () => rootRoute, path: '/backtest', component: BacktestPage })
 const signalQualityRoute = createRoute({ getParentRoute: () => rootRoute, path: '/signal-quality', component: SignalQualityPage })
 const signalLogRoute = createRoute({ getParentRoute: () => rootRoute, path: '/signal-log', component: SignalLogPage })
@@ -73,6 +75,7 @@ const accountsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
+  growthRoute,
   screeningRoute,
   scannerRoute,
   signalsRoute,
