@@ -34,6 +34,13 @@
 6. **Persistence**: Log trade and compliance snapshot to Database.
 7. **Continuous Audit**: Scheduler re-checks assets daily. If an asset becomes Non-Compliant, alert/sell.
 
+## Open-core / Plugin Model
+This repo (`ibkr-trader-core`, MIT) owns the entire application. Proprietary
+forks (e.g. `ibkr-trader-ai`) install it as a dependency and extend it through
+`create_app(extra_routers=..., extra_loops=...)` plus the `STRATEGY_CLASS` and
+`HALAL_UNIVERSE_MODULE` env seams — no app re-declaration, no fork of the
+runtime. See **[PLUGINS.md](./PLUGINS.md)** for the full extension contract.
+
 ## Security
 - Use `.env` for `IB_PAPER_ACCOUNT` and `IB_LIVE_ACCOUNT` credentials.
 - Ensure "Read-Only" API tokens are used for testing.
