@@ -287,7 +287,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(discovery_loop(worker, manager, health, account_id=primary_account_id)),
             asyncio.create_task(position_rerating_loop(worker, manager, health, account_id=primary_account_id)),
             asyncio.create_task(portfolio_snapshot_loop(worker, health, account_id=primary_account_id)),
-            asyncio.create_task(daily_report_loop(worker, health)),
+            asyncio.create_task(daily_report_loop(worker, health, account_manager=account_manager)),
             asyncio.create_task(telegram_bot_loop(worker, health, account_manager=account_manager)),
             asyncio.create_task(purification_reminder_loop(health)),
             asyncio.create_task(zakat_monitoring_loop(worker, health)),
