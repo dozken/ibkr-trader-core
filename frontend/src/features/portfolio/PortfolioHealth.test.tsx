@@ -46,7 +46,7 @@ describe('PortfolioHealth Component', () => {
 
   it('renders Zakat calculation based on portfolio value', async () => {
     // 2.5% of 100,000 = 2,500 (component fetches the estimate from the API)
-    vi.spyOn(global, 'fetch').mockResolvedValue({
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({ zakat_due: 2500, below_nisab: false, nisab: 5000 }),
     } as Response)
