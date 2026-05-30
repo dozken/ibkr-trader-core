@@ -1,0 +1,18 @@
+[project]
+name = "mean-reversion-strategy"
+version = "0.1.0"
+description = "Example Bollinger z-score mean-reversion Strategy plugin for ibkr-trader-core"
+requires-python = ">=3.11"
+dependencies = [
+    "ibkr-trader-core",
+    "yfinance",
+    "pandas",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mean_reversion_strategy*"]
