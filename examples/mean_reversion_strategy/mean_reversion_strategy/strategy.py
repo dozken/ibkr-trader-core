@@ -36,7 +36,7 @@ class MeanReversionStrategy(Strategy):
         signals: list[TradeSignal] = []
         for symbol in ctx.watchlist:
             df = await asyncio.to_thread(lambda s=symbol: yf.Ticker(s).history(period="6mo"))
-            if df is None or len(df) < self.window + 1:
+            if df is None or len(df) < self.window:
                 continue
             z = zscore(df["Close"], self.window)
             if z <= -self.threshold:

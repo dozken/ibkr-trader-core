@@ -20,7 +20,8 @@ def rsi(closes: pd.Series, period: int = 14) -> float:
     delta = closes.diff()
     gain = delta.clip(lower=0).ewm(alpha=1 / period, adjust=False).mean()
     loss = (-delta.clip(upper=0)).ewm(alpha=1 / period, adjust=False).mean()
-    rs = gain / loss.replace(0, pd.NA)
+    # No losses → rs is +inf → RSI 100 (handled by the formula, no NA).
+    rs = gain / loss
     return float((100 - 100 / (1 + rs)).iloc[-1])
 
 
