@@ -18,8 +18,14 @@ This repo is the open framework. The strategy interface (`ibkr_core/core/strateg
 ## Dev setup
 
 ```bash
-cd backend && pip install -r requirements.txt && pytest
-cd ../frontend && bun install && bun test
+# Backend
+pip install -e ".[dev]"
+pre-commit install            # ruff + gitleaks on every commit
+PYTHONPATH=. pytest ibkr_core/
+
+# Frontend
+cd frontend && bun install
+bun run typecheck && bun run test --run
 ```
 
 ## PR checklist
