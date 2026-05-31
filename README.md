@@ -14,6 +14,10 @@ Shariah-compliant trading bot framework for Interactive Brokers, with a pluggabl
 
 <p align="center"><em>Portfolio dashboard — compliance health, zakat, sector exposure, real-time positions &amp; trade log.</em></p>
 
+![Growth projections](docs/images/growth.png)
+
+<p align="center"><em>Compound-growth projections — model contributions &amp; horizons across return scenarios.</em></p>
+
 ## What you get
 
 - **FastAPI backend + React frontend** — full webapp with portfolio, settings, alerts, compliance, zakat pages.
