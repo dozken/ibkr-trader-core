@@ -10,6 +10,10 @@ Shariah-compliant trading bot framework for Interactive Brokers, with a pluggabl
 
 > Open-core of [ibkr-trader](https://github.com/dozken/ibkr-trader) — the framework is MIT, run it with the bundled SMA reference strategy or plug in your own.
 
+![Dashboard](docs/images/dashboard.png)
+
+<p align="center"><em>Portfolio dashboard — compliance health, zakat, sector exposure, real-time positions &amp; trade log.</em></p>
+
 ## What you get
 
 - **FastAPI backend + React frontend** — full webapp with portfolio, settings, alerts, compliance, zakat pages.
