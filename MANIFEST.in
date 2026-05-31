@@ -1,0 +1,9 @@
+global-exclude *.py[cod]
+global-exclude __pycache__/*
+prune **/__pycache__
+prune frontend/node_modules
+prune frontend/dist
+prune data
+prune build
+recursive-include ibkr_core *.py
+include README.md LICENSE
