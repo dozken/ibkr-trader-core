@@ -3,44 +3,21 @@ name: Release to PyPI
 on:
   release:
     types: [published]
-  workflow_dispatch:
-
-permissions:
-  contents: read
-  id-token: write  # Trusted Publishing — no API token needed
 
 jobs:
-  build:
+  pypi:
     runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # OIDC for Trusted Publishing
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install build twine
-      - run: python -m build
-      - run: twine check dist/*
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-  publish-testpypi:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: testpypi
-    steps:
-      - uses: actions/download-artifact@v4
-        with: { name: dist, path: dist/ }
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
-
-  publish-pypi:
-    needs: publish-testpypi
-    runs-on: ubuntu-latest
-    environment: pypi
-    steps:
-      - uses: actions/download-artifact@v4
-        with: { name: dist, path: dist/ }
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Build sdist + wheel
+        run: |
+          pip install build
+          python -m build
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
