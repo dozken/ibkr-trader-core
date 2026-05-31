@@ -4,7 +4,7 @@ Mocks ib_insync.IB — no live IBKR connection required.
 """
 import unittest
 import asyncio
-from unittest.mock import MagicMock, patch, AsyncMock, call
+from unittest.mock import MagicMock, patch, AsyncMock
 from ibkr_core.features.trading.worker import IBKRWorker
 
 
@@ -130,8 +130,9 @@ class TestUnsubscribeTicker(unittest.TestCase):
 
 
 class TestPlaceOrder(unittest.IsolatedAsyncioTestCase):
-    async def test_place_order_floors_fractional_quantity(self):
-        """place_order floors fractional quantity (1.7 → 1.0) before submitting."""
+    async def test_place_order_preserves_fractional_quantity(self):
+        """place_order preserves fractional quantity (fractional trading enabled),
+        rounded to 4dp for IBKR precision."""
         w = _make_worker()
         w.ib.qualifyContractsAsync = AsyncMock()
 
@@ -141,8 +142,8 @@ class TestPlaceOrder(unittest.IsolatedAsyncioTestCase):
 
         trade = MagicMock()
         trade.side = "BUY"
-        trade.quantity = 1.7
-        trade.symbol = "AAPL"
+        trade.quantity = 0.06757751931246998
+        trade.symbol = "LLY"
 
         with patch("ib_insync.Stock"), \
              patch("ib_insync.MarketOrder") as MockMkt, \
@@ -153,7 +154,7 @@ class TestPlaceOrder(unittest.IsolatedAsyncioTestCase):
         args, _ = MockMkt.call_args
         qty_passed = args[1]
         self.assertIsInstance(qty_passed, float)
-        self.assertAlmostEqual(qty_passed, 1.0)
+        self.assertAlmostEqual(qty_passed, 0.0676)
         self.assertEqual(order_id, 77)
 
     async def test_place_order_whole_number_stays_float(self):
@@ -227,15 +228,16 @@ class TestPlaceBracketOrder(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(order_id, 99)
 
-    async def test_bracket_order_quantity_is_floored(self):
-        """Fractional quantity is floored (1.7 → 1.0) before passing to bracketOrder."""
+    async def test_bracket_order_preserves_fractional_quantity(self):
+        """Fractional quantity is preserved (fractional trading enabled), rounded to
+        4dp before passing to bracketOrder."""
         w = _make_worker()
         w.ib.qualifyContractsAsync = AsyncMock()
         w.ib.reqAllOpenOrdersAsync = AsyncMock(return_value=[])
         parent, tp, sl = self._make_bracket_mocks(42)
         w.ib.bracketOrder.return_value = [parent, tp, sl]
 
-        trade = MagicMock(); trade.side = "BUY"; trade.quantity = 1.7; trade.symbol = "AAPL"
+        trade = MagicMock(); trade.side = "BUY"; trade.quantity = 1.95047243; trade.symbol = "UMMA"
         trade.signal_price = 100.0
 
         with patch("ib_insync.Stock"), \
@@ -247,7 +249,7 @@ class TestPlaceBracketOrder(unittest.IsolatedAsyncioTestCase):
         call_args = w.ib.bracketOrder.call_args[0]
         qty_arg = call_args[1]  # second positional arg is quantity
         self.assertIsInstance(qty_arg, float)
-        self.assertAlmostEqual(qty_arg, 1.0)
+        self.assertAlmostEqual(qty_arg, 1.9505)
 
 
 class TestOnOrderStatus(unittest.TestCase):

@@ -195,7 +195,17 @@ class IBKRWorker:
             side = trade.order.action
             qty = trade.order.totalQuantity
             order_id = trade.order.orderId
+            # Prefer the broker's actual error text (last log entry) so reasons like
+            # fractional-not-permitted surface, instead of a bare "Cancelled".
             reason = getattr(trade.orderStatus, "whyHeld", "") or status
+            try:
+                err_logs = [e for e in getattr(trade, "log", []) if getattr(e, "message", "")]
+                if err_logs:
+                    last = err_logs[-1]
+                    code = getattr(last, "errorCode", 0)
+                    reason = f"{last.message}" + (f" (code {code})" if code else "")
+            except Exception:
+                pass
             body = f"❌ {symbol} {side} {qty} cancelled — {reason} · Order #{order_id}"
             channels = load_settings().get("alert_channels", [])
             await alert("Trade Cancelled", body, channels)
@@ -633,13 +643,15 @@ class IBKRWorker:
         return results
 
     async def place_order(self, trade, exchange: str = "NMS") -> int:
-        import math as _math
         from ib_insync import Stock, MarketOrder, LimitOrder
         from ibkr_core.features.settings.service import load_settings as _ls
         _, _, ibkr_exchange, currency = get_exchange_config(exchange)
         contract = Stock(_ibkr_symbol(trade.symbol), ibkr_exchange, currency)
         await self.ib.qualifyContractsAsync(contract)
-        quantity = float(trade.quantity) if trade.side == "SELL" else float(_math.floor(trade.quantity))
+        # Fractional shares supported (account has fractional trading enabled).
+        # Round to 4dp to satisfy IBKR's fractional precision limit; if the gateway
+        # rejects fractional orders, the cancel handler alerts via Telegram.
+        quantity = round(float(trade.quantity), 4)
         settings = _ls()
         if settings.get("use_limit_orders", False):
             price = await self.get_last_price(trade.symbol, exchange)
@@ -666,16 +678,17 @@ class IBKRWorker:
         Stop-loss on owned asset is Shariah-permissible: conditional liquidation, no riba.
         Ref: COMPLIANCE.md Section 3 (no leverage), BEST_PRACTICES.md Section 1 (kill-switch).
         """
-        from ib_insync import Stock, IB, Order
-        import math as _math
+        from ib_insync import Stock
         _, _, ibkr_exchange, currency = get_exchange_config(exchange)
         contract = Stock(_ibkr_symbol(trade.symbol), ibkr_exchange, currency)
         await self.ib.qualifyContractsAsync(contract)
 
-        # Round down to whole shares — IBKR API rejects fractional orders for most equities
-        quantity = float(_math.floor(trade.quantity))
-        if quantity < 1:
-            raise ValueError(f"Rounded quantity {quantity} < 1 share for {trade.symbol}")
+        # Fractional shares supported (account has fractional trading enabled).
+        # Round to 4dp for IBKR's fractional precision limit. If the gateway rejects
+        # fractional orders, the cancel handler alerts via Telegram.
+        quantity = round(float(trade.quantity), 4)
+        if quantity < 0.001:  # IBKR fractional minimum
+            raise ValueError(f"Quantity {quantity} below IBKR fractional minimum for {trade.symbol}")
 
         # Entry limit slightly above current price so it fills immediately like a market order.
         # bracketOrder() signature: (action, qty, limitPrice, takeProfitPrice, stopLossPrice)
