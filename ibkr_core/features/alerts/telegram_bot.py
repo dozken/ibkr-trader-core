@@ -24,7 +24,7 @@ def _get_account_labels() -> Dict[int, str]:
     from ibkr_core.core.models import Account
     db = SessionLocal()
     try:
-        rows = db.query(Account).filter(Account.is_active == True).order_by(Account.id).all()
+        rows = db.query(Account).filter(Account.is_active.is_(True)).order_by(Account.id).all()
         return {a.id: a.label for a in rows}
     finally:
         db.close()

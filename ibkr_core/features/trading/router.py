@@ -136,7 +136,7 @@ def _resolve_worker(request: Request, account_id: Optional[int]):
         from ibkr_core.core.models import Account as AccountModel
         db = SessionLocal()
         try:
-            acc = db.query(AccountModel).filter(AccountModel.id == account_id, AccountModel.is_active == True).first()
+            acc = db.query(AccountModel).filter(AccountModel.id == account_id, AccountModel.is_active.is_(True)).first()
             if acc:
                 return mgr.get_worker(acc.id, acc.host, acc.port, acc.client_id)
         finally:

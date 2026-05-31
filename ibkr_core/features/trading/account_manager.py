@@ -97,7 +97,7 @@ class AccountManager:
         mgr = cls()
         db = SessionLocal()
         try:
-            accounts: List[Account] = db.query(Account).filter(Account.is_active == True).order_by(Account.id).all()
+            accounts: List[Account] = db.query(Account).filter(Account.is_active.is_(True)).order_by(Account.id).all()
             for acc in accounts:
                 mgr.get_worker(
                     account_id=acc.id,

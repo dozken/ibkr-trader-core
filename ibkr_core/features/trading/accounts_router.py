@@ -51,7 +51,7 @@ class AccountResponse(BaseModel):
 def list_accounts(include_inactive: bool = False, db: Session = Depends(get_db)):
     q = db.query(Account)
     if not include_inactive:
-        q = q.filter(Account.is_active == True)
+        q = q.filter(Account.is_active.is_(True))
     return q.order_by(Account.id).all()
 
 
@@ -61,7 +61,7 @@ def create_account(body: AccountCreate, db: Session = Depends(get_db)):
         Account.client_id == body.client_id,
         Account.host == body.host,
         Account.port == body.port,
-        Account.is_active == True,
+        Account.is_active.is_(True),
     ).first()
     if conflict:
         raise HTTPException(
