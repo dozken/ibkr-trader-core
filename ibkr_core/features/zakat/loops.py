@@ -60,7 +60,7 @@ async def zakat_monitoring_loop(worker, health: dict) -> None:
                         return get_purification_liabilities(db)
 
                 liabilities = await asyncio.to_thread(_get_purification)
-                total_pending = sum(l.remaining_liability for l in liabilities)
+                total_pending = sum(liab.remaining_liability for liab in liabilities)
                 PURIFICATION_PENDING.set(total_pending)
 
                 health["zakat_monitoring_loop"]["last_run"] = datetime.now().isoformat()

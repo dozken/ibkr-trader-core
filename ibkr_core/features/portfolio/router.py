@@ -114,7 +114,7 @@ async def simulate_trade(req: SimulationRequest, request: Request, db: Session =
     if req.price <= 0:
         try:
             req.price = await worker.get_last_price(req.symbol)
-        except:
+        except Exception:
             req.price = 100.0  # Fallback
 
     if req.quantity <= 0:
@@ -340,7 +340,8 @@ async def get_portfolio_history(db: Session = Depends(get_db),
         qty = t.quantity or 0
         price = t.fill_price or 0.0
         if t.side == "BUY":
-            if sym not in inventory: inventory[sym] = []
+            if sym not in inventory:
+                inventory[sym] = []
             inventory[sym].append([qty, price])
         else:
             # SELL - FIFO realized gain

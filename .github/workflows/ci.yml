@@ -15,10 +15,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -e ".[dev]"
-      - name: Lint (advisory)
-        # Pre-existing lint debt is being cleaned incrementally; visible but
-        # non-blocking until the backlog is cleared, then flip to blocking.
-        continue-on-error: true
+      - name: Lint
         run: ruff check ibkr_core/
       - name: Smoke import
         run: |

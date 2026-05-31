@@ -159,9 +159,12 @@ def check_shariah_compliance(
     cash_threshold    = 0.33 - ratio_buffer / 100
     impure_threshold  = 0.05 - ratio_buffer / 100
 
-    if debt_ratio    >= debt_threshold:   reasons.append(f"Debt ratio ({debt_ratio:.2%}) >= {debt_threshold:.0%}")
-    if cash_ratio    >= cash_threshold:   reasons.append(f"Cash ratio ({cash_ratio:.2%}) >= {cash_threshold:.0%}")
-    if revenue_ratio >= impure_threshold: reasons.append(f"Prohibited income ({revenue_ratio:.2%}) >= {impure_threshold:.0%}")
+    if debt_ratio >= debt_threshold:
+        reasons.append(f"Debt ratio ({debt_ratio:.2%}) >= {debt_threshold:.0%}")
+    if cash_ratio >= cash_threshold:
+        reasons.append(f"Cash ratio ({cash_ratio:.2%}) >= {cash_threshold:.0%}")
+    if revenue_ratio >= impure_threshold:
+        reasons.append(f"Prohibited income ({revenue_ratio:.2%}) >= {impure_threshold:.0%}")
 
     return ComplianceStatus(
         symbol=symbol, sector=sector,

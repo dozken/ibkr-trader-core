@@ -315,7 +315,6 @@ async def _dispatch_signal(
         result = await trader.execute_trade(t, exchange=exchange, pre_screened=compliance)
         logger.info(f"Trade {signal.symbol}: {result.state}")
     else:
-        label = "Rebalance signal" if signal.action == "SELL" else "Halal-certified"
         # Persist before broadcast — skip if identical signal already pending for same account
         db = SessionLocal()
         try:

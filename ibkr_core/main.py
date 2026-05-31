@@ -141,7 +141,6 @@ def verify_env_sync():
     Verifies that IBKR_API_KEY in ibkr_core/.env matches VITE_IBKR_API_KEY in frontend/.env.
     Ref: Improvement #39.
     """
-    backend_env_path = os.path.join(os.path.dirname(__file__), ".env")
     frontend_env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", ".env")
     
     backend_key = os.getenv("IBKR_API_KEY", "")
@@ -397,7 +396,6 @@ def system_markets():
 
     # Compute today's UTC session windows from local time
     utc_now = datetime.utcnow()
-    today_utc = utc_now.date()
 
     def _utc_sessions_for(ex_code: str) -> list[dict]:
         tz_name, sessions, _, _ = get_exchange_config(ex_code)

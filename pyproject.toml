@@ -60,6 +60,16 @@ exclude = ["ibkr_core.features.ai*", "tests*"]
 [tool.ruff.lint]
 ignore = ["E402"]
 
+[tool.ruff.lint.per-file-ignores]
+# Test files use compact mock setup (multiple statements per line) and
+# intentional throwaway locals — idiomatic for fixtures, not real dead code.
+"**/tests/*" = ["E701", "E702", "F841"]
+# Alembic scaffolding.
+"**/migrations/env.py" = ["E701"]
+# allocator.apply() is a known passthrough stub (sizing enforced in worker for
+# now); its pre-fetch local is unused until the sizing logic lands.
+"**/portfolio/allocator.py" = ["F841"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["ibkr_core"]

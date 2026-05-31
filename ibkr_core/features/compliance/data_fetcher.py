@@ -460,7 +460,8 @@ def _fetch_yfinance(symbol: str) -> Optional[Dict[str, Any]]:
                         cookie_cache.clear()
                 except Exception:
                     pass
-                import time as _time; _time.sleep(2)
+                import time as _time
+                _time.sleep(2)
                 continue
             logger.debug("yfinance fetch failed for %s: %s", symbol, e)
             return None
@@ -715,9 +716,12 @@ def fetch_financial_data(symbol: str) -> Optional[Dict[str, Any]]:
     if (base["revenue"] == 0 or base["debt"] == 0 or base["cash"] == 0) and not base.get("quote_type") == "ETF":
         fmp = _fetch_fmp_fundamentals(symbol)
         if fmp:
-            if base["debt"] == 0: base["debt"] = fmp["debt"]
-            if base["cash"] == 0: base["cash"] = fmp.get("cash", 0.0)
-            if base["revenue"] == 0: base["revenue"] = fmp["revenue"]
+            if base["debt"] == 0:
+                base["debt"] = fmp["debt"]
+            if base["cash"] == 0:
+                base["cash"] = fmp.get("cash", 0.0)
+            if base["revenue"] == 0:
+                base["revenue"] = fmp["revenue"]
             if fmp["source"] not in sources:
                 sources.append(fmp["source"])
         elif "." not in symbol:  # US ticker — try AV fallback for revenue/debt
