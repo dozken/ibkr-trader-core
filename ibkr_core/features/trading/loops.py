@@ -151,7 +151,7 @@ async def _check_pullback_async(symbol: str, worker=None) -> tuple[bool, str]:
     return await asyncio.to_thread(_check_pullback_entry, symbol)
 
 from ibkr_core.core.market_hours import market_status, is_in_trading_window
-from ibkr_core.core.health_utils import set_loop_error, clear_loop_error
+from ibkr_core.core.health_utils import set_loop_error
 from ibkr_core.core.websocket import ConnectionManager, WSBaseMessage
 from ibkr_core.features.alerts.dispatcher import alert as send_alert
 from ibkr_core.core.strategy import get_active_strategy, MarketContext
@@ -891,7 +891,6 @@ async def cash_sweep_loop(worker, manager: ConnectionManager, health: dict, acco
 
 import os
 import json
-from ibkr_core.features.compliance.screening import async_shariah_screen
 
 DRIP_STATE_FILE = os.path.join(os.path.dirname(__file__), "../../../data/drip_state.json")
 

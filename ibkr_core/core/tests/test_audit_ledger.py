@@ -1,7 +1,6 @@
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from datetime import datetime, timezone
 from ibkr_core.core.models import Base, AuditLog, PurificationHistory, TradeHistory
 from ibkr_core.core.state import TradeState
 

@@ -2,7 +2,6 @@ import argparse
 import sys
 import logging
 from ibkr_core.features.compliance.screening import live_shariah_screen, check_shariah_compliance
-from ibkr_core.features.compliance.schemas import ComplianceStatus
 
 # Configure logging to be minimal for CLI
 logging.basicConfig(level=logging.ERROR)

@@ -18,7 +18,6 @@ from ibkr_core.core.database import init_db
 from ibkr_core.core.request_id import RequestIDMiddleware
 from ibkr_core.features.alerts.telegram import send_telegram
 from ibkr_core.core.monitoring import IBKR_CONNECTED
-from ibkr_core.features.trading.reconciliation import reconcile_with_ibkr
 from ibkr_core.core.websocket import ConnectionManager, TickerUpdate, WS_TICKERS
 from ibkr_core.features.alerts.loops import daily_report_loop, purification_reminder_loop
 from ibkr_core.features.alerts.telegram_bot import telegram_bot_loop
@@ -28,7 +27,6 @@ from ibkr_core.features.portfolio.loops import portfolio_snapshot_loop
 from ibkr_core.features.portfolio.router import router as portfolio_router
 from ibkr_core.features.settings.router import router as settings_router
 from ibkr_core.features.trading.loops import cash_sweep_loop, main_loop, halal_drip_loop, discovery_loop, position_rerating_loop
-from ibkr_core.features.trading.trader import resume_pending_twap
 from ibkr_core.features.trading.accounts_router import router as accounts_router
 from ibkr_core.features.trading.gateway_router import router as gateway_router
 from ibkr_core.features.trading.router import router as trading_router
@@ -359,8 +357,8 @@ def system_health(request: Request):
 def system_markets():
     """All configured exchanges with open/closed status + UTC session times + halal symbol count."""
     from ibkr_core.core.market_hours import (
-        EXCHANGE_CONFIG, market_status, infer_exchange_from_symbol,
-        get_exchange_config, SUNDAY_THURSDAY_EXCHANGES,
+        market_status, infer_exchange_from_symbol,
+        get_exchange_config,
     )
     # Universe source resolution order:
     #   1. HALAL_UNIVERSE_MODULE env var (extension dists point here, e.g. the

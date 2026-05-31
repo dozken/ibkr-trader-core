@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from ibkr_core.core.database import get_db, SessionLocal
 from ibkr_core.core.models import TradeHistory, TwapExecution, PendingSignal, SignalLog
-from ibkr_core.features.trading.schemas import TradeCreate, Trade
+from ibkr_core.features.trading.schemas import TradeCreate
 from ibkr_core.core.state import TradeState
 from ibkr_core.core.auth import require_api_key
 import logging

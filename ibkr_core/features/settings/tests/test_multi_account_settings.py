@@ -1,8 +1,6 @@
 """Tests for per-account settings support."""
 
 import json
-import os
-import pytest
 from ibkr_core.features.settings.service import load_settings, save_settings, Settings
 
 

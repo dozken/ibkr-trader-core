@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import date, datetime, time as dtime, timedelta
+from datetime import datetime, time as dtime
 
 from ibkr_core.core.database import SessionLocal
 from ibkr_core.core.health_utils import set_loop_error

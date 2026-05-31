@@ -17,7 +17,7 @@ def _make_signal(symbol="NVDA", confidence=82, action="BUY"):
         sentiment_score=confidence / 100.0,
         confidence=confidence,
         action=action,
-        reasoning=f"Halal Discovery: strong fundamentals",
+        reasoning="Halal Discovery: strong fundamentals",
     )
 
 

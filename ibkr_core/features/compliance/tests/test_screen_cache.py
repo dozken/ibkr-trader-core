@@ -2,7 +2,7 @@
 import threading
 import time
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import ibkr_core.features.compliance.screening as screening_mod
 from ibkr_core.features.compliance.screening import (

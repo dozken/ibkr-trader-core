@@ -553,7 +553,6 @@ def get_pnl(request: Request, db: Session = Depends(get_db),
     _partial_pct = float(settings.get("partial_profit_pct", 10.0))
 
     # 5b. First BUY date per symbol for days_held
-    from sqlalchemy import func as sqlfunc
     first_buy: Dict[str, datetime] = {}
     today = datetime.now()
     for trade in filled_trades:
@@ -741,6 +740,9 @@ class PortfolioSummaryResponse(BaseModel):
     cash_available: Optional[float] = None
     unrealized_pnl: Optional[float] = None
     return_pct: Optional[float] = None
+    total_invested: Optional[float] = None
+    total_pnl: Optional[float] = None
+    total_return_pct: Optional[float] = None
     purity: Optional[float] = None
     purification_due: Optional[float] = None
     compliance_pct: Optional[float] = None
@@ -782,6 +784,29 @@ def get_portfolio_summary(request: Request, db: Session = Depends(get_db),
     total_unrealized = sum(float(p.get("unrealized_pnl", 0)) for p in positions)
     total_value = total_market_value + available_funds
     return_pct = (total_unrealized / total_cost_basis * 100) if total_cost_basis > 0 else 0.0
+
+    # True total return — money in (all BUY fills) vs money now (open market value
+    # + SELL proceeds). Unlike return_pct, this captures realized losses from
+    # closed/sold positions, so a losing account no longer shows green.
+    trades_q = db.query(TradeHistory).filter(TradeHistory.state == TradeState.FILLED)
+    if account_id is not None:
+        trades_q = trades_q.filter(TradeHistory.account_id == account_id)
+    total_buys = 0.0
+    total_sells = 0.0
+    for t in trades_q.all():
+        amt = (t.fill_price or 0.0) * (t.quantity or 0)
+        if t.side == "SELL":
+            total_sells += amt
+        else:
+            total_buys += amt
+    if total_buys > 0:
+        total_pnl = total_market_value + total_sells - total_buys
+        total_return_pct = total_pnl / total_buys * 100
+    else:
+        # No trade history (e.g. positions transferred in) — fall back to unrealized.
+        total_buys = total_cost_basis
+        total_pnl = total_unrealized
+        total_return_pct = return_pct
 
     comp_q = db.query(PositionCompliance).filter(PositionCompliance.symbol.in_(symbols))
     if account_id is not None:
@@ -832,7 +857,7 @@ def get_portfolio_summary(request: Request, db: Session = Depends(get_db),
     sector_count = len(sectors) if sectors else None
     sector_label = (
         f"{len(sectors)} sectors" if len(sectors) > 1 else
-        f"1 sector" if len(sectors) == 1 else
+        "1 sector" if len(sectors) == 1 else
         "no data"
     )
     purify_label = (
@@ -849,6 +874,9 @@ def get_portfolio_summary(request: Request, db: Session = Depends(get_db),
         cash_available=round(available_funds, 2),
         unrealized_pnl=round(total_unrealized, 2),
         return_pct=round(return_pct, 2),
+        total_invested=round(total_buys, 2),
+        total_pnl=round(total_pnl, 2),
+        total_return_pct=round(total_return_pct, 2),
         purity=round(purity, 4) if purity is not None else None,
         purification_due=round(purification_due, 2),
         compliance_pct=round(compliance_pct, 2) if compliance_pct is not None else None,

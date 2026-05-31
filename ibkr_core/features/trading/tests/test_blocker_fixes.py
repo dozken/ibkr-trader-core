@@ -5,10 +5,9 @@
 """
 import unittest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from ibkr_core.core.state import TradeState
-from ibkr_core.features.trading.schemas import TradeCreate
 from ibkr_core.features.compliance.schemas import ComplianceStatus
 
 _COMPLIANT = ComplianceStatus(

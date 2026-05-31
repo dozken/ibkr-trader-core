@@ -575,7 +575,6 @@ class TestIsInTradingWindow(unittest.TestCase):
 
     def _check(self, hour: int, minute: int, start_off: int = 30, end_off: int = 30) -> bool:
         from ibkr_core.core.market_hours import is_in_trading_window
-        from datetime import timezone
         tz = __import__("zoneinfo").ZoneInfo("America/New_York")
         fake_now = datetime(2024, 1, 22, hour, minute, 0, tzinfo=tz)  # Monday (non-holiday)
         with patch("ibkr_core.core.market_hours.datetime") as mock_dt:

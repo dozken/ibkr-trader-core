@@ -4,7 +4,6 @@ import os
 import tempfile
 import unittest
 from datetime import datetime, timedelta
-from unittest.mock import patch
 
 
 def _hawl_module():

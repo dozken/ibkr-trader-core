@@ -1,6 +1,6 @@
 """Tests for _exceeds_concentration_limit: sector normalization, 30% hard cap, min_sector_count."""
 import unittest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 from ibkr_core.features.trading.trader import _exceeds_concentration_limit
 
 _BASE_SETTINGS = {

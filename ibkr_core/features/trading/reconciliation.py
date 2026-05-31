@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, UTC
 from ibkr_core.core.database import SessionLocal
-from ibkr_core.core.models import TradeHistory, PositionCompliance
+from ibkr_core.core.models import TradeHistory
 from ibkr_core.core.state import TradeState
 
 logger = logging.getLogger(__name__)

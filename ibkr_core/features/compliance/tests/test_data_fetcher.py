@@ -329,7 +329,6 @@ class TestFMPProfileFallback(unittest.TestCase):
 
     @patch("yfinance.Ticker")
     def test_fmp_profile_used_when_yfinance_fails(self, MockTicker):
-        from ibkr_core.features.compliance.data_fetcher import _fetch_fmp_profile
         MockTicker.return_value = self._yf_none()
 
         fmp_data = {

@@ -1,4 +1,3 @@
-import pytest
 from ibkr_core.features.zakat.purification import calculate_purification_amount
 
 def test_calculate_purification_amount():

@@ -1,8 +1,6 @@
 """Tests for TWAP execution and IBKR trailing stop wiring."""
-import asyncio
 import unittest
-from copy import copy
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from ibkr_core.features.trading.schemas import TradeCreate
 from ibkr_core.features.compliance.schemas import ComplianceStatus

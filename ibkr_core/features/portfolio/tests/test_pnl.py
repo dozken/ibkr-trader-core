@@ -9,10 +9,8 @@ Covers:
 """
 import unittest
 from unittest.mock import MagicMock, patch
-from fastapi.testclient import TestClient
-from fastapi import FastAPI
 
-from ibkr_core.features.portfolio.router import router, get_pnl
+from ibkr_core.features.portfolio.router import get_pnl
 from ibkr_core.core.models import TradeHistory
 from ibkr_core.core.state import TradeState
 

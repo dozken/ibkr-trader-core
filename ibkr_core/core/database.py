@@ -5,7 +5,6 @@ import time
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
-from ibkr_core.core.models import Base, AuditLog, PurificationHistory, TradeHistory, PositionCompliance
 
 logger = logging.getLogger(__name__)
 _slow_logger = logging.getLogger("ops.sql.slow")

@@ -69,8 +69,6 @@ class TestDynamicBufferComplianceEffect(unittest.TestCase):
     """
 
     def _screen(self, ratio_buffer_override=None):
-        from ibkr_core.features.compliance.screening import live_shariah_screen
-        from ibkr_core.features.compliance.screening import _live_shariah_screen_uncached
         # Use check_shariah_compliance directly to avoid network calls
         from ibkr_core.features.compliance.screening import check_shariah_compliance
         return check_shariah_compliance(

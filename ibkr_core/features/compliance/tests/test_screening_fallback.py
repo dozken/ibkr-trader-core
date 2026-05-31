@@ -9,7 +9,7 @@ Covers all five decision paths:
 5. All data sources fail → UNKNOWN block
 """
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from ibkr_core.features.compliance.screening import _live_shariah_screen_uncached
 

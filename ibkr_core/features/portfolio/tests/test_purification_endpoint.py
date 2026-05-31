@@ -10,7 +10,7 @@ Covers:
 - Already-purified amount deducted correctly in HTTP response
 """
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from ibkr_core.features.portfolio.router import get_pending_purification
 

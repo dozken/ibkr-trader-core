@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import MagicMock, patch, AsyncMock
-from ibkr_core.features.trading.trader import Trader, _MIN_FRACTIONAL_QTY
+from ibkr_core.features.trading.trader import Trader
 from ibkr_core.core.state import TradeState
 from ibkr_core.features.trading.schemas import TradeCreate
 from ibkr_core.features.compliance.schemas import ComplianceStatus

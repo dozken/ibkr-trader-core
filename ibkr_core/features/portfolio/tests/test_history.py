@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import MagicMock, patch
-from datetime import datetime, timedelta
+from datetime import datetime
 import pandas as pd
 from ibkr_core.features.portfolio.router import get_portfolio_history
 from ibkr_core.core.models import PortfolioSnapshot, TradeHistory, PositionCompliance
