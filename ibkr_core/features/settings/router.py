@@ -27,6 +27,8 @@ class PartialSettings(BaseModel):
     rebalance_frequency: Optional[Literal["DAILY", "WEEKLY"]] = None
     critical_auto_sell: Optional[bool] = None
     alert_channels: Optional[List[str]] = None
+    notify_trade_fills: Optional[bool] = None
+    notify_signals: Optional[bool] = None
     watchlist: Optional[List[str]] = None
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None

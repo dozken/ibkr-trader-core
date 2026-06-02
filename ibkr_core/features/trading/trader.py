@@ -597,8 +597,9 @@ class Trader:
                     lines.append(f"🛡️ SL: ${stop_price:,.2f} / TP: ${tp_price:,.2f}")
                 lines.append(f"🔖 Order #{order_id}")
                 body = "\n".join(lines)
-                channels = settings.get("alert_channels", [])
-                asyncio.create_task(alert(f"Order {trade.side}: {trade.symbol}", body, channels))
+                if settings.get("notify_trade_fills", True):
+                    channels = settings.get("alert_channels", [])
+                    asyncio.create_task(alert(f"Order {trade.side}: {trade.symbol}", body, channels))
             except Exception:
                 logger.exception("Submit alert dispatch failed")
 

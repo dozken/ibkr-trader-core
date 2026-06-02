@@ -39,7 +39,7 @@ def test_get_worker_creates_worker_on_first_call():
         worker = mgr.get_worker(account_id=1, host="127.0.0.1", port=7497, client_id=1)
         MockWorker.assert_called_once_with(
             host="127.0.0.1", port=7497, client_id=1,
-            ibkr_account_id=None, readonly=False,
+            ibkr_account_id=None, readonly=False, account_id=1,
         )
         assert worker is MockWorker.return_value
 

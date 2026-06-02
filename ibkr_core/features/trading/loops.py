@@ -387,6 +387,10 @@ async def _dispatch_signal(
             logger.debug("Signal alert suppressed (already sent today): %s %s acct=%s", signal.action, signal.symbol, account_id)
             return
         _signal_alerted[dedup_key] = today
+        if not settings.get("notify_signals", True):
+            logger.debug("Signal alert muted via notify_signals: %s %s acct=%s",
+                         signal.action, signal.symbol, account_id)
+            return
         await send_alert(f"{signal.action} Signal: {signal.symbol}", body, channels,
                          reply_markup=markup)
 

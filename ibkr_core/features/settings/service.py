@@ -36,6 +36,10 @@ class Settings(BaseModel):
     rebalance_frequency: Literal["DAILY", "WEEKLY"] = "DAILY"
     critical_auto_sell: bool = True
     alert_channels: List[str] = ["telegram"]
+    # Per-account notification toggles. Default True = current behavior.
+    # Set False on a paper account's settings_{id}.json to mute its buy/sell pushes.
+    notify_trade_fills: bool = True  # 'Order ...', 'Trade Filled', 'Trade Cancelled'
+    notify_signals: bool = True      # 'BUY/SELL Signal' recommendation alerts
     enable_halal_drip: bool = True
     watchlist: List[str] = [
         # Technology

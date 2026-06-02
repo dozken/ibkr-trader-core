@@ -30,7 +30,7 @@ class AccountManager:
             base = self._connections[conn_key]
             worker = IBKRWorker(host=host, port=port, client_id=client_id,
                                 ibkr_account_id=ibkr_account_id or None,
-                                readonly=readonly)
+                                readonly=readonly, account_id=account_id)
             worker.ib = base.ib
             logger.info(f"Created IBKRWorker for account {account_id} "
                         f"({host}:{port} cid={client_id} sub={ibkr_account_id}) "
@@ -38,7 +38,7 @@ class AccountManager:
         else:
             worker = IBKRWorker(host=host, port=port, client_id=client_id,
                                 ibkr_account_id=ibkr_account_id or None,
-                                readonly=readonly)
+                                readonly=readonly, account_id=account_id)
             self._connections[conn_key] = worker
             logger.info(f"Created IBKRWorker for account {account_id} "
                         f"({host}:{port} cid={client_id} sub={ibkr_account_id})")
