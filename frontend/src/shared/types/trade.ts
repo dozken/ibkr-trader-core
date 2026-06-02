@@ -45,4 +45,5 @@ export interface Trade {
   ibkr_order_id?: number
   fill_price?: number
   commission?: number
+  error_message?: string | null
 }

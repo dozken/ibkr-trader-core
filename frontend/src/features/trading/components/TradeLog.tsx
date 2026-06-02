@@ -123,7 +123,8 @@ const TradeLog: React.FC<TradeLogProps> = ({ trades }) => {
                       {stateLabel(trade.state)}
                     </span>
                   )
-                  const tip = stateTooltip(trade.state)
+                  // Prefer the real broker/abort reason when present, else the generic state tip.
+                  const tip = trade.error_message || stateTooltip(trade.state)
                   return tip ? <Tooltip text={tip}>{badge}</Tooltip> : badge
                 })()}
                 <span className="text-xs text-brand-light/70 font-mono">
@@ -189,7 +190,8 @@ const TradeLog: React.FC<TradeLogProps> = ({ trades }) => {
                           {stateLabel(trade.state)}
                         </span>
                       )
-                      const tip = stateTooltip(trade.state)
+                      // Prefer the real broker/abort reason when present, else the generic state tip.
+                      const tip = trade.error_message || stateTooltip(trade.state)
                       return tip ? <Tooltip text={tip}>{badge}</Tooltip> : badge
                     })()}
                   </td>
