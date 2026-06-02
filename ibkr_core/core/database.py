@@ -70,19 +70,34 @@ def _sql_after(conn, cursor, statement, parameters, context, executemany):
 
 
 def init_db():
-    """Run all pending Alembic migrations. Safe to call on every startup."""
+    """Run pending Alembic migrations. Safe to call on every startup.
+
+    Locates alembic.ini from candidate paths (CWD first — the deploy entrypoint
+    runs from the project root where alembic.ini lives — then relative to this
+    package for source checkouts). When core is installed as a wheel there is no
+    alembic.ini next to the package, so a missing file is expected and skipped:
+    the container entrypoint owns migrations in that case.
+    """
     try:
         from alembic.config import Config
         from alembic import command
-        # Resolve alembic.ini relative to this file to work regardless of CWD
-        _ini = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "alembic.ini"))
-        alembic_cfg = Config(_ini)
+
+        candidates = [
+            os.path.join(os.getcwd(), "alembic.ini"),
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "alembic.ini")),
+        ]
+        ini = next((p for p in candidates if os.path.isfile(p)), None)
+        if ini is None:
+            logger.info("No alembic.ini found (wheel install) — skipping in-process migrate; "
+                        "entrypoint handles migrations.")
+            return
+
+        alembic_cfg = Config(ini)
         command.upgrade(alembic_cfg, "head")
-        logger.info("Database migrations completed successfully.")
+        logger.info("Database migrations completed successfully (%s).", ini)
     except Exception as e:
         logger.error(f"Alembic migration failed: {e}")
-        # If it fails, don't crash the app, just log it.
-        # The app will try to run with existing schema.
+        # Don't crash the app — run with existing schema (entrypoint already migrated).
 
 
 def get_db():
