@@ -426,6 +426,11 @@ class Trader:
                     logger.error(f"Trade aborted for {trade.symbol}: Invalid or missing price ({price})")
                     machine.transition_to(TradeState.IBKR_ERROR)
                     trade.state = machine.state
+                    trade.error_message = (
+                        "No market price available — likely a competing IBKR session "
+                        "(logged in via web/mobile/TWS) blocking market data, or a "
+                        "delisted/unknown symbol."
+                    )
                     self._persist_trade_history(db, trade)
                     return trade
 
@@ -483,6 +488,7 @@ class Trader:
                     logger.warning(f"Trade aborted for {trade.symbol}: {slip_reason}")
                     machine.transition_to(TradeState.IBKR_ERROR)
                     trade.state = machine.state
+                    trade.error_message = f"Slippage/liquidity guard: {slip_reason}"
                     self._persist_trade_history(db, trade)
                     return trade
 
@@ -550,6 +556,10 @@ class Trader:
                 if not self._is_possession_confirmed(db, trade.symbol):
                     machine.transition_to(TradeState.IBKR_ERROR)
                     trade.state = machine.state
+                    trade.error_message = (
+                        "Settlement guard (Qabd/T+2): no confirmed possession — "
+                        "position not held ≥2 days or no FILLED buy on record."
+                    )
                     self._persist_trade_history(db, trade)
                     return trade
 
@@ -610,6 +620,7 @@ class Trader:
             if machine.state not in {TradeState.IDLE, TradeState.SETTLED}:
                 machine.transition_to(TradeState.IBKR_ERROR)
             trade.state = machine.state
+            trade.error_message = f"{type(e).__name__}: {e}"[:300]
             self._persist_trade_history(db, trade)
             return trade
         finally:
@@ -625,6 +636,8 @@ class Trader:
                 row.ibkr_order_id = trade_schema.ibkr_order_id
                 row.fill_price = getattr(trade_schema, "fill_price", None)
                 row.signal_price = getattr(trade_schema, "signal_price", None)
+                if getattr(trade_schema, "error_message", None):
+                    row.error_message = trade_schema.error_message
                 row.updated_at = datetime.now(timezone.utc)
                 db.commit()
                 return
@@ -636,6 +649,7 @@ class Trader:
             state=trade_schema.state,
             ibkr_order_id=trade_schema.ibkr_order_id,
             signal_price=getattr(trade_schema, "signal_price", None),
+            error_message=getattr(trade_schema, "error_message", None),
             account_id=self.account_id,
         )
         db.add(trade_db)

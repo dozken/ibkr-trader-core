@@ -44,6 +44,7 @@ class IBKRWorker:
         self._limiter = asyncio.Semaphore(5)  # Max 5 concurrent market data requests
         self._last_request_time = 0.0
         self._fill_callback = None  # optional async (symbol, action, qty, price) hook
+        self._competing_session = False  # set when IBKR error 10197 (competing live session) seen
 
     async def _wait_for_pacing(self):
         """Simple delay to ensure we don't spam requests too fast."""
@@ -75,6 +76,7 @@ class IBKRWorker:
 
             logger.info(f"Connected to IBKR at {self.host}:{self.port}"
                         f"{' (readonly)' if self.readonly else ''}")
+            self._competing_session = False  # clean connect — clear competing-session latch
             self.ib.orderStatusEvent -= self._on_order_status
             self.ib.execDetailsEvent -= self._on_exec_details
             self.ib.disconnectedEvent -= self._on_disconnect
@@ -128,8 +130,7 @@ class IBKRWorker:
         self.ib._logger.info("Synchronization complete (readonly)")
         self.ib.connectedEvent.emit()
 
-    @staticmethod
-    def _on_error(reqId, errorCode: int, errorString: str, contract) -> None:
+    def _on_error(self, reqId, errorCode: int, errorString: str, contract) -> None:
         """
         IBKR error filter. Suppresses transient reconnect noise (322, 1100, 1102, 10197).
         Real errors propagate via order/exec event handlers.
@@ -139,6 +140,10 @@ class IBKRWorker:
         # 10197: Competing live session (another client holding market data).
         # 10141: Paper trading disclaimer — requires manual click in Gateway.
         # 10349: Order TIF default override — informational.
+        # 10197 latches a flag so /api/gateway/auth can surface the real cause;
+        # cleared on a clean (re)connect.
+        if errorCode == 10197:
+            self._competing_session = True
         SUPPRESSED = {322, 1100, 1102, 10141, 10197, 10349}
         if errorCode in SUPPRESSED:
             logger.debug("IBKR %d (suppressed): %s", errorCode, errorString)

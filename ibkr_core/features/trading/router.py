@@ -31,6 +31,7 @@ class TradeResponse(BaseModel):
     commission: float | None
     signal_price: float | None
     slippage_delta: float | None
+    error_message: str | None = None
     created_at: datetime
     updated_at: datetime
 

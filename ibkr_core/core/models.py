@@ -91,6 +91,7 @@ class TradeHistory(Base):
     fill_price = Column(Float)
     commission = Column(Float)
     signal_price = Column(Float)
+    error_message = Column(String, nullable=True)  # broker/abort reason when state=IBKR_ERROR
     created_at = Column(DateTime, default=get_utc_now)
     updated_at = Column(DateTime, default=get_utc_now, onupdate=get_utc_now)
 
