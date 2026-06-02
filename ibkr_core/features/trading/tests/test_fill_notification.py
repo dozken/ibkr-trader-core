@@ -28,7 +28,9 @@ class TestSendFillAlert(unittest.IsolatedAsyncioTestCase):
         trade, fill = self._make_fill_objects(
             symbol="AAPL", side="BUY", qty=10.0, price=175.50, order_id=12345
         )
-        await IBKRWorker._send_fill_alert(trade, fill)
+        worker = IBKRWorker.__new__(IBKRWorker)
+        worker.account_id = None
+        await worker._send_fill_alert(trade, fill)
 
         mock_alert.assert_awaited_once()
         title, body, channels = mock_alert.call_args.args
@@ -44,7 +46,9 @@ class TestSendFillAlert(unittest.IsolatedAsyncioTestCase):
         trade, fill = self._make_fill_objects(
             symbol="MSFT", side="SELL", qty=5.0, price=320.00, order_id=99
         )
-        await IBKRWorker._send_fill_alert(trade, fill)
+        worker = IBKRWorker.__new__(IBKRWorker)
+        worker.account_id = None
+        await worker._send_fill_alert(trade, fill)
 
         mock_alert.assert_awaited_once()
         title, body, channels = mock_alert.call_args.args
@@ -58,7 +62,9 @@ class TestSendFillAlert(unittest.IsolatedAsyncioTestCase):
         from ibkr_core.features.trading.worker import IBKRWorker
 
         trade, fill = self._make_fill_objects()
-        await IBKRWorker._send_fill_alert(trade, fill)
+        worker = IBKRWorker.__new__(IBKRWorker)
+        worker.account_id = None
+        await worker._send_fill_alert(trade, fill)
 
         mock_alert.assert_awaited_once()
         _, _, channels = mock_alert.call_args.args
@@ -72,7 +78,9 @@ class TestSendFillAlert(unittest.IsolatedAsyncioTestCase):
 
         trade, fill = self._make_fill_objects()
         # Should not raise
-        await IBKRWorker._send_fill_alert(trade, fill)
+        worker = IBKRWorker.__new__(IBKRWorker)
+        worker.account_id = None
+        await worker._send_fill_alert(trade, fill)
         mock_alert.assert_not_awaited()
 
     @patch("ibkr_core.features.settings.service.load_settings", return_value={"alert_channels": ["telegram"]})
@@ -81,7 +89,9 @@ class TestSendFillAlert(unittest.IsolatedAsyncioTestCase):
         from ibkr_core.features.trading.worker import IBKRWorker
 
         trade, fill = self._make_fill_objects(price=99.9)
-        await IBKRWorker._send_fill_alert(trade, fill)
+        worker = IBKRWorker.__new__(IBKRWorker)
+        worker.account_id = None
+        await worker._send_fill_alert(trade, fill)
 
         _, body, _ = mock_alert.call_args.args
         self.assertIn("$99.90", body)

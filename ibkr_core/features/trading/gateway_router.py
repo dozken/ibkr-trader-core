@@ -54,6 +54,58 @@ def gateway_status():
     return results
 
 
+@router.get("/auth")
+def gateway_auth(request: Request):
+    """True authentication / data-health, distinct from container 'running'.
+
+    Container 'running' (see /status) only means the Docker process is up. This
+    reports whether each account's IBKR API socket is actually connected
+    (= logged in past 2FA) and whether market data is being blocked by a
+    competing live session (logged in elsewhere via web/mobile/TWS).
+    """
+    am = getattr(request.app.state, "account_manager", None)
+    worker = getattr(request.app.state, "worker", None)
+
+    accounts = []
+    workers = []
+    if am and am.list_account_ids():
+        for aid in am.list_account_ids():
+            w = am.get_worker_by_id(aid)
+            if w:
+                workers.append((aid, w))
+    elif worker:
+        workers.append(("primary", worker))
+
+    any_connected = False
+    for aid, w in workers:
+        connected = False
+        try:
+            connected = bool(w.ib.isConnected())
+        except Exception:
+            connected = False
+        any_connected = any_connected or connected
+        accounts.append({
+            "account_id": aid,
+            "authenticated": connected,  # API socket up = logged in past 2FA
+            "host": getattr(w, "host", None),
+            "port": getattr(w, "port", None),
+        })
+
+    # Detect a recent competing-session block (IBKR error 10197) from the worker.
+    competing = bool(getattr(worker, "_competing_session", False)) if worker else False
+
+    return {
+        "any_authenticated": any_connected,
+        "competing_session": competing,
+        "accounts": accounts,
+        "note": (
+            "Competing session detected — another IBKR login (web/mobile/TWS) is "
+            "holding market data. Log out elsewhere, then Reconnect."
+            if competing else None
+        ),
+    }
+
+
 @router.post("/{gateway}/stop", dependencies=[Depends(require_api_key)])
 def gateway_stop(gateway: str):
     if gateway not in GATEWAY_CONTAINERS:

@@ -55,6 +55,7 @@ class Trade(TradeBase):
     fill_price: Optional[float] = None
     commission: Optional[float] = None
     signal_price: Optional[float] = None
+    error_message: Optional[str] = None
 
     model_config = ConfigDict(use_enum_values=True)
 

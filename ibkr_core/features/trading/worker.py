@@ -23,7 +23,8 @@ def _ibkr_symbol(symbol: str) -> str:
 
 
 class IBKRWorker:
-    def __init__(self, host=None, port=None, client_id=1, ibkr_account_id=None, readonly=False):
+    def __init__(self, host=None, port=None, client_id=1, ibkr_account_id=None, readonly=False,
+                 account_id=None):
         # TWS paper=7497, live=7496 | IB Gateway paper=4002, live=4001
         host = host or os.getenv("IBKR_HOST", "127.0.0.1")
         port = port or int(os.getenv("IBKR_PORT", "7497"))
@@ -33,6 +34,7 @@ class IBKRWorker:
         self.port = port
         self.client_id = client_id
         self.ibkr_account_id = ibkr_account_id
+        self.account_id = account_id  # DB Account.id — used to load per-account settings
         self.readonly = readonly
         # Fix #11: track per-symbol pending-tickers callbacks to prevent leaks
         self._ticker_callbacks: Dict[str, Any] = {}
@@ -42,6 +44,7 @@ class IBKRWorker:
         self._limiter = asyncio.Semaphore(5)  # Max 5 concurrent market data requests
         self._last_request_time = 0.0
         self._fill_callback = None  # optional async (symbol, action, qty, price) hook
+        self._competing_session = False  # set when IBKR error 10197 (competing live session) seen
 
     async def _wait_for_pacing(self):
         """Simple delay to ensure we don't spam requests too fast."""
@@ -73,6 +76,7 @@ class IBKRWorker:
 
             logger.info(f"Connected to IBKR at {self.host}:{self.port}"
                         f"{' (readonly)' if self.readonly else ''}")
+            self._competing_session = False  # clean connect — clear competing-session latch
             self.ib.orderStatusEvent -= self._on_order_status
             self.ib.execDetailsEvent -= self._on_exec_details
             self.ib.disconnectedEvent -= self._on_disconnect
@@ -126,8 +130,7 @@ class IBKRWorker:
         self.ib._logger.info("Synchronization complete (readonly)")
         self.ib.connectedEvent.emit()
 
-    @staticmethod
-    def _on_error(reqId, errorCode: int, errorString: str, contract) -> None:
+    def _on_error(self, reqId, errorCode: int, errorString: str, contract) -> None:
         """
         IBKR error filter. Suppresses transient reconnect noise (322, 1100, 1102, 10197).
         Real errors propagate via order/exec event handlers.
@@ -137,6 +140,10 @@ class IBKRWorker:
         # 10197: Competing live session (another client holding market data).
         # 10141: Paper trading disclaimer — requires manual click in Gateway.
         # 10349: Order TIF default override — informational.
+        # 10197 latches a flag so /api/gateway/auth can surface the real cause;
+        # cleared on a clean (re)connect.
+        if errorCode == 10197:
+            self._competing_session = True
         SUPPRESSED = {322, 1100, 1102, 10141, 10197, 10349}
         if errorCode in SUPPRESSED:
             logger.debug("IBKR %d (suppressed): %s", errorCode, errorString)
@@ -184,8 +191,7 @@ class IBKRWorker:
         except RuntimeError:
             self._db_update_order_status(order_id, new_state)
 
-    @staticmethod
-    async def _send_cancel_alert(trade, status: str) -> None:
+    async def _send_cancel_alert(self, trade, status: str) -> None:
         """Push notification when broker cancels/rejects an order."""
         from ibkr_core.features.alerts.dispatcher import alert
         from ibkr_core.features.settings.service import load_settings
@@ -207,7 +213,10 @@ class IBKRWorker:
             except Exception:
                 pass
             body = f"❌ {symbol} {side} {qty} cancelled — {reason} · Order #{order_id}"
-            channels = load_settings().get("alert_channels", [])
+            settings = load_settings(self.account_id)
+            if not settings.get("notify_trade_fills", True):
+                return
+            channels = settings.get("alert_channels", [])
             await alert("Trade Cancelled", body, channels)
         except Exception:
             logger.exception("_send_cancel_alert failed")
@@ -247,8 +256,7 @@ class IBKRWorker:
         except RuntimeError:
             self._db_update_fill_details(order_id, fill_price, commission)
 
-    @staticmethod
-    async def _send_fill_alert(trade, fill) -> None:
+    async def _send_fill_alert(self, trade, fill) -> None:
         """Fire a Telegram push notification when a fill is confirmed."""
         from ibkr_core.features.alerts.dispatcher import alert
         from ibkr_core.features.settings.service import load_settings
@@ -261,7 +269,10 @@ class IBKRWorker:
             order_id = trade.order.orderId
 
             body = f"{symbol} {side} {qty} @ ${price:.2f} · Order #{order_id}"
-            channels = load_settings().get("alert_channels", [])
+            settings = load_settings(self.account_id)
+            if not settings.get("notify_trade_fills", True):
+                return
+            channels = settings.get("alert_channels", [])
             await alert("Trade Filled", body, channels)
         except Exception:
             logger.exception("_send_fill_alert failed — fill notification not sent")
