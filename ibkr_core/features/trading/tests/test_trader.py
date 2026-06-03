@@ -148,6 +148,8 @@ class TestTrader(unittest.IsolatedAsyncioTestCase):
         mock_check.return_value = _COMPLIANT
         self.mock_worker.get_last_price = AsyncMock(return_value=150.0)
         
+        # Hold the position so the no-short guard passes through to dry-run.
+        self.mock_worker.get_positions.return_value = [{"symbol": "AAPL", "quantity": 10}]
         # Mock possession confirmed
         with patch.object(self.trader, "_is_possession_confirmed", return_value=True):
             with patch('ibkr_core.features.trading.trader._load_settings', return_value={**_SETTINGS, "dry_run": True}):
@@ -156,6 +158,35 @@ class TestTrader(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(trade.state, TradeState.DRY_RUN)
         self.mock_worker.place_order.assert_not_called()
+
+    @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
+    async def test_no_short_guard_blocks_sell_when_not_held(self, mock_check):
+        """SELL of an unheld symbol is blocked (would open a short — Rule #1)."""
+        mock_check.return_value = _COMPLIANT
+        self.mock_worker.get_last_price = AsyncMock(return_value=150.0)
+        self.mock_worker.get_positions.return_value = []  # nothing held
+        with patch.object(self.trader, "_is_possession_confirmed", return_value=True):
+            trade_req = TradeCreate(symbol="AAPL", quantity=10, side="SELL")
+            trade = await self.trader.execute_trade(trade_req, pre_screened=_COMPLIANT)
+
+        self.assertEqual(trade.state, TradeState.IBKR_ERROR)
+        self.assertIn("No-short guard", trade.error_message or "")
+        self.mock_worker.place_order.assert_not_called()
+
+    @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
+    async def test_no_short_guard_clamps_oversell_to_held(self, mock_check):
+        """SELL larger than held qty is clamped down to held — never crosses zero."""
+        mock_check.return_value = _COMPLIANT
+        self.mock_worker.get_last_price = AsyncMock(return_value=150.0)
+        self.mock_worker.get_positions.return_value = [{"symbol": "AAPL", "quantity": 7}]
+        self.mock_worker.place_order = AsyncMock(return_value=99)
+        with patch.object(self.trader, "_is_possession_confirmed", return_value=True):
+            trade_req = TradeCreate(symbol="AAPL", quantity=100, side="SELL")
+            trade = await self.trader.execute_trade(trade_req, pre_screened=_COMPLIANT)
+
+        # Order placed for the held 7, not the requested 100.
+        self.assertEqual(trade.quantity, 7)
+        self.mock_worker.place_order.assert_awaited_once()
 
     @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
     async def test_execute_buy_explicit_quantity_uses_bracket(self, mock_check):
@@ -335,7 +366,9 @@ class TestTrader(unittest.IsolatedAsyncioTestCase):
             debt_to_mkt_cap=0.1, cash_to_mkt_cap=0.05, impure_revenue_pct=0.8,
             reason="Prohibited sector: Tobacco",
         )
-        self.mock_worker.place_order.return_value = 999
+        self.mock_worker.place_order = AsyncMock(return_value=999)
+        # Hold the position being liquidated (no-short guard reads live positions).
+        self.mock_worker.get_positions.return_value = [{"symbol": "TOBK", "quantity": 5}]
         # Simulate T+2 satisfied: patch possession check
         with patch.object(self.trader, "_is_possession_confirmed", return_value=True):
             trade_req = TradeCreate(symbol="TOBK", quantity=5, side="SELL")
@@ -344,7 +377,7 @@ class TestTrader(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(trade.state, TradeState.SUBMITTED)
-        self.mock_worker.place_order.assert_called_once()
+        self.mock_worker.place_order.assert_awaited_once()
 
     async def test_force_liquidation_requires_pre_screened(self):
         """force_liquidation=True without pre_screened → IBKR_ERROR (not a silent pass)."""

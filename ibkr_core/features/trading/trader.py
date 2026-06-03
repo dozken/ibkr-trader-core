@@ -563,6 +563,38 @@ class Trader:
                     self._persist_trade_history(db, trade)
                     return trade
 
+                # No-short guard (Rule #1): never sell more than the live held quantity.
+                # Clamp to held shares so a SELL can never cross zero into a short. Uses
+                # IBKR truth (worker.get_positions), not the DB view, since the two can
+                # desync after missed fills / reconnects.
+                held_qty = 0.0
+                try:
+                    for _p in await asyncio.to_thread(self.worker.get_positions):
+                        if _p.get("symbol") == trade.symbol:
+                            held_qty = float(_p.get("quantity", 0) or 0)
+                            break
+                except Exception as _pe:
+                    logger.warning("No-short guard: could not read positions for %s: %s", trade.symbol, _pe)
+                    held_qty = 0.0
+
+                if held_qty <= 0:
+                    logger.warning("No-short guard: SELL %s blocked — not held (live qty=%.4f)", trade.symbol, held_qty)
+                    machine.transition_to(TradeState.IBKR_ERROR)
+                    trade.state = machine.state
+                    trade.error_message = (
+                        f"No-short guard: not held in IBKR (live qty={held_qty:g}). "
+                        "Selling would open a short — blocked (Rule #1: no shorting)."
+                    )
+                    self._persist_trade_history(db, trade)
+                    return trade
+
+                if trade.quantity > held_qty:
+                    logger.info(
+                        "No-short guard: clamping SELL %s from %.4f to held %.4f",
+                        trade.symbol, trade.quantity, held_qty,
+                    )
+                    trade.quantity = held_qty
+
                 if settings.get("dry_run", False):
                     logger.info(f"[DRY RUN] SELL {trade.quantity} {trade.symbol} @ ~{price:.2f}")
                     machine.transition_to(TradeState.DRY_RUN)
