@@ -663,6 +663,28 @@ class IBKRWorker:
         # Round to 4dp to satisfy IBKR's fractional precision limit; if the gateway
         # rejects fractional orders, the cancel handler alerts via Telegram.
         quantity = round(float(trade.quantity), 4)
+
+        # No-short guard (Rule #1), defense-in-depth at the broker layer: a SELL
+        # may never exceed the live held quantity (would cross zero into a short).
+        # Trader.execute_trade clamps too, but this protects any other caller.
+        if trade.side == "SELL":
+            held = 0.0
+            try:
+                for _p in self.get_positions():
+                    if _p.get("symbol") == trade.symbol:
+                        held = float(_p.get("quantity", 0) or 0)
+                        break
+            except Exception as _pe:
+                logger.warning("place_order no-short guard: positions read failed for %s: %s", trade.symbol, _pe)
+                held = 0.0
+            if held <= 0:
+                raise ValueError(
+                    f"No-short guard: refusing SELL {trade.symbol} — not held (qty={held:g})"
+                )
+            if quantity > held:
+                logger.info("place_order no-short guard: clamping SELL %s %.4f → held %.4f",
+                            trade.symbol, quantity, held)
+                quantity = round(held, 4)
         settings = _ls()
         if settings.get("use_limit_orders", False):
             price = await self.get_last_price(trade.symbol, exchange)
@@ -693,6 +715,14 @@ class IBKRWorker:
         _, _, ibkr_exchange, currency = get_exchange_config(exchange)
         contract = Stock(_ibkr_symbol(trade.symbol), ibkr_exchange, currency)
         await self.ib.qualifyContractsAsync(contract)
+
+        # Bracket entry is BUY-only: parent buys, children (stop/TP) are SELL exits
+        # of the position the BUY opens. A SELL-side bracket would short on the
+        # children — refuse it (Rule #1, defense-in-depth).
+        if trade.side != "BUY":
+            raise ValueError(
+                f"place_bracket_order is BUY-entry only; got side={trade.side} for {trade.symbol}"
+            )
 
         # Fractional shares supported (account has fractional trading enabled).
         # Round to 4dp for IBKR's fractional precision limit. If the gateway rejects

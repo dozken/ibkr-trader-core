@@ -360,5 +360,48 @@ class TestFillCallback(unittest.IsolatedAsyncioTestCase):
         w._on_order_status(trade)  # must not raise
 
 
+class TestNoShortGuard(unittest.IsolatedAsyncioTestCase):
+    def _sell_trade(self, symbol="AAPL", qty=10.0):
+        t = MagicMock(); t.symbol = symbol; t.side = "SELL"; t.quantity = qty
+        return t
+
+    async def test_place_order_sell_blocked_when_not_held(self):
+        w = _make_worker()
+        w.ib.qualifyContractsAsync = AsyncMock()
+        w.get_positions = MagicMock(return_value=[])  # nothing held
+        with patch("ib_insync.Stock"), \
+             patch("ibkr_core.features.trading.worker.get_exchange_config",
+                   return_value=(None, None, "SMART", "USD")), \
+             patch("ibkr_core.features.settings.service.load_settings", return_value={}):
+            with self.assertRaises(ValueError):
+                await w.place_order(self._sell_trade(qty=10))
+        w.ib.placeOrder.assert_not_called()
+
+    async def test_place_order_sell_clamped_to_held(self):
+        w = _make_worker()
+        w.ib.qualifyContractsAsync = AsyncMock()
+        w.get_positions = MagicMock(return_value=[{"symbol": "AAPL", "quantity": 3}])
+        w.ib.placeOrder = MagicMock(return_value=MagicMock(order=MagicMock(orderId=5)))
+        with patch("ib_insync.Stock"), \
+             patch("ib_insync.MarketOrder") as MockMO, \
+             patch("ibkr_core.features.trading.worker.get_exchange_config",
+                   return_value=(None, None, "SMART", "USD")), \
+             patch("ibkr_core.features.settings.service.load_settings", return_value={}):
+            await w.place_order(self._sell_trade(qty=100))
+        # MarketOrder(side, quantity) — second positional arg is the clamped qty.
+        MockMO.assert_called_once()
+        self.assertEqual(MockMO.call_args[0][1], 3)
+
+    async def test_bracket_rejects_sell_side(self):
+        w = _make_worker()
+        w.ib.qualifyContractsAsync = AsyncMock()
+        t = MagicMock(); t.symbol = "AAPL"; t.side = "SELL"; t.quantity = 5
+        with patch("ib_insync.Stock"), \
+             patch("ibkr_core.features.trading.worker.get_exchange_config",
+                   return_value=(None, None, "SMART", "USD")):
+            with self.assertRaises(ValueError):
+                await w.place_bracket_order(t, 95.0, 110.0)
+
+
 if __name__ == "__main__":
     unittest.main()
