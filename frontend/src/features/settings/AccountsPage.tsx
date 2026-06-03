@@ -263,6 +263,18 @@ function GatewayControl() {
     refetchInterval: 5_000,
   })
 
+  // True auth / data-health — distinct from container 'Running'.
+  const { data: auth } = useQuery<{
+    any_authenticated: boolean
+    competing_session: boolean
+    accounts: { account_id: number | string; authenticated: boolean }[]
+    note: string | null
+  }>({
+    queryKey: ['gateway-auth'],
+    queryFn: () => fetch(ROUTES.GATEWAY_AUTH).then((r) => r.json()),
+    refetchInterval: 10_000,
+  })
+
   const stopMutation = useMutation({
     mutationFn: (gw: string) =>
       fetch(ROUTES.GATEWAY_STOP(gw), { method: 'POST', headers: { 'X-API-Key': API_KEY } }).then(async (r) => {
@@ -352,6 +364,25 @@ function GatewayControl() {
           Reconnect
         </Button>
       </header>
+      {auth?.competing_session && (
+        <div className="px-6 py-3 bg-brand-warning/10 border-b border-brand-warning/30 flex items-start gap-2">
+          <AlertTriangle size={15} className="text-brand-warning shrink-0 mt-0.5" />
+          <Text variant="tiny" className="!text-brand-warning">
+            Competing IBKR session — another login (web/mobile/TWS) is holding market data, so
+            orders can't price. Log out elsewhere, then Reconnect.
+          </Text>
+        </div>
+      )}
+      {auth && !auth.competing_session && (
+        <div className="px-6 py-2 border-b border-brand-divider/40 flex items-center gap-2">
+          <Badge variant={auth.any_authenticated ? 'success' : 'destructive'}>
+            {auth.any_authenticated ? 'Authenticated' : 'Not authenticated'}
+          </Badge>
+          <Text variant="tiny" className="opacity-60">
+            {auth.accounts.filter((a) => a.authenticated).length}/{auth.accounts.length} accounts logged in (past 2FA), market data flowing.
+          </Text>
+        </div>
+      )}
       <div className="grid sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-brand-divider/40">
         {Object.entries(data).map(([key, gw]) => (
           <div key={key} className="px-6 py-4 flex items-center justify-between gap-3">

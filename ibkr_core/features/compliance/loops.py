@@ -2,6 +2,7 @@ import asyncio
 import logging
 from datetime import datetime
 
+from ibkr_core.core.market_hours import infer_exchange_from_symbol, market_status
 from ibkr_core.core.websocket import ConnectionManager
 from ibkr_core.features.alerts.dispatcher import alert as send_alert
 from ibkr_core.features.compliance.corporate_actions import check_corporate_actions
@@ -127,14 +128,28 @@ async def compliance_audit_loop(worker, manager: ConnectionManager, health: dict
                         auto_liquidate=auto_liquidate,
                     )))
                     if qty > 0 and auto_liquidate:
-                        logger.info(f"Kill-switch: liquidating {qty} shares of {symbol}...")
-                        trade_req = TradeCreate(symbol=symbol, quantity=qty, side="SELL")
-                        await trader.execute_trade(trade_req, pre_screened=compliance_status, force_liquidation=True)
-                        await send_alert(
-                            f"LIQUIDATED: {symbol}",
-                            f"Non-compliant. Reason: {compliance_status.reason}\n{qty} shares sold (kill-switch).",
-                            channels,
-                        )
+                        # Only liquidate while the symbol's market is open — a market/DAY
+                        # order placed after hours is rejected by IBKR (the bulk of the
+                        # historical 'broker error' noise). Defer to the next open session;
+                        # the audit loop re-runs and will retry then.
+                        ex = infer_exchange_from_symbol(symbol)
+                        if not market_status(ex)["is_open"]:
+                            logger.info("Kill-switch deferred for %s — %s market closed; will retry at open.", symbol, ex)
+                            await send_alert(
+                                f"DEFERRED: {symbol} liquidation",
+                                f"Non-compliant ({compliance_status.reason}) but {ex} market is closed. "
+                                f"Will auto-liquidate {qty} shares when it reopens.",
+                                channels,
+                            )
+                        else:
+                            logger.info(f"Kill-switch: liquidating {qty} shares of {symbol}...")
+                            trade_req = TradeCreate(symbol=symbol, quantity=qty, side="SELL")
+                            await trader.execute_trade(trade_req, pre_screened=compliance_status, force_liquidation=True)
+                            await send_alert(
+                                f"LIQUIDATED: {symbol}",
+                                f"Non-compliant. Reason: {compliance_status.reason}\n{qty} shares sold (kill-switch).",
+                                channels,
+                            )
                     elif qty > 0:
                         logger.warning(f"{symbol} non-compliant but critical_auto_sell=False — manual action required.")
                         await send_alert(

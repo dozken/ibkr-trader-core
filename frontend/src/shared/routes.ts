@@ -59,6 +59,7 @@ export const ROUTES = {
   COMPLIANCE_MANUAL_VERIFY: `${API_BASE}/api/compliance/manual-verify`,
   COMPLIANCE_MANUAL_UNVERIFY: (symbol: string) => `${API_BASE}/api/compliance/manual-verify/${encodeURIComponent(symbol)}`,
   GATEWAY_STATUS: `${API_BASE}/api/gateway/status`,
+  GATEWAY_AUTH: `${API_BASE}/api/gateway/auth`,
   GATEWAY_STOP: (gw: string) => `${API_BASE}/api/gateway/${gw}/stop`,
   GATEWAY_START: (gw: string) => `${API_BASE}/api/gateway/${gw}/start`,
   GATEWAY_RESTART: (gw: string) => `${API_BASE}/api/gateway/${gw}/restart`,
