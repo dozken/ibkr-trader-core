@@ -30,15 +30,23 @@ def _load_peak_nlv_from_db(account_id: int | None = None) -> float:
         return 0.0
 
 
-async def portfolio_snapshot_loop(worker, health: dict, *, account_id: int | None = None) -> None:
-    health["portfolio_snapshot_loop"]["status"] = "running"
-    health.setdefault("drawdown_triggered", False)
-    health.setdefault("current_drawdown_pct", 0.0)
+async def portfolio_snapshot_loop(worker, health: dict, *, account_id: int | None = None,
+                                  manage_drawdown: bool = True) -> None:
+    """Hourly portfolio snapshot + metrics. Runs per-account.
 
-    # Seed from DB so drawdown CB is accurate immediately after restart
-    health["peak_nlv"] = _load_peak_nlv_from_db(account_id)
-    if health["peak_nlv"] > 0:
-        logger.info("Peak NLV seeded from DB (account=%s): $%.2f", account_id, health["peak_nlv"])
+    Only the primary account drives the global drawdown circuit breaker
+    (manage_drawdown=True). Secondary accounts record history + Prometheus
+    metrics but must NOT mutate the shared drawdown/peak_nlv health keys, or
+    a tiny account's peak would clobber the primary's and corrupt the breaker.
+    """
+    health["portfolio_snapshot_loop"]["status"] = "running"
+    if manage_drawdown:
+        health.setdefault("drawdown_triggered", False)
+        health.setdefault("current_drawdown_pct", 0.0)
+        # Seed from DB so drawdown CB is accurate immediately after restart
+        health["peak_nlv"] = _load_peak_nlv_from_db(account_id)
+        if health["peak_nlv"] > 0:
+            logger.info("Peak NLV seeded from DB (account=%s): $%.2f", account_id, health["peak_nlv"])
 
     while True:
         try:
@@ -48,14 +56,15 @@ async def portfolio_snapshot_loop(worker, health: dict, *, account_id: int | Non
                 positions = await asyncio.to_thread(worker.get_positions)
                 upnl = sum(p.get("unrealized_pnl", 0.0) for p in positions)
 
-                # Update peak NLV
-                if nlv > health["peak_nlv"]:
-                    health["peak_nlv"] = nlv
-
-                # Drawdown circuit breaker
-                settings = load_settings()
-                max_dd = float(settings.get("max_drawdown_pct", 15.0))
-                peak = health["peak_nlv"]
+                # Drawdown circuit breaker — primary account only.
+                if manage_drawdown:
+                    if nlv > health["peak_nlv"]:
+                        health["peak_nlv"] = nlv
+                    settings = load_settings()
+                    max_dd = float(settings.get("max_drawdown_pct", 15.0))
+                    peak = health["peak_nlv"]
+                else:
+                    peak = 0  # skip CB logic below for secondaries
                 if peak > 0:
                     drawdown_pct = ((peak - nlv) / peak) * 100
                     health["current_drawdown_pct"] = round(drawdown_pct, 2)

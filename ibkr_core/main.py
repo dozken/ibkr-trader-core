@@ -309,6 +309,12 @@ async def lifespan(app: FastAPI):
                 tasks.append(asyncio.create_task(
                     position_rerating_loop(sec_worker, manager, health, account_id=aid)
                 ))
+                # Per-account portfolio snapshots — without this, secondary accounts
+                # show "No history yet" forever (only the primary was snapshotted).
+                # Secondaries don't drive the global drawdown breaker.
+                tasks.append(asyncio.create_task(
+                    portfolio_snapshot_loop(sec_worker, health, account_id=aid, manage_drawdown=False)
+                ))
         if HAS_AI_MODULE:
             tasks.extend([
                 asyncio.create_task(ml_retraining_loop(health)),

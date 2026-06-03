@@ -12,7 +12,7 @@ def _make_worker(nlv: float = 10000.0, connected: bool = True):
     return w
 
 
-async def _run_one_tick(worker, health: dict, settings: dict):
+async def _run_one_tick(worker, health: dict, settings: dict, manage_drawdown: bool = True):
     """Run one iteration of portfolio_snapshot_loop logic, extracted for testing."""
     from ibkr_core.features.portfolio.loops import portfolio_snapshot_loop
     import asyncio as _asyncio
@@ -30,7 +30,7 @@ async def _run_one_tick(worker, health: dict, settings: dict):
          patch("ibkr_core.features.portfolio.loops.asyncio.to_thread", side_effect=_fake_to_thread), \
          patch("ibkr_core.features.portfolio.loops.SessionLocal"):
         try:
-            await portfolio_snapshot_loop(worker, health)
+            await portfolio_snapshot_loop(worker, health, manage_drawdown=manage_drawdown)
         except asyncio.CancelledError:
             pass
         return mock_alert
@@ -59,6 +59,18 @@ class TestDrawdownCircuitBreaker(unittest.IsolatedAsyncioTestCase):
         mock_alert.assert_called_once()
         args = mock_alert.call_args[0]
         self.assertIn("20.0%", args[1])
+
+    async def test_secondary_account_does_not_drive_breaker(self):
+        """manage_drawdown=False (secondary account): never trips the global breaker,
+        even at a huge drawdown — only the primary account drives it."""
+        health = {"portfolio_snapshot_loop": {"status": "starting"}, "peak_nlv": 10000.0}
+        worker = _make_worker(nlv=1000.0)  # 90% drawdown
+        mock_alert = await _run_one_tick(
+            worker, health, {"max_drawdown_pct": 15.0, "alert_channels": ["telegram"]},
+            manage_drawdown=False,
+        )
+        self.assertNotIn("drawdown_triggered", health)  # untouched
+        mock_alert.assert_not_called()
 
     async def test_no_double_trigger(self):
         health = {"portfolio_snapshot_loop": {"status": "starting"}, "peak_nlv": 10000.0, "drawdown_triggered": True}
