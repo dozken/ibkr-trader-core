@@ -447,6 +447,57 @@ async def emergency_liquidate(body: EmergencyLiquidateRequest, request: Request)
     return {"liquidated": liquidated, "skipped": skipped, "total": len(liquidated)}
 
 
+class FlattenShortsRequest(BaseModel):
+    emergency_pin: str
+    account_id: Optional[int] = None
+
+
+@router.post("/flatten-shorts", dependencies=[Depends(require_api_key)])
+async def flatten_shorts(body: FlattenShortsRequest, request: Request):
+    """Buy-to-cover every SHORT position back to zero (Rule #1 cleanup).
+
+    Short positions violate the no-shorting rule and must never exist; this
+    places a market BUY for exactly abs(quantity) on each negative position so
+    it returns to flat without crossing into a long. PIN + X-Api-Key gated.
+    Does not touch long positions.
+    """
+    import os
+
+    required_pin = os.getenv("EMERGENCY_PIN", "")
+    if not required_pin:
+        raise HTTPException(status_code=503, detail="EMERGENCY_PIN env var not configured on server")
+    if body.emergency_pin != required_pin:
+        raise HTTPException(status_code=403, detail="Invalid emergency PIN")
+
+    worker = _resolve_worker(request, body.account_id)
+    if worker is None or not worker.ib.isConnected():
+        raise HTTPException(status_code=503, detail="IBKR worker not connected")
+
+    positions = await asyncio.to_thread(worker.get_positions)
+    shorts = [p for p in positions if float(p.get("quantity", 0)) < 0]
+    if not shorts:
+        return {"covered": [], "skipped": [], "total": 0, "note": "No short positions."}
+
+    covered, skipped = [], []
+    for pos in shorts:
+        symbol = pos.get("symbol", "")
+        cover_qty = abs(float(pos.get("quantity", 0)))
+        if not symbol or cover_qty <= 0:
+            continue
+        try:
+            # Direct market BUY to cover — bypasses signal/sizing logic; this is
+            # risk reduction, not a new position. BUY can't trip the no-short guard.
+            trade = TradeCreate(symbol=symbol, quantity=cover_qty, side="BUY", order_type="MKT")
+            order_id = await worker.place_order(trade, exchange="NMS")
+            logger.warning("FLATTEN SHORT: buy-to-cover %s qty=%.4f order=%s", symbol, cover_qty, order_id)
+            covered.append({"symbol": symbol, "quantity": cover_qty, "order_id": order_id})
+        except Exception as exc:
+            logger.error("FLATTEN SHORT: failed %s: %s", symbol, exc)
+            skipped.append({"symbol": symbol, "error": str(exc)})
+
+    return {"covered": covered, "skipped": skipped, "total": len(covered)}
+
+
 class BatchSellRequest(BaseModel):
     symbols: List[str]
     account_id: Optional[int] = None
