@@ -15,9 +15,15 @@ _COMPLIANT_STATUS = ComplianceStatus(
     debt_to_mkt_cap=0.1, cash_to_mkt_cap=0.05, impure_revenue_pct=0.0,
 )
 _NON_COMPLIANT_STATUS = ComplianceStatus(
-    symbol="TOBK", sector="Tobacco", is_compliant=False,
+    symbol="TOBK", sector="Tobacco", is_compliant=False, verdict="NON_COMPLIANT",
     debt_to_mkt_cap=0.1, cash_to_mkt_cap=0.05, impure_revenue_pct=0.9,
     reason="Prohibited sector: Tobacco",
+)
+# Data gap — not held data, NOT proven haram. Must NOT be auto-liquidated.
+_UNKNOWN_STATUS = ComplianceStatus(
+    symbol="LLY", sector="", is_compliant=False, verdict="UNKNOWN",
+    debt_to_mkt_cap=0.0, cash_to_mkt_cap=0.0, impure_revenue_pct=0.0,
+    reason="Cannot verify compliance — no financial data or Shariah verdict available.",
 )
 
 
@@ -55,12 +61,17 @@ class TestComplianceAuditLoopLogic(unittest.IsolatedAsyncioTestCase):
             qty = int(pos["quantity"])
             compliance_status = await loop.run_in_executor(None, lambda s=symbol: compliance_map[s])
 
-            if not compliance_status.is_compliant and qty > 0 and auto_liquidate:
-                trader.execute_trade(
-                    TradeCreate(symbol=symbol, quantity=qty, side="SELL"),
-                    pre_screened=compliance_status,
-                    force_liquidation=True,
-                )
+            if not compliance_status.is_compliant:
+                # UNKNOWN verdict = data gap, never auto-liquidate (only proven
+                # NON_COMPLIANT triggers the kill-switch).
+                if (getattr(compliance_status, "verdict", "") or "").upper() == "UNKNOWN":
+                    continue
+                if qty > 0 and auto_liquidate:
+                    trader.execute_trade(
+                        TradeCreate(symbol=symbol, quantity=qty, side="SELL"),
+                        pre_screened=compliance_status,
+                        force_liquidation=True,
+                    )
 
         return calls
 
@@ -78,6 +89,12 @@ class TestComplianceAuditLoopLogic(unittest.IsolatedAsyncioTestCase):
     async def test_non_compliant_auto_sell_false_no_trade(self):
         worker = _make_worker([{"symbol": "TOBK", "quantity": 5}])
         calls = await self._run_one_audit(worker, {"TOBK": _NON_COMPLIANT_STATUS}, auto_sell=False)
+        self.assertEqual(calls, [])
+
+    async def test_unknown_verdict_not_auto_sold(self):
+        """Data gap (verdict=UNKNOWN) must NOT be liquidated — missing data != haram."""
+        worker = _make_worker([{"symbol": "LLY", "quantity": 50}])
+        calls = await self._run_one_audit(worker, {"LLY": _UNKNOWN_STATUS}, auto_sell=True)
         self.assertEqual(calls, [])
 
     async def test_zero_quantity_non_compliant_no_trade(self):

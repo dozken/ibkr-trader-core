@@ -121,6 +121,25 @@ async def compliance_audit_loop(worker, manager: ConnectionManager, health: dict
                 await asyncio.to_thread(persist_compliance, symbol, compliance_status)
 
                 if not compliance_status.is_compliant:
+                    # "UNKNOWN" = data gap (no financials AND no Zoya/Musaffa verdict),
+                    # NOT proven haram. Never auto-liquidate on a data gap — that dumped
+                    # blue chips (V, PG, HD, LLY...) just because yfinance failed. Only a
+                    # definitive NON_COMPLIANT verdict triggers the kill-switch; UNKNOWN
+                    # raises a manual-review alert instead.
+                    verdict = getattr(compliance_status, "verdict", "") or ""
+                    is_unverifiable = verdict.upper() == "UNKNOWN"
+                    if is_unverifiable:
+                        logger.warning("UNVERIFIED: %s — %s. NOT auto-selling (data gap, not haram).",
+                                       symbol, compliance_status.reason)
+                        await send_alert(
+                            f"REVIEW: {symbol} compliance unverifiable",
+                            f"Could not verify {symbol} ({compliance_status.reason}). "
+                            f"Holding {qty} shares — NOT auto-liquidated (missing data ≠ non-compliant). "
+                            f"Check manually.",
+                            channels,
+                        )
+                        continue
+
                     logger.warning(f"CRITICAL: {symbol} NON-COMPLIANT. Reason: {compliance_status.reason}")
                     await manager.broadcast(ComplianceViolationMessage(payload=ComplianceViolationPayload(
                         symbol=symbol,
