@@ -27,7 +27,8 @@ class ConnectionManager:
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
 
     async def broadcast(self, message: Union[WSBaseMessage, dict]):
         data = message.model_dump() if isinstance(message, WSBaseMessage) else message
@@ -39,4 +40,7 @@ class ConnectionManager:
                 dead.append(connection)
         for conn in dead:
             logger.debug("Removing dead WebSocket connection from broadcast pool")
-            self.active_connections.remove(conn)
+            # Guard against a concurrent disconnect() having already removed it
+            # (broadcasts run from multiple per-account loops).
+            if conn in self.active_connections:
+                self.active_connections.remove(conn)

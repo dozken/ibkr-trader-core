@@ -909,6 +909,29 @@ import json
 # relative to __file__ breaks when ibkr_core is installed as a wheel — the path
 # lands in read-only site-packages and writes raise PermissionError.
 _DATA_DIR = os.getenv("DATA_DIR", "data")
+
+
+def _atomic_write_json(path: str, data, indent=None) -> None:
+    """Atomically write JSON. Uses a unique temp file in the same dir so that
+    concurrent writers (per-account loops update HWM/cooldown via
+    run_in_executor threads) don't collide on a shared "<path>.tmp" and race
+    each other's os.replace into FileNotFoundError."""
+    import tempfile
+    d = os.path.dirname(path) or "."
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".tmp-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=indent)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 DRIP_STATE_FILE = os.path.join(_DATA_DIR, "drip_state.json")
 
 def load_drip_state() -> dict:
@@ -922,11 +945,7 @@ def load_drip_state() -> dict:
     return {}
 
 def save_drip_state(state: dict):
-    os.makedirs(os.path.dirname(DRIP_STATE_FILE), exist_ok=True)
-    tmp = DRIP_STATE_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(state, f, indent=2)
-    os.replace(tmp, DRIP_STATE_FILE)  # atomic on POSIX — no partial-write corruption
+    _atomic_write_json(DRIP_STATE_FILE, state, indent=2)
 
 
 # ── Trailing stop — high-water mark ───────────────────────────────────────
@@ -947,22 +966,14 @@ def _update_hwm(symbol: str, current_price: float) -> float:
     """Update HWM if current_price is a new peak. Returns the HWM price."""
     hwm = _load_hwm()
     hwm[symbol] = max(hwm.get(symbol, current_price), current_price)
-    os.makedirs(os.path.dirname(_HWM_FILE), exist_ok=True)
-    tmp = _HWM_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(hwm, f)
-    os.replace(tmp, _HWM_FILE)
+    _atomic_write_json(_HWM_FILE, hwm)
     return hwm[symbol]
 
 
 def _clear_hwm(symbol: str) -> None:
     hwm = _load_hwm()
     hwm.pop(symbol, None)
-    os.makedirs(os.path.dirname(_HWM_FILE), exist_ok=True)
-    tmp = _HWM_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(hwm, f)
-    os.replace(tmp, _HWM_FILE)
+    _atomic_write_json(_HWM_FILE, hwm)
 
 
 # ── Partial profit tracking ────────────────────────────────────────────────
@@ -986,21 +997,13 @@ def _has_partial_sell(symbol: str) -> bool:
 def _mark_partial_sell(symbol: str) -> None:
     ps = _load_partial_sells()
     ps[symbol] = datetime.now().isoformat()
-    os.makedirs(os.path.dirname(_PARTIAL_SELLS_FILE), exist_ok=True)
-    tmp = _PARTIAL_SELLS_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(ps, f)
-    os.replace(tmp, _PARTIAL_SELLS_FILE)
+    _atomic_write_json(_PARTIAL_SELLS_FILE, ps)
 
 
 def _clear_partial_sell(symbol: str) -> None:
     ps = _load_partial_sells()
     ps.pop(symbol, None)
-    os.makedirs(os.path.dirname(_PARTIAL_SELLS_FILE), exist_ok=True)
-    tmp = _PARTIAL_SELLS_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(ps, f)
-    os.replace(tmp, _PARTIAL_SELLS_FILE)
+    _atomic_write_json(_PARTIAL_SELLS_FILE, ps)
 
 
 # ── Position entry date ────────────────────────────────────────────────────
@@ -1044,11 +1047,7 @@ def _mark_cooldown_sell(symbol: str) -> None:
     """Record that symbol was just sold at take-profit; blocks re-entry for cooldown period."""
     cooldowns = _load_cooldowns()
     cooldowns[symbol] = datetime.now().isoformat()
-    os.makedirs(os.path.dirname(_COOLDOWN_FILE), exist_ok=True)
-    tmp = _COOLDOWN_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(cooldowns, f, indent=2)
-    os.replace(tmp, _COOLDOWN_FILE)
+    _atomic_write_json(_COOLDOWN_FILE, cooldowns, indent=2)
 
 
 def _is_in_cooldown(symbol: str, days: int = 14) -> bool:
