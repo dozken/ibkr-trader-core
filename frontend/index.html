@@ -14,6 +14,8 @@
   <body>
     <script>
       if (localStorage.theme === 'dark') document.documentElement.classList.add('dark')
+      // Theme knob (see src/lib/theme.ts) — applied pre-render to avoid FOUC.
+      document.documentElement.setAttribute('data-theme', 'aegov')
     </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>

@@ -3,13 +3,16 @@ import { RouterProvider } from '@tanstack/react-router'
 import { queryClient } from './queryClient'
 import { router } from './router'
 import { AccountProvider } from './features/trading/context/AccountContext'
+import { ThemeProvider } from './lib/ThemeContext'
 
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AccountProvider>
-        <RouterProvider router={router} />
-      </AccountProvider>
+      <ThemeProvider>
+        <AccountProvider>
+          <RouterProvider router={router} />
+        </AccountProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   )
 }

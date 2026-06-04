@@ -14,18 +14,8 @@ import { Page, PageHeader, PageSection } from '@/components/ui/layout'
 import { ROUTES, withAccount } from '../../shared/routes'
 import { useAccount } from '../trading/context/AccountContext'
 import { ErrorBoundary } from '../../components/ErrorBoundary'
-
-interface Scenario {
-  label: string
-  rate: number
-  color: string
-}
-
-const SCENARIOS: Scenario[] = [
-  { label: 'Conservative', rate: 0.08, color: '#64748b' },
-  { label: 'Moderate', rate: 0.15, color: '#2dd4bf' },
-  { label: 'Optimistic', rate: 0.25, color: '#22c55e' },
-]
+import { useTheme } from '../../lib/ThemeContext'
+import { chartTheme } from '../../lib/chartTheme'
 
 function projectGrowth(
   principal: number,
@@ -52,6 +42,9 @@ function formatCurrency(v: number): string {
 
 function GrowthCalculator() {
   const { selectedAccountId } = useAccount()
+  const { themeId } = useTheme() // subscribe so chart colors re-read on theme switch
+  const ct = chartTheme()
+  void themeId
 
   const { data: summary } = useQuery<{
     total_value?: number
@@ -70,8 +63,10 @@ function GrowthCalculator() {
   const [customRate, setCustomRate] = useState(15)
 
   const scenarios = [
-    ...SCENARIOS,
-    { label: 'Custom', rate: customRate / 100, color: '#a78bfa' },
+    { label: 'Conservative', rate: 0.08, color: ct.axis },
+    { label: 'Moderate', rate: 0.15, color: ct.primary },
+    { label: 'Optimistic', rate: 0.25, color: ct.success },
+    { label: 'Custom', rate: customRate / 100, color: ct.accent },
   ]
 
   const projections = scenarios.map((s) => ({
@@ -183,27 +178,28 @@ function GrowthCalculator() {
                   </linearGradient>
                 ))}
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
+              <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} opacity={0.3} />
               <XAxis
                 dataKey="year"
                 type="number"
                 domain={[0, years]}
                 tickFormatter={(v) => `${v}Y`}
-                tick={{ fill: '#94a3b8', fontSize: 11 }}
-                axisLine={{ stroke: '#334155' }}
+                tick={{ fill: ct.axis, fontSize: 11 }}
+                axisLine={{ stroke: ct.grid }}
               />
               <YAxis
                 tickFormatter={formatCurrency}
-                tick={{ fill: '#94a3b8', fontSize: 11 }}
-                axisLine={{ stroke: '#334155' }}
+                tick={{ fill: ct.axis, fontSize: 11 }}
+                axisLine={{ stroke: ct.grid }}
                 width={65}
               />
               <Tooltip
                 contentStyle={{
-                  background: '#1e2530',
-                  border: '1px solid #334155',
+                  background: ct.surface,
+                  border: `1px solid ${ct.grid}`,
                   borderRadius: '8px',
                   fontSize: '12px',
+                  color: ct.text,
                 }}
                 formatter={(value: number) => [formatCurrency(value), '']}
                 labelFormatter={(v) => `Year ${v}`}

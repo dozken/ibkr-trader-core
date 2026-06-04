@@ -52,6 +52,9 @@ const MOBILE_NAV = [
   { to: '/settings', label: 'Config', Icon: SettingsIcon },
 ] as const
 
+const isActive = (pathname: string, to: string) =>
+  to === '/' ? pathname === '/' : pathname.startsWith(to)
+
 export default function Layout() {
   const { location } = useRouterState()
   const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'))
@@ -124,104 +127,105 @@ export default function Layout() {
       p.startsWith('/scanner') ? 'Scanner' :
       p.startsWith('/growth') ? 'Growth' :
       p.startsWith('/faq') ? 'Guide' : 'App'
-      
+
     document.title = `${routeName} - IBKR Shariah`
   }, [location.pathname])
+
+  const brand = (
+    <Link to="/" className="flex items-center gap-3">
+      <Logo size={32} />
+      <div className="flex flex-col">
+        <h2 className="text-brand-light font-bold text-sm sm:text-base tracking-tight whitespace-nowrap leading-none">
+          IBKR <span className="text-brand-primary">Shariah</span>
+        </h2>
+        <span
+          className={`text-[8px] sm:text-[9px] font-black uppercase tracking-tighter mt-0.5 sm:mt-1 leading-none ${portfolio?.account_type === 'LIVE' ? 'text-brand-success' : 'text-brand-warning'}`}
+        >
+          {portfolio?.account_type === 'LIVE' ? 'Live Trading' : 'Paper Trading'}
+        </span>
+      </div>
+    </Link>
+  )
+
+  const controls = (
+    <div className="flex items-center gap-2">
+      {accounts && accounts.length === 1 && (
+        <span
+          className={`text-[11px] font-bold px-2 py-0.5 rounded border ${accounts[0].is_paper ? 'bg-brand-warning/10 border-brand-warning/30 text-brand-warning' : 'bg-brand-danger/10 border-brand-danger/30 text-brand-danger'}`}
+        >
+          {accounts[0].label} · {accounts[0].is_paper ? 'PAPER' : 'LIVE'}
+        </span>
+      )}
+      {accounts && accounts.length > 1 && (
+        <select
+          value={selectedAccountId ?? ''}
+          onChange={(e) => setSelectedAccountId(e.target.value ? Number(e.target.value) : null)}
+          className="text-xs font-semibold bg-brand-elevated border-2 border-brand-primary/40 text-brand-light rounded-lg px-3 py-1.5 cursor-pointer focus:outline-none focus:border-brand-primary shadow-sm"
+          title="Switch account"
+        >
+          <option value="">All accounts</option>
+          {accounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.label} {a.is_paper ? '(Paper)' : '(Live)'}
+            </option>
+          ))}
+        </select>
+      )}
+
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={async () => {
+          if (!('Notification' in window)) return
+          if (Notification.permission === 'granted') return
+          await Notification.requestPermission()
+        }}
+        className="text-brand-light/70 hover:text-brand-light transition-all"
+        title={typeof Notification !== 'undefined' && Notification.permission === 'granted' ? 'Notifications enabled' : 'Enable notifications'}
+      >
+        {typeof Notification !== 'undefined' && Notification.permission === 'granted' ? <Bell size={18} /> : <BellOff size={18} />}
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={() => setDark((d) => !d)}
+        className="text-brand-light/70 hover:text-brand-light transition-all"
+        title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+      >
+        {dark ? <Sun size={18} /> : <Moon size={18} />}
+      </Button>
+    </div>
+  )
 
   return (
     <div className="flex flex-col min-h-screen bg-brand-base">
       <Toaster position="top-right" toastOptions={{ style: { background: '#1e2530', color: '#e2e8f0', border: '1px solid #2d3748', fontSize: '13px' } }} />
-      <nav className="bg-brand-surface/90 backdrop-blur-md sticky top-0 z-50 border-b border-brand-divider px-4 py-2 flex items-center justify-between h-14">
-        <div className="flex items-center gap-3">
-          <Logo size={32} className="shadow-glow-primary" />
-          <div className="flex flex-col">
-            <h2 className="text-brand-light font-bold text-sm sm:text-base tracking-tight whitespace-nowrap leading-none">
-              IBKR <span className="text-brand-primary">Shariah</span>
-            </h2>
-            <span className={`text-[8px] sm:text-[9px] font-black uppercase tracking-tighter mt-0.5 sm:mt-1 leading-none ${portfolio?.account_type === 'LIVE' ? 'text-brand-success' : 'text-brand-warning'}`}>
-              {portfolio?.account_type === 'LIVE' ? 'Live Trading' : 'Paper Trading'}
-            </span>
-          </div>
-        </div>
 
-        {/* Desktop/Tablet Nav - Show all 8 items when there is space */}
+      <nav className="bg-brand-surface/90 backdrop-blur-md sticky top-0 z-50 border-b border-brand-divider px-4 py-2 flex items-center justify-between h-14">
+        {brand}
+
         <div className="hidden md:flex gap-1 items-center">
           {NAV.map(({ to, label, Icon }) => {
-            const active = to === '/' ? location.pathname === '/' : location.pathname.startsWith(to)
+            const active = isActive(location.pathname, to)
             return (
               <Link
                 key={to}
                 to={to}
                 className={`relative flex items-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-2 rounded-lg text-[13px] lg:text-sm transition-all duration-200 whitespace-nowrap border border-transparent ${
                   active
-                    ? 'text-brand-primary bg-brand-primary/10 font-bold border-brand-primary/20 shadow-[0_0_12px_rgba(45,212,191,0.1)]'
+                    ? 'text-brand-primary bg-brand-primary/10 font-bold border-brand-primary/20'
                     : 'text-brand-light/70 hover:text-brand-light hover:bg-brand-elevated'
                 }`}
               >
                 <Icon size={14} className={active ? 'text-brand-primary' : ''} />
                 {label}
-                {active && (
-                  <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-brand-primary animate-pulse" />
-                )}
               </Link>
             )
           })}
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Mobile indicator - small screens only */}
-          <div className="md:hidden flex items-center gap-2 px-2.5 py-1 rounded-full bg-brand-primary/10 border border-brand-primary/20 text-[10px] font-black text-brand-primary uppercase tracking-[0.2em] shadow-[0_0_15px_rgba(45,212,191,0.1)]">
-            <span className="w-1.5 h-1.5 rounded-full bg-brand-primary animate-pulse" />
-            {NAV.find((n) =>
-              n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to),
-            )?.label || 'Menu'}
-          </div>
-
-          {accounts && accounts.length === 1 && (
-            <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${accounts[0].is_paper ? 'bg-brand-warning/10 border-brand-warning/30 text-brand-warning' : 'bg-brand-danger/10 border-brand-danger/30 text-brand-danger'}`}>
-              {accounts[0].label} · {accounts[0].is_paper ? 'PAPER' : 'LIVE'}
-            </span>
-          )}
-          {accounts && accounts.length > 1 && (
-            <select
-              value={selectedAccountId ?? ''}
-              onChange={(e) => setSelectedAccountId(e.target.value ? Number(e.target.value) : null)}
-              className="text-xs font-semibold bg-brand-elevated border-2 border-brand-primary/40 text-brand-light rounded-lg px-3 py-1.5 cursor-pointer focus:outline-none focus:border-brand-primary shadow-sm"
-              title="Switch account"
-            >
-              <option value="">All accounts</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.label} {a.is_paper ? '(Paper)' : '(Live)'}
-                </option>
-              ))}
-            </select>
-          )}
-
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={async () => {
-              if (!('Notification' in window)) return
-              if (Notification.permission === 'granted') return
-              await Notification.requestPermission()
-            }}
-            className="text-brand-light/70 hover:text-brand-light transition-all"
-            title={typeof Notification !== 'undefined' && Notification.permission === 'granted' ? 'Notifications enabled' : 'Enable notifications'}
-          >
-            {typeof Notification !== 'undefined' && Notification.permission === 'granted' ? <Bell size={18} /> : <BellOff size={18} />}
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setDark((d) => !d)}
-            className="text-brand-light/70 hover:text-brand-light transition-all"
-            title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {dark ? <Sun size={18} /> : <Moon size={18} />}
-          </Button>
-        </div>
+        {controls}
       </nav>
 
       <main className="flex-1 pb-24 md:pb-8">
@@ -230,34 +234,24 @@ export default function Layout() {
         </div>
       </main>
 
-      {/* Mobile Bottom Nav - Only on small screens */}
       <nav
         className="md:hidden fixed bottom-0 left-0 right-0 bg-brand-surface/95 backdrop-blur-lg border-t border-brand-divider flex z-50 shadow-[0_-4px_20px_rgba(0,0,0,0.2)]"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         {MOBILE_NAV.map(({ to, label, Icon }) => {
-          const active = to === '/' ? location.pathname === '/' : location.pathname.startsWith(to)
+          const active = isActive(location.pathname, to)
           return (
             <Link
               key={to}
               to={to}
-              className={`flex-1 flex flex-col items-center justify-center py-2 transition-all relative ${
-                active ? 'text-brand-primary' : 'text-brand-light/70'
-              }`}
+              className={`flex-1 flex flex-col items-center justify-center py-2 transition-all relative ${active ? 'text-brand-primary' : 'text-brand-light/70'}`}
             >
-              <div
-                className={`p-1 rounded-lg transition-all ${active ? 'bg-brand-primary/10' : ''}`}
-              >
+              <div className={`p-1 rounded-lg transition-all ${active ? 'bg-brand-primary/10' : ''}`}>
                 <Icon size={18} strokeWidth={active ? 2.5 : 2} />
               </div>
-              <span
-                className={`text-[9px] font-bold uppercase tracking-tighter mt-0.5 ${active ? 'opacity-100' : 'opacity-70'}`}
-              >
+              <span className={`text-[9px] font-bold uppercase tracking-tighter mt-0.5 ${active ? 'opacity-100' : 'opacity-70'}`}>
                 {label}
               </span>
-              {active && (
-                <span className="absolute top-1 right-1/4 w-1 h-1 rounded-full bg-brand-primary animate-pulse" />
-              )}
             </Link>
           )
         })}

@@ -33,6 +33,8 @@ import { Tooltip, TextTip } from '../../components/Tooltip'
 import { API_BASE, API_KEY, ROUTES } from '../../shared/routes'
 import { useAccount } from '../trading/context/AccountContext'
 import { useTrading } from '../trading/hooks/useTrading'
+import { useTheme } from '../../lib/ThemeContext'
+import { chartTheme } from '../../lib/chartTheme'
 
 interface AnalystConsensus {
   symbol: string
@@ -70,6 +72,8 @@ interface BacktestResult {
 }
 
 const BacktestModal: React.FC<{ symbol: string; onClose: () => void }> = ({ symbol, onClose }) => {
+  useTheme() // re-read chart colors on theme switch
+  const ct = chartTheme()
   const [timeframe, _setTimeframe] = useState('1y')
   const { data, isLoading, error, refetch } = useQuery<BacktestResult>({
     queryKey: ['backtest', symbol, timeframe],
@@ -184,36 +188,36 @@ const BacktestModal: React.FC<{ symbol: string; onClose: () => void }> = ({ symb
                       <AreaChart data={data.equity_curve}>
                         <defs>
                           <linearGradient id="colorBacktest" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#22c55e" stopOpacity={0.15} />
-                            <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                            <stop offset="5%" stopColor={ct.success} stopOpacity={0.15} />
+                            <stop offset="95%" stopColor={ct.success} stopOpacity={0} />
                           </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+                        <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
                         <XAxis dataKey="timestamp" hide />
                         <YAxis
                           domain={['auto', 'auto']}
                           orientation="right"
-                          tick={{ fontSize: 11, fill: '#525252', fontWeight: 600 }}
+                          tick={{ fontSize: 11, fill: ct.axis, fontWeight: 600 }}
                           axisLine={false}
                           tickLine={false}
                           tickFormatter={(v) => `$${v.toLocaleString()}`}
                         />
                         <ReTooltip
                           contentStyle={{
-                            backgroundColor: '#171717',
-                            border: '1px solid #262626',
+                            backgroundColor: ct.surface,
+                            border: `1px solid ${ct.grid}`,
                             borderRadius: '12px',
                             padding: '12px',
                             boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)',
                           }}
-                          itemStyle={{ color: '#22c55e', fontSize: '13px', fontWeight: 'bold' }}
+                          itemStyle={{ color: ct.success, fontSize: '13px', fontWeight: 'bold' }}
                           labelStyle={{ display: 'none' }}
                           formatter={(v: number) => [`$${v.toLocaleString()}`, 'Portfolio Value']}
                         />
                         <Area
                           type="monotone"
                           dataKey="value"
-                          stroke="#22c55e"
+                          stroke={ct.success}
                           strokeWidth={3}
                           fillOpacity={1}
                           fill="url(#colorBacktest)"

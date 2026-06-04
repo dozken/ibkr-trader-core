@@ -15,6 +15,8 @@ import {
 import { ROUTES } from '@/shared/routes'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { useTheme } from '@/lib/ThemeContext'
+import { chartTheme } from '@/lib/chartTheme'
 
 interface BacktestRequest {
   symbols?: string[]
@@ -65,17 +67,19 @@ const fmtCurrency = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 
 function StatCard({ label, value, sub, positive }: { label: string; value: string; sub?: string; positive?: boolean }) {
-  const color = positive === undefined ? '' : positive ? 'text-emerald-400' : 'text-red-400'
+  const color = positive === undefined ? '' : positive ? 'text-brand-success' : 'text-brand-danger'
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-      <div className="text-xs text-zinc-500 uppercase tracking-wide mb-1">{label}</div>
+    <div className="bg-brand-surface border border-brand-divider rounded-lg p-4">
+      <div className="text-xs text-brand-light/50 uppercase tracking-wide mb-1">{label}</div>
       <div className={`text-2xl font-bold font-mono ${color}`}>{value}</div>
-      {sub && <div className="text-xs text-zinc-500 mt-1">{sub}</div>}
+      {sub && <div className="text-xs text-brand-light/50 mt-1">{sub}</div>}
     </div>
   )
 }
 
 export default function BacktestPage() {
+  useTheme() // re-read chart colors on theme switch
+  const ct = chartTheme()
   const [timeframe, setTimeframe] = useState('1y')
   const [capital, setCapital] = useState(100000)
   const [maxPos, setMaxPos] = useState(15)
@@ -147,21 +151,21 @@ export default function BacktestPage() {
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Portfolio Backtest</h1>
-        <p className="text-zinc-400 text-sm mt-1">
+        <p className="text-brand-light/70 text-sm mt-1">
           Simulates full bot strategy on historical data — stop-loss/take-profit, position sizing, max-positions cap.
           Benchmark: SPY buy-and-hold.
         </p>
       </div>
 
       {/* Config */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5">
+      <div className="card p-5">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-4">
           <div>
-            <label className="text-xs text-zinc-500 block mb-1">Timeframe</label>
+            <label className="text-xs text-brand-light/50 block mb-1">Timeframe</label>
             <select
               value={timeframe}
               onChange={(e) => setTimeframe(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm"
+              className="w-full bg-brand-elevated border border-brand-divider rounded px-2 py-1.5 text-sm"
             >
               <option value="1y">1 Year</option>
               <option value="2y">2 Years</option>
@@ -169,48 +173,48 @@ export default function BacktestPage() {
             </select>
           </div>
           <div>
-            <label className="text-xs text-zinc-500 block mb-1">Capital ($)</label>
+            <label className="text-xs text-brand-light/50 block mb-1">Capital ($)</label>
             <input
               type="number"
               value={capital}
               onChange={(e) => setCapital(Number(e.target.value))}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm font-mono"
+              className="w-full bg-brand-elevated border border-brand-divider rounded px-2 py-1.5 text-sm font-mono"
             />
           </div>
           <div>
-            <label className="text-xs text-zinc-500 block mb-1">Max Positions</label>
+            <label className="text-xs text-brand-light/50 block mb-1">Max Positions</label>
             <input
               type="number"
               value={maxPos}
               onChange={(e) => setMaxPos(Number(e.target.value))}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm font-mono"
+              className="w-full bg-brand-elevated border border-brand-divider rounded px-2 py-1.5 text-sm font-mono"
             />
           </div>
           <div>
-            <label className="text-xs text-zinc-500 block mb-1">Stop-Loss %</label>
+            <label className="text-xs text-brand-light/50 block mb-1">Stop-Loss %</label>
             <input
               type="number"
               value={stopLoss}
               onChange={(e) => setStopLoss(Number(e.target.value))}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm font-mono"
+              className="w-full bg-brand-elevated border border-brand-divider rounded px-2 py-1.5 text-sm font-mono"
             />
           </div>
           <div>
-            <label className="text-xs text-zinc-500 block mb-1">Take-Profit %</label>
+            <label className="text-xs text-brand-light/50 block mb-1">Take-Profit %</label>
             <input
               type="number"
               value={takeProfit}
               onChange={(e) => setTakeProfit(Number(e.target.value))}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm font-mono"
+              className="w-full bg-brand-elevated border border-brand-divider rounded px-2 py-1.5 text-sm font-mono"
             />
           </div>
           <div>
-            <label className="text-xs text-zinc-500 block mb-1">Buy Threshold</label>
+            <label className="text-xs text-brand-light/50 block mb-1">Buy Threshold</label>
             <input
               type="number"
               value={threshold}
               onChange={(e) => setThreshold(Number(e.target.value))}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm font-mono"
+              className="w-full bg-brand-elevated border border-brand-divider rounded px-2 py-1.5 text-sm font-mono"
             />
           </div>
         </div>
@@ -224,19 +228,19 @@ export default function BacktestPage() {
         </Button>
         {mutation.isPending && (
           <div className="mt-3 space-y-1">
-            <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+            <div className="h-1.5 bg-brand-elevated rounded-full overflow-hidden">
               <div
-                className="h-full bg-emerald-500/70 rounded-full transition-all duration-1000"
+                className="h-full bg-brand-success/70 rounded-full transition-all duration-1000"
                 style={{ width: `${Math.min(95, (elapsed / 90) * 100)}%` }}
               />
             </div>
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-brand-light/50">
               {elapsed < 10 ? 'Fetching historical data…' : elapsed < 40 ? 'Simulating trades…' : elapsed < 70 ? 'Computing metrics…' : 'Almost done…'}
             </p>
           </div>
         )}
         {mutation.isError && (
-          <p className="text-red-400 text-sm mt-2">{mutation.error.message}</p>
+          <p className="text-brand-danger text-sm mt-2">{mutation.error.message}</p>
         )}
       </div>
 
@@ -288,19 +292,19 @@ export default function BacktestPage() {
           </div>
 
           {/* Equity Curve */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5">
-            <h2 className="text-sm font-semibold text-zinc-300 mb-4">Equity Curve vs SPY</h2>
+          <div className="card p-5">
+            <h2 className="text-sm font-semibold text-brand-light/80 mb-4">Equity Curve vs SPY</h2>
             <ResponsiveContainer width="100%" height={320}>
               <LineChart data={thinCurve} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} />
                 <XAxis
                   dataKey="date"
-                  tick={{ fontSize: 10, fill: '#71717a' }}
+                  tick={{ fontSize: 10, fill: ct.axis }}
                   tickFormatter={(d: string) => d.slice(0, 7)}
                   interval="preserveStartEnd"
                 />
                 <YAxis
-                  tick={{ fontSize: 10, fill: '#71717a' }}
+                  tick={{ fontSize: 10, fill: ct.axis }}
                   tickFormatter={(v: number) => fmtCurrency(v)}
                   width={80}
                 />
@@ -308,15 +312,15 @@ export default function BacktestPage() {
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null
                     return (
-                      <div className="bg-zinc-800 border border-zinc-700 rounded p-3 text-xs space-y-1">
-                        <div className="text-zinc-400">{label}</div>
+                      <div className="bg-brand-elevated border border-brand-divider rounded p-3 text-xs space-y-1">
+                        <div className="text-brand-light/70">{label}</div>
                         {payload.map((p: any) => (
                           <div key={p.dataKey} style={{ color: p.color }}>
                             {p.name}: {fmtCurrency(p.value)}
                           </div>
                         ))}
                         {payload[0]?.payload && (
-                          <div className="text-zinc-500">
+                          <div className="text-brand-light/50">
                             Positions: {payload[0].payload.positions} | Cash: {fmtCurrency(payload[0].payload.cash)}
                           </div>
                         )}
@@ -325,12 +329,12 @@ export default function BacktestPage() {
                   }}
                 />
                 <Legend />
-                <ReferenceLine y={capital} stroke="#52525b" strokeDasharray="4 4" label={{ value: 'Start', fill: '#71717a', fontSize: 10 }} />
+                <ReferenceLine y={capital} stroke={ct.axis} strokeDasharray="4 4" label={{ value: 'Start', fill: ct.axis, fontSize: 10 }} />
                 <Line
                   type="monotone"
                   dataKey="portfolio"
                   name="Bot Strategy"
-                  stroke="#10b981"
+                  stroke={ct.success}
                   dot={false}
                   strokeWidth={2}
                 />
@@ -338,7 +342,7 @@ export default function BacktestPage() {
                   type="monotone"
                   dataKey="benchmark"
                   name="SPY"
-                  stroke="#6366f1"
+                  stroke={ct.accent}
                   dot={false}
                   strokeWidth={1.5}
                   strokeDasharray="4 2"
@@ -348,9 +352,9 @@ export default function BacktestPage() {
           </div>
 
           {/* Trade Log */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5">
+          <div className="card p-5">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-zinc-300">Trade Log ({result.trades.length})</h2>
+              <h2 className="text-sm font-semibold text-brand-light/80">Trade Log ({result.trades.length})</h2>
               <div className="flex gap-2">
                 {(['ALL', 'BUY', 'SELL'] as const).map((f) => (
                   <button
@@ -358,8 +362,8 @@ export default function BacktestPage() {
                     onClick={() => setTradeFilter(f)}
                     className={`text-xs px-3 py-1 rounded-full border transition-colors ${
                       tradeFilter === f
-                        ? 'bg-zinc-700 border-zinc-500 text-white'
-                        : 'border-zinc-700 text-zinc-500 hover:border-zinc-500'
+                        ? 'bg-brand-divider border-brand-muted text-white'
+                        : 'border-brand-divider text-brand-light/50 hover:border-brand-muted'
                     }`}
                   >
                     {f}
@@ -370,7 +374,7 @@ export default function BacktestPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="text-zinc-500 border-b border-zinc-800">
+                  <tr className="text-brand-light/50 border-b border-brand-divider">
                     <th className="text-left py-2 pr-3">Date</th>
                     <th className="text-left py-2 pr-3">Symbol</th>
                     <th className="text-left py-2 pr-3">Side</th>
@@ -381,20 +385,20 @@ export default function BacktestPage() {
                 </thead>
                 <tbody>
                   {visibleTrades.map((t, i) => (
-                    <tr key={i} className="border-b border-zinc-800/50 hover:bg-zinc-800/30">
-                      <td className="py-1.5 pr-3 font-mono text-zinc-400">{t.date}</td>
+                    <tr key={i} className="border-b border-brand-divider/50 hover:bg-brand-elevated/30">
+                      <td className="py-1.5 pr-3 font-mono text-brand-light/70">{t.date}</td>
                       <td className="py-1.5 pr-3 font-semibold">{t.symbol}</td>
                       <td className="py-1.5 pr-3">
                         <Badge
                           variant="outline"
-                          className={t.side === 'BUY' ? 'text-emerald-400 border-emerald-800' : 'text-red-400 border-red-800'}
+                          className={t.side === 'BUY' ? 'text-brand-success border-brand-success/30' : 'text-brand-danger border-brand-danger/30'}
                         >
                           {t.side}
                         </Badge>
                       </td>
                       <td className="py-1.5 pr-3 text-right font-mono">${t.price.toFixed(2)}</td>
                       <td className="py-1.5 pr-3 text-right font-mono">{fmtCurrency(t.value)}</td>
-                      <td className="py-1.5 text-zinc-500">{t.reason}</td>
+                      <td className="py-1.5 text-brand-light/50">{t.reason}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -403,7 +407,7 @@ export default function BacktestPage() {
             {filteredTrades.length > 20 && !showAllTrades && (
               <button
                 onClick={() => setShowAllTrades(true)}
-                className="mt-3 text-xs text-zinc-500 hover:text-zinc-300 underline"
+                className="mt-3 text-xs text-brand-light/50 hover:text-brand-light/80 underline"
               >
                 Show all {filteredTrades.length} trades
               </button>
@@ -411,25 +415,25 @@ export default function BacktestPage() {
           </div>
 
           {/* Per-Symbol Activity */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5">
-            <h2 className="text-sm font-semibold text-zinc-300 mb-3">Symbol Activity</h2>
+          <div className="card p-5">
+            <h2 className="text-sm font-semibold text-brand-light/80 mb-3">Symbol Activity</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
               {result.per_symbol_stats.map((s) => (
-                <div key={s.symbol} className="bg-zinc-800 rounded p-2">
+                <div key={s.symbol} className="bg-brand-elevated rounded p-2">
                   <div className="font-semibold text-sm">{s.symbol}</div>
-                  <div className="text-xs text-zinc-500 mt-0.5">
+                  <div className="text-xs text-brand-light/50 mt-0.5">
                     {s.buys}B / {s.sells}S
                   </div>
-                  <div className="text-xs text-zinc-600 mt-0.5">{s.last_date}</div>
+                  <div className="text-xs text-brand-light/40 mt-0.5">{s.last_date}</div>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Caveats */}
-          <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 text-xs text-zinc-500 space-y-1">
-            <p><span className="text-zinc-400 font-medium">Methodology:</span> t_score computed daily from OHLCV. f_score uses <em>current</em> fundamentals as a proxy (slight lookahead bias). s_score = neutral (15/30). No slippage or commissions modeled.</p>
-            <p><span className="text-zinc-400 font-medium">Limitation:</span> Historical fundamentals not available — past BUY signals may differ from what live bot would have generated. Results are indicative, not exact.</p>
+          <div className="bg-brand-surface/50 border border-brand-divider rounded-lg p-4 text-xs text-brand-light/50 space-y-1">
+            <p><span className="text-brand-light/70 font-medium">Methodology:</span> t_score computed daily from OHLCV. f_score uses <em>current</em> fundamentals as a proxy (slight lookahead bias). s_score = neutral (15/30). No slippage or commissions modeled.</p>
+            <p><span className="text-brand-light/70 font-medium">Limitation:</span> Historical fundamentals not available — past BUY signals may differ from what live bot would have generated. Results are indicative, not exact.</p>
           </div>
         </>
       )}

@@ -47,6 +47,8 @@ import {
   validatedFetchArray,
 } from '../../shared/schemas'
 import { useAccount } from '../trading/context/AccountContext'
+import { useTheme } from '../../lib/ThemeContext'
+import { chartTheme } from '../../lib/chartTheme'
 import {
   type ComplianceResult,
   RatioBar,
@@ -382,6 +384,7 @@ const ExposureDonutChart: React.FC<{
 }> = ({ data, label, icon, colors, warnThreshold, onAction, actionLabel, actionPending, actionPicks }) => {
   const topEntry = data[0]
   const concentrated = warnThreshold != null && topEntry && topEntry.value >= warnThreshold
+  const ct = chartTheme()
   return (
   <div className={`card p-5 flex flex-col h-full ${concentrated ? 'border border-brand-warning/50' : ''}`}>
     <InfoRow className="mb-3">
@@ -415,7 +418,7 @@ const ExposureDonutChart: React.FC<{
               if (!active || !payload?.length) return null
               const { name, value } = payload[0].payload
               return (
-                <div style={{ background: '#0f1117', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, padding: '5px 10px', fontSize: 11, color: '#e2e8f0' }}>
+                <div style={{ background: ct.surface, border: `1px solid ${ct.grid}`, borderRadius: 6, padding: '5px 10px', fontSize: 11, color: ct.text }}>
                   {name}: <strong>{(value * 100).toFixed(1)}%</strong>
                 </div>
               )
@@ -527,6 +530,7 @@ const CountryExposureChart: React.FC<{
 const EquityCurveCard: React.FC<{ data: HistorySnapshot[] }> = ({ data }) => {
   const last30 = data.slice(-30)
   if (last30.length < 2) return null
+  const ct = chartTheme()
 
   const fmt = (ts: string) =>
     new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
@@ -542,11 +546,11 @@ const EquityCurveCard: React.FC<{ data: HistorySnapshot[] }> = ({ data }) => {
       <div className="h-[180px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={last30} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
             <XAxis
               dataKey="timestamp"
               tickFormatter={fmt}
-              tick={{ fontSize: 10, fill: '#737373' }}
+              tick={{ fontSize: 10, fill: ct.axis }}
               axisLine={false}
               tickLine={false}
               interval="preserveStartEnd"
@@ -554,7 +558,7 @@ const EquityCurveCard: React.FC<{ data: HistorySnapshot[] }> = ({ data }) => {
             <YAxis
               domain={['auto', 'auto']}
               orientation="right"
-              tick={{ fontSize: 10, fill: '#737373' }}
+              tick={{ fontSize: 10, fill: ct.axis }}
               axisLine={false}
               tickLine={false}
               tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
@@ -562,13 +566,13 @@ const EquityCurveCard: React.FC<{ data: HistorySnapshot[] }> = ({ data }) => {
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: '#171717',
-                border: '1px solid #262626',
+                backgroundColor: ct.surface,
+                border: `1px solid ${ct.grid}`,
                 borderRadius: '8px',
               }}
               labelFormatter={(label) => fmt(String(label))}
-              labelStyle={{ color: '#a1a1aa', fontSize: 11 }}
-              itemStyle={{ fontSize: 11, fontWeight: 'bold', color: '#2dd4bf' }}
+              labelStyle={{ color: ct.axis, fontSize: 11 }}
+              itemStyle={{ fontSize: 11, fontWeight: 'bold', color: ct.primary }}
               formatter={(v: number) => [
                 `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
                 'Portfolio Value',
@@ -577,10 +581,10 @@ const EquityCurveCard: React.FC<{ data: HistorySnapshot[] }> = ({ data }) => {
             <Line
               type="monotone"
               dataKey="total_value"
-              stroke="#2dd4bf"
+              stroke={ct.primary}
               strokeWidth={2}
               dot={false}
-              activeDot={{ r: 4, fill: '#2dd4bf' }}
+              activeDot={{ r: 4, fill: ct.primary }}
             />
           </LineChart>
         </ResponsiveContainer>
@@ -726,6 +730,7 @@ const PortfolioHistoryChart: React.FC<{ data: any[]; showNet: boolean; currentVa
     )
   }
 
+  const ct = chartTheme()
   // Back-calculate actual dollar values from normalized base-100 data
   const key = showNet ? 'net_purified_value' : 'total_value'
   const lastNorm = data[data.length - 1][key] as number
@@ -811,10 +816,10 @@ const PortfolioHistoryChart: React.FC<{ data: any[]; showNet: boolean; currentVa
                 <stop offset="100%" stopColor={color} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
             <XAxis
               dataKey="timestamp"
-              tick={{ fontSize: 9, fill: '#4b5563' }}
+              tick={{ fontSize: 9, fill: ct.axis }}
               axisLine={false}
               tickLine={false}
               tickFormatter={(v) => {
@@ -827,19 +832,19 @@ const PortfolioHistoryChart: React.FC<{ data: any[]; showNet: boolean; currentVa
             <YAxis
               domain={['auto', 'auto']}
               orientation="right"
-              tick={{ fontSize: 9, fill: '#4b5563' }}
+              tick={{ fontSize: 9, fill: ct.axis }}
               axisLine={false}
               tickLine={false}
               tickFormatter={(v) => formatUSD(v, true)}
               width={60}
             />
             <Tooltip
-              contentStyle={{ backgroundColor: '#111827', border: '1px solid #1f2937', borderRadius: '10px', fontSize: '12px' }}
+              contentStyle={{ backgroundColor: ct.surface, border: `1px solid ${ct.grid}`, borderRadius: '10px', fontSize: '12px', color: ct.text }}
               labelFormatter={(v) => {
                 const d = new Date(v)
                 return isNaN(d.getTime()) ? v : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
               }}
-              labelStyle={{ color: '#6b7280', marginBottom: '4px' }}
+              labelStyle={{ color: ct.axis, marginBottom: '4px' }}
               formatter={(v: number, name: string) => {
                 const labelMap: Record<string, string> = {
                   _dollars: 'Portfolio',
@@ -1004,6 +1009,7 @@ const TwapJobsPanel: React.FC<{ twapJobs: any[] }> = ({ twapJobs }) => {
 
 const Dashboard = () => {
   const qc = useQueryClient()
+  useTheme() // re-render chart subtree when the theme knob flips
   const { trades, audits, isConnected, systemHealth, tickerUpdates, twapJobs } = useTrading()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [complianceResults, setComplianceResults] = useState<Record<string, ComplianceResult>>({})
