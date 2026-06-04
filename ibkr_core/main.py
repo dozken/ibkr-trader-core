@@ -469,11 +469,20 @@ def system_readiness(request: Request):
     worker = getattr(request.app.state, "worker", None)
 
     # ── Loop health ────────────────────────────────────────────────────────────
-    critical_loops = ["main_loop", "compliance_audit_loop", "portfolio_snapshot_loop"]
-    loops_ok = all(
-        health.get(k, {}).get("status") not in ("starting", "error", "CRITICAL_ERROR")
-        for k in critical_loops
-    )
+    def _loop_ok(entry: dict) -> bool:
+        # set_loop_error writes "error: <ExcType>", so match the prefix — an
+        # exact "error" check silently passed every errored loop.
+        status = entry.get("status") or ""
+        return not (status in ("starting", "CRITICAL_ERROR") or status.startswith("error"))
+
+    # The primary trading loop runs under "main_loop" in single-account mode but
+    # under "main_loop_<account_id>" in multi-account mode (the plain "main_loop"
+    # entry is then a vestigial seed that stays "starting" forever). Require at
+    # least one trading loop to be live rather than the fixed "main_loop" key.
+    main_loop_keys = [k for k in health if k == "main_loop" or k.startswith("main_loop_")]
+    trading_ok = any(_loop_ok(health[k]) for k in main_loop_keys)
+    other_critical = ["compliance_audit_loop", "portfolio_snapshot_loop"]
+    loops_ok = trading_ok and all(_loop_ok(health.get(k, {})) for k in other_critical)
 
     # ── IBKR connectivity ──────────────────────────────────────────────────────
     ibkr_connected = worker is not None and worker.ib.isConnected()
@@ -544,16 +553,24 @@ def system_readiness(request: Request):
     win_rate_pct: float | None = None
     avg_7d_return: float | None = None
     try:
+        import math
         with SessionLocal() as db:
             resolved_rows = db.query(SignalLog).filter(
                 SignalLog.action == "BUY",
                 SignalLog.outcome_7d_pct.isnot(None),
             ).all()
-        n_resolved = len(resolved_rows)
+        # Drop NaN/Inf outcomes — some backfilled rows stored NaN, which both
+        # corrupts the averages and makes the JSON response non-serializable
+        # (ValueError: Out of range float values are not JSON compliant).
+        outcomes = [
+            r.outcome_7d_pct for r in resolved_rows
+            if r.outcome_7d_pct is not None and math.isfinite(r.outcome_7d_pct)
+        ]
+        n_resolved = len(outcomes)
         if n_resolved > 0:
-            wins = sum(1 for r in resolved_rows if (r.outcome_7d_pct or 0) > 0)
+            wins = sum(1 for v in outcomes if v > 0)
             win_rate_pct = round(wins / n_resolved * 100, 1)
-            avg_7d_return = round(sum(r.outcome_7d_pct or 0 for r in resolved_rows) / n_resolved, 2)
+            avg_7d_return = round(sum(outcomes) / n_resolved, 2)
     except Exception:
         pass
 
@@ -579,7 +596,10 @@ def system_readiness(request: Request):
     if not ibkr_connected:
         blockers.append("IBKR not connected")
     if not loops_ok:
-        failed = [k for k in critical_loops if health.get(k, {}).get("status") in ("starting", "error", "CRITICAL_ERROR")]
+        if not trading_ok:
+            failed = [k for k in main_loop_keys if not _loop_ok(health[k])] or ["main_loop"]
+        else:
+            failed = [k for k in other_critical if not _loop_ok(health.get(k, {}))]
         blockers.append(f"Loops unhealthy: {', '.join(failed)}")
     if drawdown_triggered:
         blockers.append("Drawdown circuit breaker is active — portfolio down >max_drawdown_pct")
