@@ -57,5 +57,40 @@ class TestIBKRHealth(unittest.TestCase):
             self.assertEqual(data["port_type"], "LIVE")
             self.assertIn("LIVE port connected", data["warnings"][0])
 
+class TestReadinessMultiAccount(unittest.TestCase):
+    """Regression: readiness hardcoded the "main_loop" key, which stays
+    "starting" forever in multi-account mode (primary runs as main_loop_<id>),
+    so /api/system/readiness always reported not-ready despite healthy loops."""
+
+    def setUp(self):
+        self.client = TestClient(app)
+
+    def _ready(self, health):
+        mock_worker = MagicMock()
+        mock_worker.ib.isConnected.return_value = True
+        with patch.object(app.state, "loop_health", health, create=True), \
+             patch.object(app.state, "worker", mock_worker, create=True):
+            return self.client.get("/api/system/readiness").json()["gates"]["loops_healthy"]
+
+    def test_multi_account_primary_under_suffixed_key_is_ready(self):
+        health = {
+            "main_loop": {"last_run": None, "status": "starting"},  # vestigial seed
+            "main_loop_1": {"last_run": "2026-06-04T16:00:00", "status": "running"},
+            "main_loop_2": {"last_run": "2026-06-04T16:00:00", "status": "running"},
+            "compliance_audit_loop": {"status": "running"},
+            "portfolio_snapshot_loop": {"status": "running"},
+        }
+        self.assertTrue(self._ready(health))
+
+    def test_no_trading_loop_running_is_not_ready(self):
+        health = {
+            "main_loop": {"last_run": None, "status": "starting"},
+            "main_loop_1": {"status": "error: TypeError"},
+            "compliance_audit_loop": {"status": "running"},
+            "portfolio_snapshot_loop": {"status": "running"},
+        }
+        self.assertFalse(self._ready(health))
+
+
 if __name__ == "__main__":
     unittest.main()

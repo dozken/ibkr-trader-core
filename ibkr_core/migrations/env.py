@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 from logging.config import fileConfig
@@ -11,7 +12,14 @@ from ibkr_core.core.models import Base
 
 config = context.config
 
-if config.config_file_name is not None:
+# Only let alembic reconfigure logging when running standalone (CLI).
+# When invoked programmatically at app boot (init_db -> command.upgrade),
+# the app has already called setup_logging() and installed its stdout +
+# RotatingFileHandler. alembic's fileConfig() defaults to
+# disable_existing_loggers=True and replaces the root handlers with its own
+# stderr-only console handler — which silently kills all app logging for the
+# rest of the process lifetime. Skip it if handlers are already present.
+if config.config_file_name is not None and not logging.getLogger().handlers:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata

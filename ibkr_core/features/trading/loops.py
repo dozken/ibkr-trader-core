@@ -18,10 +18,16 @@ def _compute_atr_stop(high: np.ndarray, low: np.ndarray, close: np.ndarray,
                       multiplier: float = 2.5) -> float | None:
     if len(close) < 15:
         return None
-    prev_close = np.roll(close, 1)
+    # True range needs the prior close, so drop the first bar and align all
+    # three series on bars 1..N-1. (Previously `high`/`low` were full length N
+    # while `prev_close[1:]` was N-1 — they never broadcast, so ATR stops were
+    # always raising ValueError and silently never applied.)
+    prev_close = close[:-1]
+    high = high[1:]
+    low = low[1:]
     tr = np.maximum(
         high - low,
-        np.maximum(np.abs(high - prev_close[1:]), np.abs(low - prev_close[1:])),
+        np.maximum(np.abs(high - prev_close), np.abs(low - prev_close)),
     )
     atr = tr[-14:].mean()
     return float(atr * multiplier / close[-1])
@@ -482,16 +488,20 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                 if o.get("action") == "SELL"
                 and o.get("status") in ("PendingSubmit", "Submitted", "PreSubmitted")
             }
-            fixed_stop_loss_pct = float(settings.get("stop_loss_pct",  8.0)) / 100
-            take_profit_pct = float(settings.get("take_profit_pct", 15.0)) / 100
-            use_atr_stops = bool(settings.get("use_atr_stops", False))
+            # Per-account settings store unset keys as None (key present, value
+            # None) so `.get(key, default)` returns None, not the default —
+            # `or default` guards it, matching the `or 0` idiom below.
+            fixed_stop_loss_pct = float(settings.get("stop_loss_pct") or 8.0) / 100
+            take_profit_pct = float(settings.get("take_profit_pct") or 15.0) / 100
+            use_atr_stops = bool(settings.get("use_atr_stops") or False)
 
             from ibkr_core.features.compliance.screening import live_shariah_screen
-            use_trailing = bool(settings.get("use_trailing_stop", True))
-            time_exit_days = int(settings.get("time_exit_days", 45))
-            time_exit_min_gain = float(settings.get("time_exit_min_gain_pct", 5.0)) / 100
-            partial_pct = float(settings.get("partial_profit_pct", 10.0)) / 100
-            partial_frac = float(settings.get("partial_profit_fraction", 0.5))
+            _trail = settings.get("use_trailing_stop")
+            use_trailing = True if _trail is None else bool(_trail)
+            time_exit_days = int(settings.get("time_exit_days") or 45)
+            time_exit_min_gain = float(settings.get("time_exit_min_gain_pct") or 5.0) / 100
+            partial_pct = float(settings.get("partial_profit_pct") or 10.0) / 100
+            partial_frac = float(settings.get("partial_profit_fraction") or 0.5)
 
             for pos in positions:
                 symbol    = pos.get("symbol", "")
@@ -765,7 +775,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                         await _dispatch_signal(signal_map[cr.symbol], cr, exchange, trader, manager, settings, account_id=account_id)
 
                     # Rebalance SELLs (AI score-based)
-                    sell_signals = get_rebalance_sells(positions, signals)
+                    sell_signals = await get_rebalance_sells(positions, signals)
                     if sell_signals:
                         sell_compliance = await screen_many([s.symbol for s in sell_signals])
                         sell_map = {r.symbol: r for r in sell_compliance}
@@ -895,7 +905,11 @@ async def cash_sweep_loop(worker, manager: ConnectionManager, health: dict, acco
 import os
 import json
 
-DRIP_STATE_FILE = os.path.join(os.path.dirname(__file__), "../../../data/drip_state.json")
+# CWD-relative data dir (matches DATA_DIR convention in screening.py). Resolving
+# relative to __file__ breaks when ibkr_core is installed as a wheel — the path
+# lands in read-only site-packages and writes raise PermissionError.
+_DATA_DIR = os.getenv("DATA_DIR", "data")
+DRIP_STATE_FILE = os.path.join(_DATA_DIR, "drip_state.json")
 
 def load_drip_state() -> dict:
     if os.path.exists(DRIP_STATE_FILE):
@@ -916,7 +930,7 @@ def save_drip_state(state: dict):
 
 
 # ── Trailing stop — high-water mark ───────────────────────────────────────
-_HWM_FILE = os.path.join(os.path.dirname(__file__), "../../../data/hwm.json")
+_HWM_FILE = os.path.join(_DATA_DIR, "hwm.json")
 
 
 def _load_hwm() -> dict:
@@ -952,7 +966,7 @@ def _clear_hwm(symbol: str) -> None:
 
 
 # ── Partial profit tracking ────────────────────────────────────────────────
-_PARTIAL_SELLS_FILE = os.path.join(os.path.dirname(__file__), "../../../data/partial_sells.json")
+_PARTIAL_SELLS_FILE = os.path.join(_DATA_DIR, "partial_sells.json")
 
 
 def _load_partial_sells() -> dict:
@@ -1013,7 +1027,7 @@ def _position_entry_date(symbol: str) -> Optional[datetime]:
 _aging_alerted: dict[str, date] = {}
 
 # ── Re-entry cooldown ──────────────────────────────────────────────────────
-_COOLDOWN_FILE = os.path.join(os.path.dirname(__file__), "../../../data/cooldown_sells.json")
+_COOLDOWN_FILE = os.path.join(_DATA_DIR, "cooldown_sells.json")
 
 
 def _load_cooldowns() -> dict:

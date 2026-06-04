@@ -202,5 +202,35 @@ class TestPositionEntryDate(unittest.TestCase):
         self.assertEqual(result, expected)
 
 
+class TestComputeAtrStop(unittest.TestCase):
+    """Regression: ATR true-range previously mixed full-length high/low with the
+    N-1 prev_close slice and always raised ValueError (broadcast mismatch), so
+    ATR stops never applied."""
+
+    def test_returns_finite_pct_for_30_bars(self):
+        loops = _loops_module()
+        rng = np.random.default_rng(0)
+        close = 100 + np.cumsum(rng.normal(0, 1, 30))
+        high = close + np.abs(rng.normal(0, 0.5, 30))
+        low = close - np.abs(rng.normal(0, 0.5, 30))
+        result = loops._compute_atr_stop(high, low, close, multiplier=2.5)
+        self.assertIsNotNone(result)
+        self.assertTrue(np.isfinite(result))
+        self.assertGreater(result, 0)
+
+    def test_no_broadcast_error_uneven_volatility(self):
+        loops = _loops_module()
+        high = np.linspace(100, 130, 30)
+        low = np.linspace(99, 128, 30)
+        close = np.linspace(99.5, 129, 30)
+        # Must not raise ValueError on broadcasting.
+        self.assertIsNotNone(loops._compute_atr_stop(high, low, close))
+
+    def test_returns_none_below_min_bars(self):
+        loops = _loops_module()
+        arr = np.linspace(100, 110, 14)
+        self.assertIsNone(loops._compute_atr_stop(arr, arr, arr))
+
+
 if __name__ == "__main__":
     unittest.main()

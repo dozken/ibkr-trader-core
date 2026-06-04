@@ -16,7 +16,9 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-_HAWL_FILE = os.path.join(os.path.dirname(__file__), "../../../data/hawl.json")
+# CWD-relative (DATA_DIR convention) — __file__-relative lands in read-only
+# site-packages when ibkr_core is wheel-installed and breaks writes.
+_HAWL_FILE = os.path.join(os.getenv("DATA_DIR", "data"), "hawl.json")
 _LUNAR_YEAR_DAYS = 354
 
 
