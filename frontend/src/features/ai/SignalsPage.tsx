@@ -28,7 +28,9 @@ import {
 } from 'recharts'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Page, PageHeader, PageSection, CardGrid, ActionRow, InfoRow, Stack } from '@/components/ui/layout'
+import { Page, PageHeader, PageSection, CardGrid, ActionRow, InfoRow, Stack, Cluster } from '@/components/ui/layout'
+import { Heading, Segmented } from '@/components/ui/primitives'
+import { Text } from '@/components/ui/text'
 import { Tooltip, TextTip } from '../../components/Tooltip'
 import { API_BASE, API_KEY, ROUTES } from '../../shared/routes'
 import { useAccount } from '../trading/context/AccountContext'
@@ -1001,69 +1003,53 @@ const SignalsPage = () => {
 
   return (
     <Page>
-      <PageHeader className="mb-6">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-4 flex-wrap">
-            <h1 className="heading-1 mb-0">
-              <BrainCircuit className="text-brand-primary" size={28} />
-              AI Strategy Agent
-            </h1>
-            <div className="flex bg-brand-base p-1 rounded-lg border border-brand-divider">
-              <button
-                type="button"
-                onClick={() => setActiveTab('WATCHLIST')}
-                className={`px-3 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${activeTab === 'WATCHLIST' ? 'bg-brand-primary text-white shadow-sm' : 'text-brand-light/70 hover:text-brand-light'}`}
-              >
-                Watchlist
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('DISCOVERY')}
-                className={`px-3 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${activeTab === 'DISCOVERY' ? 'bg-brand-primary text-white shadow-sm' : 'text-brand-light/70 hover:text-brand-light'}`}
-              >
-                Discovery
-              </button>
-            </div>
-          </div>
-          <p className="text-brand-light/70 text-sm">
-            {activeTab === 'WATCHLIST'
-              ? 'Review AI recommendations for your saved watchlist.'
-              : (
-                <>
-                  Global scan for Halal "Strong Buy" opportunities in the S&P 500.{' '}
-                  <span className="text-brand-light/50">
-                    Last scan: {formatAgo(scannedAt)}.
-                  </span>
-                </>
-              )}
-          </p>
-        </div>
-        <div className="flex gap-2 self-start flex-wrap">
+      <PageHeader>
+        <Stack gap="xs">
+          <Cluster gap="md">
+            <Heading icon={BrainCircuit}>AI Strategy Agent</Heading>
+            <Segmented
+              value={activeTab}
+              onChange={setActiveTab}
+              options={[
+                { value: 'WATCHLIST', label: 'Watchlist' },
+                { value: 'DISCOVERY', label: 'Discovery' },
+              ]}
+            />
+          </Cluster>
+          <Text tone="muted">
+            {activeTab === 'WATCHLIST' ? (
+              'Review AI recommendations for your saved watchlist.'
+            ) : (
+              <>
+                Global scan for Halal "Strong Buy" opportunities in the S&P 500.{' '}
+                <Text as="span" tone="subtle">
+                  Last scan: {formatAgo(scannedAt)}.
+                </Text>
+              </>
+            )}
+          </Text>
+        </Stack>
+        <Cluster gap="sm" selfStart>
           <Button
             variant="outline"
             size="sm"
+            icon={Cpu}
+            loading={retrain.isPending}
             onClick={() => retrain.mutate()}
-            disabled={retrain.isPending}
             title={retrain.data ? `Last: ${retrain.data.snapshot_count?.toLocaleString()} snapshots · ${retrain.data.model}` : 'Retrain RF + PPO model'}
-            className="border-brand-divider hover:border-brand-primary/50 hover:bg-brand-primary/5 transition-all gap-2"
           >
-            <Cpu size={14} className={retrain.isPending ? 'animate-pulse' : ''} />
             {retrain.isPending ? 'Training…' : 'Retrain'}
           </Button>
           <Button
             variant="outline"
             size="sm"
+            icon={RefreshCw}
+            loading={activeTab === 'WATCHLIST' ? isFetching : isScanning}
             onClick={() => (activeTab === 'WATCHLIST' ? refetch() : scanMarket.mutate())}
-            disabled={activeTab === 'WATCHLIST' ? isFetching : isScanning}
-            className="border-brand-divider hover:border-brand-primary/50 hover:bg-brand-primary/5 transition-all gap-2"
           >
-            <RefreshCw
-              size={14}
-              className={(activeTab === 'WATCHLIST' ? isFetching : isScanning) ? 'animate-spin' : ''}
-            />
             {activeTab === 'WATCHLIST' ? 'Refresh' : isScanning ? 'Scanning…' : 'Scan Market'}
           </Button>
-        </div>
+        </Cluster>
       </PageHeader>
 
       {(activeTab === 'WATCHLIST' ? isFetching : isScanning) &&

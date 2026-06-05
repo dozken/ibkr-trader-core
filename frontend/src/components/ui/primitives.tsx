@@ -36,6 +36,37 @@ export function Heading({
   )
 }
 
+// Segmented toggle (e.g. tab switcher). Owns the pill/active styling.
+export function Segmented<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T
+  onChange: (v: T) => void
+  options: ReadonlyArray<{ value: T; label: string }>
+}) {
+  return (
+    <div className="flex bg-brand-base p-1 rounded-lg border border-brand-divider">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => onChange(o.value)}
+          className={cn(
+            'px-3 py-1 text-[10px] font-bold uppercase rounded-md transition-all',
+            value === o.value
+              ? 'bg-brand-primary text-white shadow-sm'
+              : 'text-brand-light/70 hover:text-brand-light',
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // Connection / liveness indicator: dot + uppercase mono label.
 export function StatusDot({
   ok,
