@@ -625,47 +625,12 @@ const Settings = () => {
               <Field label="Re-Entry Cooldown (days)" htmlFor="re_entry_cooldown_days" help="Block re-buying a symbol for this many days after take-profit exit.">
                 <Input id="re_entry_cooldown_days" type="number" min="0" max="90" mono value={settings.re_entry_cooldown_days ?? 14} onChange={(e) => set('re_entry_cooldown_days', Number(e.target.value))} />
               </Field>
-              <div>
-                <label
-                  htmlFor="rerate_sell_threshold"
-                  className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-                >
-                  Re-Rating Sell Threshold
-                </label>
-                <Input
-                  id="rerate_sell_threshold"
-                  type="number"
-                  min="10"
-                  max="60"
-                  className="font-mono"
-                  value={settings.rerate_sell_threshold ?? 35}
-                  onChange={(e) => set('rerate_sell_threshold', Number(e.target.value))}
-                />
-                <p className="text-xs text-brand-light/60 mt-1">
-                  Sell held position if AI score drops below this during re-scoring.
-                </p>
-              </div>
-              <div>
-                <label
-                  htmlFor="max_vix_for_buys"
-                  className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-                >
-                  Max VIX for New Buys
-                </label>
-                <Input
-                  id="max_vix_for_buys"
-                  type="number"
-                  min="15"
-                  max="80"
-                  step="1"
-                  className="font-mono"
-                  value={settings.max_vix_for_buys ?? 30}
-                  onChange={(e) => set('max_vix_for_buys', Number(e.target.value))}
-                />
-                <p className="text-xs text-brand-light/60 mt-1">
-                  Pause discovery BUYs when VIX exceeds this level. Default 30 (crisis threshold).
-                </p>
-              </div>
+              <Field label="Re-Rating Sell Threshold" htmlFor="rerate_sell_threshold" help="Sell held position if AI score drops below this during re-scoring.">
+                <Input id="rerate_sell_threshold" type="number" min="10" max="60" mono value={settings.rerate_sell_threshold ?? 35} onChange={(e) => set('rerate_sell_threshold', Number(e.target.value))} />
+              </Field>
+              <Field label="Max VIX for New Buys" htmlFor="max_vix_for_buys" help="Pause discovery BUYs when VIX exceeds this level. Default 30 (crisis threshold).">
+                <Input id="max_vix_for_buys" type="number" min="15" max="80" step="1" mono value={settings.max_vix_for_buys ?? 30} onChange={(e) => set('max_vix_for_buys', Number(e.target.value))} />
+              </Field>
             </div>
 
             <div className="p-4 rounded-xl border border-brand-primary/20 bg-brand-primary/5 overflow-hidden relative">
