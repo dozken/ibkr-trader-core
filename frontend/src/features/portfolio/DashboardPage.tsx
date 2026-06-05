@@ -357,7 +357,7 @@ const AccountTypeBadge: React.FC<{ type: PortfolioValue['account_type'] }> = ({ 
   const isPaper = type === 'PAPER'
   return (
     <div
-      className={`px-3 py-1 rounded-full border flex items-center gap-1.5 shadow-sm t-eyebrow !tracking-tighter ${
+      className={`px-3 py-1 rounded-full border flex items-center gap-1.5 shadow-sm t-eyebrow !tracking-tighter whitespace-nowrap shrink-0 ${
         isPaper
           ? 'bg-brand-warning/10 border-brand-warning/30 !text-brand-warning'
           : 'bg-brand-success/10 border-brand-success/30 !text-brand-success'
@@ -1380,7 +1380,7 @@ const Dashboard = () => {
           </ActionRow>
           <p className="text-brand-light/70">Ironclad Portfolio Monitoring</p>
         </div>
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4 self-start">
           <Button
             variant="outline"
             size="sm"

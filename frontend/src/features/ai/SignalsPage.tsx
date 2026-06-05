@@ -1003,7 +1003,7 @@ const SignalsPage = () => {
     <Page>
       <PageHeader className="mb-6">
         <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
             <h1 className="heading-1 mb-0">
               <BrainCircuit className="text-brand-primary" size={28} />
               AI Strategy Agent
@@ -1038,7 +1038,7 @@ const SignalsPage = () => {
               )}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 self-start flex-wrap">
           <Button
             variant="outline"
             size="sm"
