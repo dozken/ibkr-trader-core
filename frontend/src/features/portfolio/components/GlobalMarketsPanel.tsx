@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Globe } from 'lucide-react'
 import { useState } from 'react'
+import { Pill } from '@/components/ui/primitives'
 import { Text } from '@/components/ui/text'
 import { ROUTES } from '../../../shared/routes'
 
@@ -134,14 +135,10 @@ function DensityStrip({ regions, utcNow }: { regions: RegionMarket[]; utcNow: nu
           <Text variant="tiny" className="opacity-60">— none</Text>
         ) : (
           openNow.map((r) => (
-            <span
-              key={r.region}
-              title={`${r.region} · ${r.local_time} · ${r.symbol_count} halal`}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-brand-success/10 border border-brand-success/25 text-[10px] font-bold text-brand-success"
-            >
+            <Pill key={r.region} tone="success" title={`${r.region} · ${r.local_time} · ${r.symbol_count} halal`}>
               <span className="leading-none">{REGION_FLAGS[r.region] ?? '🌐'}</span>
               {r.region}
-            </span>
+            </Pill>
           ))
         )}
       </div>

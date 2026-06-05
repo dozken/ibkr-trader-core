@@ -78,13 +78,16 @@ const PILL_TONE: Record<PillTone, string> = {
 }
 export function Pill({
   tone = 'neutral',
+  title,
   children,
 }: {
   tone?: PillTone
+  title?: string
   children: ReactNode
 }) {
   return (
     <span
+      title={title}
       className={cn(
         'inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-bold uppercase tracking-wide whitespace-nowrap',
         PILL_TONE[tone],
