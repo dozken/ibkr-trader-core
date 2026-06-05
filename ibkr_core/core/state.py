@@ -92,9 +92,14 @@ class TradeStateMachine:
         """
         allowed = self._allowed_transitions.get(self._state, set())
         
-        # Add IBKR_ERROR as a global escape from non-idle/non-settled states if not already present
+        # IBKR_ERROR (broker/system failure) and REJECTED_COMPLIANCE (policy
+        # block — settlement guard, no-short guard) are global escapes from any
+        # non-idle/non-settled state. Compliance can reject at any point, and it
+        # is distinct from a broker error so it is excluded from the broker
+        # trade-error-rate gate.
         if self._state not in {TradeState.IDLE, TradeState.SETTLED}:
             allowed.add(TradeState.IBKR_ERROR)
+            allowed.add(TradeState.REJECTED_COMPLIANCE)
             
         if next_state not in allowed:
             raise InvalidTransitionError(

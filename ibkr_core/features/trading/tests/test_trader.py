@@ -169,7 +169,7 @@ class TestTrader(unittest.IsolatedAsyncioTestCase):
             trade_req = TradeCreate(symbol="AAPL", quantity=10, side="SELL")
             trade = await self.trader.execute_trade(trade_req, pre_screened=_COMPLIANT)
 
-        self.assertEqual(trade.state, TradeState.IBKR_ERROR)
+        self.assertEqual(trade.state, TradeState.REJECTED_COMPLIANCE)
         self.assertIn("No-short guard", trade.error_message or "")
         self.mock_worker.place_order.assert_not_called()
 
@@ -389,7 +389,7 @@ class TestTrader(unittest.IsolatedAsyncioTestCase):
 
     @patch("ibkr_core.features.trading.trader.check_shariah_compliance")
     async def test_sell_without_prior_buy_rejected(self, mock_check):
-        """Sell with no prior BUY in DB → IBKR_ERROR via settlement guard."""
+        """Sell with no prior BUY in DB → REJECTED_COMPLIANCE via settlement guard."""
         mock_check.return_value = _COMPLIANT
         # DB returns None for prior buy
         self.mock_db.query.return_value.filter.return_value.order_by.return_value.first.return_value = None
@@ -397,7 +397,7 @@ class TestTrader(unittest.IsolatedAsyncioTestCase):
         trade_req = TradeCreate(symbol="AAPL", quantity=5, side="SELL")
         trade = await self.trader.execute_trade(trade_req, pre_screened=_COMPLIANT)
 
-        self.assertEqual(trade.state, TradeState.IBKR_ERROR)
+        self.assertEqual(trade.state, TradeState.REJECTED_COMPLIANCE)
         self.mock_worker.place_order.assert_not_called()
 
 

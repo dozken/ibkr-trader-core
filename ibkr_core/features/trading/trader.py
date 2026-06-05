@@ -554,7 +554,9 @@ class Trader:
             else:
                 # SELL: Settlement Guard check (T+2)
                 if not self._is_possession_confirmed(db, trade.symbol):
-                    machine.transition_to(TradeState.IBKR_ERROR)
+                    # Compliance policy block, not a broker error — REJECTED_COMPLIANCE
+                    # keeps it out of the broker trade-error-rate gate.
+                    machine.transition_to(TradeState.REJECTED_COMPLIANCE)
                     trade.state = machine.state
                     trade.error_message = (
                         "Settlement guard (Qabd/T+2): no confirmed possession — "
@@ -579,7 +581,8 @@ class Trader:
 
                 if held_qty <= 0:
                     logger.warning("No-short guard: SELL %s blocked — not held (live qty=%.4f)", trade.symbol, held_qty)
-                    machine.transition_to(TradeState.IBKR_ERROR)
+                    # Compliance policy block (Rule #1), not a broker error.
+                    machine.transition_to(TradeState.REJECTED_COMPLIANCE)
                     trade.state = machine.state
                     trade.error_message = (
                         f"No-short guard: not held in IBKR (live qty={held_qty:g}). "
