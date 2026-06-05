@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Stack } from '@/components/ui/layout'
-import { Heading } from '@/components/ui/primitives'
+import { Field, Heading } from '@/components/ui/primitives'
 import { Text } from '@/components/ui/text'
 import {
   Select,
@@ -384,86 +384,18 @@ const Settings = () => {
           </div>
           <p className="text-xs text-brand-light/50 mb-6">How much the bot can invest in any one stock, sector, or at once. Lower = safer, less concentrated.</p>
           <div className="space-y-4">
-            <div>
-              <label
-                htmlFor="max_position_size_pct"
-                className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-              >
-                Max Position Size (%)
-              </label>
-              <Input
-                id="max_position_size_pct"
-                type="number"
-                min={1}
-                max={100}
-                className="font-mono"
-                value={settings.max_position_size_pct}
-                onChange={(e) => set('max_position_size_pct', parseFloat(e.target.value))}
-              />
-              <p className="text-xs text-brand-light/60 mt-1">
-                Single-stock cap as % of total portfolio.
-              </p>
-            </div>
-            <div>
-              <label
-                htmlFor="max_sector_exposure_pct"
-                className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-              >
-                Max Sector Exposure (%)
-              </label>
-              <Input
-                id="max_sector_exposure_pct"
-                type="number"
-                min={1}
-                max={100}
-                className="font-mono"
-                value={settings.max_sector_exposure_pct}
-                onChange={(e) => set('max_sector_exposure_pct', parseFloat(e.target.value))}
-              />
-              <p className="text-xs text-brand-light/60 mt-1">
-                Maximum % allowed for any single industry (e.g. Technology).
-              </p>
-            </div>
-            <div>
-              <label
-                htmlFor="max_positions"
-                className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-              >
-                Max Concurrent Positions
-              </label>
-              <Input
-                id="max_positions"
-                type="number"
-                min={1}
-                max={50}
-                className="font-mono"
-                value={settings.max_positions ?? 15}
-                onChange={(e) => set('max_positions', parseInt(e.target.value, 10))}
-              />
-              <p className="text-xs text-brand-light/60 mt-1">
-                Bot stops buying when this many positions are open. Exits free slots.
-              </p>
-            </div>
-            <div>
-              <label
-                htmlFor="cash_reserve_pct"
-                className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-              >
-                Minimum Cash Reserve (%)
-              </label>
-              <Input
-                id="cash_reserve_pct"
-                type="number"
-                min={0}
-                max={100}
-                className="font-mono"
-                value={settings.cash_reserve_pct}
-                onChange={(e) => set('cash_reserve_pct', parseFloat(e.target.value))}
-              />
-              <p className="text-xs text-brand-light/60 mt-1">
-                Cash kept liquid for safety. Rebalancer will never use this.
-              </p>
-            </div>
+            <Field label="Max Position Size (%)" htmlFor="max_position_size_pct" help="Single-stock cap as % of total portfolio.">
+              <Input id="max_position_size_pct" type="number" min={1} max={100} mono value={settings.max_position_size_pct} onChange={(e) => set('max_position_size_pct', parseFloat(e.target.value))} />
+            </Field>
+            <Field label="Max Sector Exposure (%)" htmlFor="max_sector_exposure_pct" help="Maximum % allowed for any single industry (e.g. Technology).">
+              <Input id="max_sector_exposure_pct" type="number" min={1} max={100} mono value={settings.max_sector_exposure_pct} onChange={(e) => set('max_sector_exposure_pct', parseFloat(e.target.value))} />
+            </Field>
+            <Field label="Max Concurrent Positions" htmlFor="max_positions" help="Bot stops buying when this many positions are open. Exits free slots.">
+              <Input id="max_positions" type="number" min={1} max={50} mono value={settings.max_positions ?? 15} onChange={(e) => set('max_positions', parseInt(e.target.value, 10))} />
+            </Field>
+            <Field label="Minimum Cash Reserve (%)" htmlFor="cash_reserve_pct" help="Cash kept liquid for safety. Rebalancer will never use this.">
+              <Input id="cash_reserve_pct" type="number" min={0} max={100} mono value={settings.cash_reserve_pct} onChange={(e) => set('cash_reserve_pct', parseFloat(e.target.value))} />
+            </Field>
           </div>
         </section>
 
@@ -545,13 +477,11 @@ const Settings = () => {
             Shariah Compliance
           </h2>
           <div className="space-y-4">
-            <div>
-              <Label
-                htmlFor="settlement_strictness"
-                className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-              >
-                Settlement Strictness
-              </Label>
+            <Field
+              label="Settlement Strictness"
+              htmlFor="settlement_strictness"
+              help={<>Strict locks a position until <Abbr>IBKR</Abbr> confirms settlement (<Abbr>T+2</Abbr> days).</>}
+            >
               <Select
                 value={settings.settlement_strictness}
                 onValueChange={(v) => set('settlement_strictness', v)}
@@ -564,40 +494,15 @@ const Settings = () => {
                   <SelectItem value="CONSTRUCTIVE">Lenient — allow instant re-sale</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-brand-light/60 mt-1">
-                Strict locks a position until <Abbr>IBKR</Abbr> confirms settlement (
-                <Abbr>T+2</Abbr> days).
-              </p>
-            </div>
-            <div>
-              <Label
-                htmlFor="ratio_buffer"
-                className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-              >
-                Ratio Strictness Buffer (%)
-              </Label>
-              <Input
-                id="ratio_buffer"
-                type="number"
-                min={0}
-                max={10}
-                step={0.5}
-                className="font-mono"
-                value={settings.ratio_buffer}
-                onChange={(e) => set('ratio_buffer', parseFloat(e.target.value))}
-              />
-              <p className="text-xs text-brand-light/60 mt-1">
-                Tightens <Abbr>AAOIFI</Abbr> thresholds by this amount. At 2%: debt limit becomes
-                31% instead of 33%.
-              </p>
-            </div>
-            <div>
-              <Label
-                htmlFor="purification_automation"
-                className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-              >
-                Purification Automation
-              </Label>
+            </Field>
+            <Field
+              label="Ratio Strictness Buffer (%)"
+              htmlFor="ratio_buffer"
+              help={<>Tightens <Abbr>AAOIFI</Abbr> thresholds by this amount. At 2%: debt limit becomes 31% instead of 33%.</>}
+            >
+              <Input id="ratio_buffer" type="number" min={0} max={10} step={0.5} mono value={settings.ratio_buffer} onChange={(e) => set('ratio_buffer', parseFloat(e.target.value))} />
+            </Field>
+            <Field label="Purification Automation" htmlFor="purification_automation">
               <Select
                 value={settings.purification_automation}
                 onValueChange={(v) => set('purification_automation', v)}
@@ -610,7 +515,7 @@ const Settings = () => {
                   <SelectItem value="AUTO_CALC">Auto-Calculate — log amount, no action</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
             <div>
               <label className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase">
                 Excluded Sectors

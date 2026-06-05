@@ -67,6 +67,33 @@ export function Segmented<T extends string>({
   )
 }
 
+// Form field: uppercase label + control + optional help text. Owns the
+// label/help styling so feature forms pass only text + the control.
+export function Field({
+  label,
+  htmlFor,
+  help,
+  children,
+}: {
+  label: string
+  htmlFor?: string
+  help?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div>
+      <label
+        htmlFor={htmlFor}
+        className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
+      >
+        {label}
+      </label>
+      {children}
+      {help && <p className="text-xs text-brand-light/60 mt-1">{help}</p>}
+    </div>
+  )
+}
+
 // Inline banner/alert. Tone tints border+bg; pass href to make it a link
 // (adds hover affordance + a `group` for trailing arrows).
 type AlertTone = 'info' | 'success' | 'warning' | 'danger'
