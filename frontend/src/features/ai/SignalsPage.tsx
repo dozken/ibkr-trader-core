@@ -62,6 +62,23 @@ interface TradeSignal {
   timestamp: string
 }
 
+interface DiscoveryResponse {
+  signals: TradeSignal[]
+  scanned_at: string | null
+  stale: boolean
+}
+
+const formatAgo = (iso: string | null): string => {
+  if (!iso) return 'never'
+  const secs = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000))
+  if (secs < 60) return 'just now'
+  const mins = Math.floor(secs / 60)
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
+
 interface BacktestResult {
   symbol: string
   total_return_pct: number
@@ -902,16 +919,32 @@ const SignalsPage = () => {
     enabled: activeTab === 'WATCHLIST',
   })
 
-  const {
-    data: discoveries = [],
-    isFetching: isDiscovering,
-    refetch: runDiscovery,
-  } = useQuery<TradeSignal[]>({
+  // Discovery is served from the backend cache (fast). The slow S&P scan only
+  // runs when the user explicitly clicks "Scan Market" (scanMarket below).
+  const { data: discovery } = useQuery<DiscoveryResponse>({
     queryKey: ['ai-discover'],
     queryFn: () => fetch(ROUTES.AI_DISCOVER).then((r) => r.json()),
-    staleTime: 5 * 60_000,
+    staleTime: Infinity,
     enabled: activeTab === 'DISCOVERY',
   })
+  const discoveries = discovery?.signals ?? []
+  const scannedAt = discovery?.scanned_at ?? null
+
+  const scanMarket = useMutation({
+    mutationFn: () =>
+      fetch(`${ROUTES.AI_DISCOVER}?refresh=true`).then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`)
+        return r.json() as Promise<DiscoveryResponse>
+      }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['ai-discover'], data)
+      toast.success(`Scan complete — ${data.signals.length} Halal matches`)
+    },
+    onError: (e: Error) => {
+      toast.error(e.message || 'Market scan failed')
+    },
+  })
+  const isScanning = scanMarket.isPending
 
   const { data: settings = DEFAULT_SETTINGS } = useQuery<Settings>({
     queryKey: ['settings'],
@@ -995,7 +1028,14 @@ const SignalsPage = () => {
           <p className="text-brand-light/70 text-sm">
             {activeTab === 'WATCHLIST'
               ? 'Review AI recommendations for your saved watchlist.'
-              : 'Global scan for Halal "Strong Buy" opportunities in the S&P 500.'}
+              : (
+                <>
+                  Global scan for Halal "Strong Buy" opportunities in the S&P 500.{' '}
+                  <span className="text-brand-light/50">
+                    Last scan: {formatAgo(scannedAt)}.
+                  </span>
+                </>
+              )}
           </p>
         </div>
         <div className="flex gap-2">
@@ -1013,17 +1053,20 @@ const SignalsPage = () => {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => (activeTab === 'WATCHLIST' ? refetch() : runDiscovery())}
-            disabled={isFetching || isDiscovering}
+            onClick={() => (activeTab === 'WATCHLIST' ? refetch() : scanMarket.mutate())}
+            disabled={activeTab === 'WATCHLIST' ? isFetching : isScanning}
             className="border-brand-divider hover:border-brand-primary/50 hover:bg-brand-primary/5 transition-all gap-2"
           >
-            <RefreshCw size={14} className={isFetching || isDiscovering ? 'animate-spin' : ''} />
-            {activeTab === 'WATCHLIST' ? 'Refresh' : 'Scan Market'}
+            <RefreshCw
+              size={14}
+              className={(activeTab === 'WATCHLIST' ? isFetching : isScanning) ? 'animate-spin' : ''}
+            />
+            {activeTab === 'WATCHLIST' ? 'Refresh' : isScanning ? 'Scanning…' : 'Scan Market'}
           </Button>
         </div>
       </PageHeader>
 
-      {(isFetching || isDiscovering) &&
+      {(activeTab === 'WATCHLIST' ? isFetching : isScanning) &&
         (activeTab === 'WATCHLIST' ? signals : discoveries).length === 0 && (
           <div className="flex flex-col items-center gap-4 text-brand-light/70 py-20 justify-center">
             <Loader size={24} className="animate-spin text-brand-primary" />
@@ -1035,7 +1078,7 @@ const SignalsPage = () => {
           </div>
         )}
 
-      {!isFetching && !isDiscovering && displaySignals.length === 0 && (
+      {!(activeTab === 'WATCHLIST' ? isFetching : isScanning) && displaySignals.length === 0 && (
         <PageSection className="card text-center py-16 px-6 bg-brand-surface/50 border-dashed">
           <BrainCircuit className="mx-auto text-brand-light/70 mb-4 opacity-20" size={48} />
           <p className="text-brand-light font-medium">No signals available</p>
