@@ -2,7 +2,8 @@ import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, BrainCircuit, Clock, TrendingUp } from 'lucide-react'
 import React, { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { Page, PageHeader, CardGrid, InfoRow } from '@/components/ui/layout'
+import { Page, PageHeader, CardGrid, InfoRow, Stack } from '@/components/ui/layout'
+import { Heading } from '@/components/ui/primitives'
 import { Text, Eyebrow } from '@/components/ui/text'
 import { ErrorBoundary } from '../../components/ErrorBoundary'
 import { ROUTES } from '../../shared/routes'
@@ -141,15 +142,12 @@ const SignalQualityPage: React.FC = () => {
   return (
     <Page>
       <PageHeader>
-        <div className="flex flex-col gap-1">
-          <InfoRow>
-            <TrendingUp size={24} className="text-brand-primary" />
-            <h1 className="heading-1 mb-0">Signal Quality</h1>
-          </InfoRow>
-          <p className="text-zinc-500 text-sm">
+        <Stack gap="xs">
+          <Heading icon={TrendingUp}>Signal Quality</Heading>
+          <Text tone="muted">
             Track AI signal accuracy over 7-day and 30-day horizons
-          </p>
-        </div>
+          </Text>
+        </Stack>
       </PageHeader>
 
       {/* Pending outcomes notice */}

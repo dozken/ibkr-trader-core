@@ -2,7 +2,9 @@ import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, Clock } from 'lucide-react'
 import React, { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { Page, PageHeader, InfoRow } from '@/components/ui/layout'
+import { Page, PageHeader, InfoRow, Stack } from '@/components/ui/layout'
+import { Heading } from '@/components/ui/primitives'
+import { Text } from '@/components/ui/text'
 import { ErrorBoundary } from '../../components/ErrorBoundary'
 import { ROUTES } from '../../shared/routes'
 
@@ -60,14 +62,12 @@ const SignalLogPage: React.FC = () => {
   return (
     <Page>
       <PageHeader>
-        <div className="flex flex-col gap-1">
-          <InfoRow>
-            <h1 className="heading-1 mb-0">Signal Log</h1>
-          </InfoRow>
-          <p className="text-zinc-500 text-sm">
+        <Stack gap="xs">
+          <Heading>Signal Log</Heading>
+          <Text tone="muted">
             Raw chronological record of every AI signal — sub-scores, entry price, outcomes.
-          </p>
-        </div>
+          </Text>
+        </Stack>
       </PageHeader>
 
       <div className="flex flex-wrap items-center gap-3 mb-6">

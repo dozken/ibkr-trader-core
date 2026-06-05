@@ -67,6 +67,34 @@ export function Segmented<T extends string>({
   )
 }
 
+// Small status tag (e.g. STALE DATA, CALM, BUY). Soft tinted by tone.
+type PillTone = 'neutral' | 'primary' | 'success' | 'danger' | 'warning'
+const PILL_TONE: Record<PillTone, string> = {
+  neutral: 'bg-brand-light/5 border-brand-divider text-brand-light/70',
+  primary: 'bg-brand-primary/10 border-brand-primary/25 text-brand-primary',
+  success: 'bg-brand-success/10 border-brand-success/25 text-brand-success',
+  danger: 'bg-brand-danger/10 border-brand-danger/25 text-brand-danger',
+  warning: 'bg-brand-warning/10 border-brand-warning/25 text-brand-warning',
+}
+export function Pill({
+  tone = 'neutral',
+  children,
+}: {
+  tone?: PillTone
+  children: ReactNode
+}) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-bold uppercase tracking-wide whitespace-nowrap',
+        PILL_TONE[tone],
+      )}
+    >
+      {children}
+    </span>
+  )
+}
+
 // Connection / liveness indicator: dot + uppercase mono label.
 export function StatusDot({
   ok,
