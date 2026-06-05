@@ -14,7 +14,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Page, PageSection } from '@/components/ui/layout'
+import { Page, PageSection, Stack } from '@/components/ui/layout'
+import { Heading } from '@/components/ui/primitives'
 import { Text, Eyebrow } from '@/components/ui/text'
 import { ROUTES, API_KEY } from '../../shared/routes'
 
@@ -533,15 +534,11 @@ export default function AccountsPage() {
   return (
     <Page>
       <header className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="heading-1 flex items-center gap-2">
-            <Server className="text-brand-primary" size={22} />
-            IBKR Accounts
-          </h1>
-          <p className="text-brand-light/80 text-sm mt-1">Manage connected Interactive Brokers accounts</p>
-        </div>
-        <Button onClick={() => setShowForm((s) => !s)} size="sm">
-          <Plus size={14} className="mr-1" />
+        <Stack gap="xs">
+          <Heading icon={Server}>IBKR Accounts</Heading>
+          <Text tone="muted">Manage connected Interactive Brokers accounts</Text>
+        </Stack>
+        <Button onClick={() => setShowForm((s) => !s)} size="sm" icon={Plus}>
           Add Account
         </Button>
       </header>

@@ -16,6 +16,9 @@ import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Stack } from '@/components/ui/layout'
+import { Heading } from '@/components/ui/primitives'
+import { Text } from '@/components/ui/text'
 import {
   Select,
   SelectContent,
@@ -223,13 +226,10 @@ const Settings = () => {
   return (
     <div className="page-container">
       <header className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="heading-1">
-            <SettingsIcon className="text-brand-primary" />
-            System Settings
-          </h1>
-          <p className="text-brand-light/80">Configure Shariah-compliant trading parameters</p>
-        </div>
+        <Stack gap="xs">
+          <Heading icon={SettingsIcon}>System Settings</Heading>
+          <Text tone="muted">Configure Shariah-compliant trading parameters</Text>
+        </Stack>
         <div className="flex items-center gap-4">
           {error && <span className="text-brand-danger text-sm">{error}</span>}
           {showSuccess && (

@@ -1,4 +1,6 @@
 import { Page, PageHeader, PageSection, CardGrid, ActionRow, InfoRow, Stack } from '@/components/ui/layout'
+import { Heading } from '@/components/ui/primitives'
+import { Text } from '@/components/ui/text'
 import {
   Ban,
   BookOpen,
@@ -760,16 +762,13 @@ const FAQPage = () => {
   return (
   <Page>
     <PageHeader>
-        <div>
-          <h1 className="heading-1">
-                  <BookOpen className="text-brand-primary" />
-                  Shariah Compliance Guide
-                </h1>
-                <p className="text-brand-light/70">
-                  Plain-language explanations with references to <Abbr>AAOIFI</Abbr> standards and scholarly
-                  sources. Hover underlined terms for definitions.
-                </p>
-        </div>
+        <Stack gap="xs">
+          <Heading icon={BookOpen}>Shariah Compliance Guide</Heading>
+          <Text tone="muted">
+            Plain-language explanations with references to <Abbr>AAOIFI</Abbr> standards and scholarly
+            sources. Hover underlined terms for definitions.
+          </Text>
+        </Stack>
       </PageHeader>
 
     <div className="relative mb-6 max-w-lg">
