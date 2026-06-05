@@ -34,7 +34,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Page, PageHeader, PageSection, CardGrid, ActionRow, InfoRow, Stack, Cluster } from '@/components/ui/layout'
-import { Heading, StatusDot } from '@/components/ui/primitives'
+import { Alert, Heading, StatusDot } from '@/components/ui/primitives'
 import { Text, Eyebrow } from '@/components/ui/text'
 import { Abbr, InfoTip, TextTip, Tooltip as AppTooltip } from '../../components/Tooltip'
 import { API_KEY, ROUTES, withAccount } from '../../shared/routes'
@@ -1429,17 +1429,14 @@ const Dashboard = () => {
         const posCount = positions.length
 
         if (!portfolio.connected) return (
-          <div className="mb-4 flex items-center gap-3 rounded-lg border border-brand-warning/40 bg-brand-warning/5 px-4 py-3 text-sm">
+          <Alert tone="warning">
             <span className="text-xl">🔌</span>
             <span className="text-brand-warning font-medium">Not connected to broker.</span>
             <span className="text-brand-light/60">Start IBKR TWS or Gateway, then refresh.</span>
-          </div>
+          </Alert>
         )
         if (nonCompliant.length > 0) return (
-          <a
-            href="#positions-table"
-            className="mb-4 flex items-center gap-3 rounded-lg border border-brand-danger/40 bg-brand-danger/5 hover:bg-brand-danger/10 hover:border-brand-danger/60 px-4 py-3 text-sm transition-colors group"
-          >
+          <Alert tone="danger" href="#positions-table">
             <span className="text-xl">⚠️</span>
             <span className="text-brand-danger font-medium">{nonCompliant.length} position{nonCompliant.length > 1 ? 's' : ''} flagged as non-Halal.</span>
             <span className="text-brand-light/60 flex-1">Review the compliance column below and consider selling.</span>
@@ -1447,13 +1444,10 @@ const Dashboard = () => {
               Jump to positions
               <span className="group-hover:translate-x-0.5 transition-transform">→</span>
             </span>
-          </a>
+          </Alert>
         )
         if (unknown.length > 0 || unscreened.length > 0) return (
-          <a
-            href="#positions-table"
-            className="mb-4 flex items-center gap-3 rounded-lg border border-brand-warning/40 bg-brand-warning/5 hover:bg-brand-warning/10 hover:border-brand-warning/60 px-4 py-3 text-sm transition-colors group"
-          >
+          <Alert tone="warning" href="#positions-table">
             <span className="text-xl">🔍</span>
             <span className="text-brand-warning font-medium">{unknown.length + unscreened.length} position{unknown.length + unscreened.length > 1 ? 's' : ''} not yet screened.</span>
             <span className="text-brand-light/60 flex-1">Compliance data pending — run screening or verify manually.</span>
@@ -1461,17 +1455,17 @@ const Dashboard = () => {
               Jump to positions
               <span className="group-hover:translate-x-0.5 transition-transform">→</span>
             </span>
-          </a>
+          </Alert>
         )
         if (purificationDue) return (
-          <div className="mb-4 flex items-center gap-3 rounded-lg border border-brand-warning/40 bg-brand-warning/5 px-4 py-3 text-sm">
+          <Alert tone="warning">
             <span className="text-xl">🌙</span>
             <span className="text-brand-warning font-medium">Purification payment due.</span>
             <span className="text-brand-light/60">A small portion of returns must be donated to charity. See Zakat page.</span>
-          </div>
+          </Alert>
         )
         return (
-          <div className="mb-4 flex items-center gap-3 rounded-lg border border-brand-success/30 bg-brand-success/5 px-4 py-3 text-sm">
+          <Alert tone="success">
             <span className="text-xl">✅</span>
             <span className="text-brand-success font-medium">All good.</span>
             <span className="text-brand-light/60">
@@ -1479,7 +1473,7 @@ const Dashboard = () => {
                 ? `${posCount} Halal position${posCount > 1 ? 's' : ''} — bot is active and monitoring.`
                 : 'Bot is active and scanning for opportunities.'}
             </span>
-          </div>
+          </Alert>
         )
       })()}
 

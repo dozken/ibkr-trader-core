@@ -67,6 +67,44 @@ export function Segmented<T extends string>({
   )
 }
 
+// Inline banner/alert. Tone tints border+bg; pass href to make it a link
+// (adds hover affordance + a `group` for trailing arrows).
+type AlertTone = 'info' | 'success' | 'warning' | 'danger'
+const ALERT_TONE: Record<AlertTone, string> = {
+  info: 'border-brand-primary/40 bg-brand-primary/5',
+  success: 'border-brand-success/30 bg-brand-success/5',
+  warning: 'border-brand-warning/40 bg-brand-warning/5',
+  danger: 'border-brand-danger/40 bg-brand-danger/5',
+}
+const ALERT_HOVER: Record<AlertTone, string> = {
+  info: 'hover:bg-brand-primary/10 hover:border-brand-primary/60',
+  success: 'hover:bg-brand-success/10 hover:border-brand-success/60',
+  warning: 'hover:bg-brand-warning/10 hover:border-brand-warning/60',
+  danger: 'hover:bg-brand-danger/10 hover:border-brand-danger/60',
+}
+export function Alert({
+  tone = 'info',
+  href,
+  children,
+}: {
+  tone?: AlertTone
+  href?: string
+  children: ReactNode
+}) {
+  const cls = cn(
+    'mb-4 flex items-center gap-3 rounded-lg border px-4 py-3 text-sm',
+    ALERT_TONE[tone],
+    href && cn('transition-colors group', ALERT_HOVER[tone]),
+  )
+  return href ? (
+    <a href={href} className={cls}>
+      {children}
+    </a>
+  ) : (
+    <div className={cls}>{children}</div>
+  )
+}
+
 // Small status tag (e.g. STALE DATA, CALM, BUY). Soft tinted by tone.
 type PillTone = 'neutral' | 'primary' | 'success' | 'danger' | 'warning'
 const PILL_TONE: Record<PillTone, string> = {
