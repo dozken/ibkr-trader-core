@@ -20,6 +20,8 @@ import { createPortal } from 'react-dom'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
 import { Page, PageHeader, PageSection, CardGrid, ActionRow, InfoRow, Stack } from '@/components/ui/layout'
+import { Heading } from '@/components/ui/primitives'
+import { Text } from '@/components/ui/text'
 import { Input } from '@/components/ui/input'
 import { Abbr, InfoTip, TextTip } from '../../components/Tooltip'
 import { ROUTES } from '../../shared/routes'
@@ -274,13 +276,10 @@ const ScreeningPage = () => {
   return (
     <Page>
       <PageHeader>
-        <div>
-          <h1 className="heading-1">
-                    <ScanSearch className="text-brand-primary" />
-                    Shariah Screening Process
-                  </h1>
-                  <p className="text-brand-light/70">Every trade passes this pipeline before execution</p>
-        </div>
+        <Stack gap="xs">
+          <Heading icon={ScanSearch}>Shariah Screening Process</Heading>
+          <Text tone="muted">Every trade passes this pipeline before execution</Text>
+        </Stack>
       </PageHeader>
 
       {/* Pipeline */}

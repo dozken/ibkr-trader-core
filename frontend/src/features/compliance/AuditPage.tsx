@@ -12,6 +12,8 @@ import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Page, PageHeader, PageSection, CardGrid, ActionRow, InfoRow, Stack } from '@/components/ui/layout'
+import { Heading } from '@/components/ui/primitives'
+import { Text } from '@/components/ui/text'
 import { InfoTip, TextTip } from '../../components/Tooltip'
 import { ROUTES } from '../../shared/routes'
 import { SOURCE_COLORS, type SourceDetail, verdictColor } from './components'
@@ -269,13 +271,10 @@ const AuditPage = () => {
   return (
     <Page>
       <PageHeader>
-        <div>
-          <h1 className="heading-1">
-            <ClipboardList className="text-brand-primary" />
-            Shariah Audit Trail
-          </h1>
-          <p className="text-brand-light/70">Click any row to see full evidence</p>
-        </div>
+        <Stack gap="xs">
+          <Heading icon={ClipboardList}>Shariah Audit Trail</Heading>
+          <Text tone="muted">Click any row to see full evidence</Text>
+        </Stack>
         <ActionRow className="flex-wrap">
           <div className="flex gap-1 bg-brand-elevated/50 p-1 rounded-lg border border-brand-divider">
             {(['ALL', 'COMPLIANT', 'NON_COMPLIANT'] as const).map((f) => (

@@ -10,7 +10,9 @@ import {
 } from 'recharts'
 import { TrendingUp } from 'lucide-react'
 import { useState } from 'react'
-import { Page, PageHeader, PageSection } from '@/components/ui/layout'
+import { Page, PageHeader, PageSection, Stack } from '@/components/ui/layout'
+import { Heading } from '@/components/ui/primitives'
+import { Text } from '@/components/ui/text'
 import { ROUTES, withAccount } from '../../shared/routes'
 import { useAccount } from '../trading/context/AccountContext'
 import { ErrorBoundary } from '../../components/ErrorBoundary'
@@ -79,15 +81,10 @@ function GrowthCalculator() {
   return (
     <Page>
       <PageHeader>
-        <div>
-          <h1 className="heading-1">
-            <TrendingUp className="text-brand-primary" />
-            Growth Projection
-          </h1>
-          <p className="text-brand-light/70">
-            Compound growth scenarios for your portfolio
-          </p>
-        </div>
+        <Stack gap="xs">
+          <Heading icon={TrendingUp}>Growth Projection</Heading>
+          <Text tone="muted">Compound growth scenarios for your portfolio</Text>
+        </Stack>
       </PageHeader>
 
       {/* Controls */}

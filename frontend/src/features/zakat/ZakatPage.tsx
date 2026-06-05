@@ -5,6 +5,8 @@ import { AlertCircle, Coins, ExternalLink, Heart, Info, RefreshCw, Zap } from 'l
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Page, PageHeader, PageSection, CardGrid, ActionRow, InfoRow, Stack } from '@/components/ui/layout'
+import { Heading } from '@/components/ui/primitives'
+import { Text } from '@/components/ui/text'
 import { Input } from '@/components/ui/input'
 import { InfoTip, TextTip } from '../../components/Tooltip'
 import { ROUTES, withAccount } from '../../shared/routes'
@@ -276,16 +278,13 @@ function ZakatPage() {
   return (
     <Page>
       <PageHeader>
-        <div>
-          <h1 className="heading-1">
-            <Coins className="text-brand-warning" />
-            Zakat &amp; Purification
-          </h1>
-          <p className="text-brand-light/70">
+        <Stack gap="xs">
+          <Heading icon={Coins} iconTone="warning">Zakat &amp; Purification</Heading>
+          <Text tone="muted">
             Auto-calculated from your portfolio. Enter dividends received to get purification
             amounts.
-          </p>
-        </div>
+          </Text>
+        </Stack>
         <div className="bg-brand-surface border border-brand-divider rounded-lg px-4 py-3 text-sm flex gap-6">
           <div>
             <InfoRow className="">

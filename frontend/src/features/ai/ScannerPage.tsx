@@ -2,7 +2,9 @@ import { useQuery } from '@tanstack/react-query'
 import { Radar, ScanSearch, Search, ShieldCheck } from 'lucide-react'
 import React, { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Page, PageHeader, PageSection, InfoRow } from '@/components/ui/layout'
+import { Page, PageHeader, PageSection, InfoRow, Stack } from '@/components/ui/layout'
+import { Heading } from '@/components/ui/primitives'
+import { Text } from '@/components/ui/text'
 import { Input } from '@/components/ui/input'
 import { TextTip } from '../../components/Tooltip'
 import { ROUTES, API_KEY } from '../../shared/routes'
@@ -75,15 +77,10 @@ const ScannerPage = () => {
   return (
     <Page>
       <PageHeader>
-        <div>
-          <h1 className="heading-1">
-            <Radar className="text-brand-primary" />
-            Market Scanner
-          </h1>
-          <p className="text-brand-light/70">
-            Scan global markets for Shariah-compliant opportunities
-          </p>
-        </div>
+        <Stack gap="xs">
+          <Heading icon={Radar}>Market Scanner</Heading>
+          <Text tone="muted">Scan global markets for Shariah-compliant opportunities</Text>
+        </Stack>
       </PageHeader>
 
       <PageSection className="card">
