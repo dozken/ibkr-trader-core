@@ -23,6 +23,15 @@ _SETTINGS = {
 
 
 class TestPositionSizing(unittest.TestCase):
+    def setUp(self):
+        # Isolate sizing math from the live VIX feed — _calculate_position_size
+        # applies a VIX volatility factor (CALM=1.0, ELEVATED=0.75, CRISIS=0.5)
+        # via get_current_vix(). Without this, the tests pass only when the real
+        # VIX happens to be CALM and fail (×0.75) when it is ELEVATED.
+        _p = patch("ibkr_core.features.trading.trader._get_vix_size_factor", return_value=1.0)
+        _p.start()
+        self.addCleanup(_p.stop)
+
     def test_normal_sizing(self):
         # 10k funds, 10k net_liq, 5% reserve=500, investable=9500, max_pos=10%*10k=1000, price=150
         # dollars = min(9500, 1000) = 1000, qty = 1000/150 ≈ 6.667 (fractional, not floored)
@@ -121,10 +130,15 @@ class TestTrader(unittest.IsolatedAsyncioTestCase):
         self.patcher_settings = patch('ibkr_core.features.trading.trader._load_settings',
                                       return_value=_SETTINGS)
         self.patcher_settings.start()
+        # Isolate sizing from the live VIX feed (see TestPositionSizing.setUp).
+        self.patcher_vix = patch('ibkr_core.features.trading.trader._get_vix_size_factor',
+                                 return_value=1.0)
+        self.patcher_vix.start()
 
     def tearDown(self):
         self.patcher_db.stop()
         self.patcher_settings.stop()
+        self.patcher_vix.stop()
 
     @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
     async def test_execute_buy_dry_run_state(self, mock_check):
@@ -450,10 +464,15 @@ class TestConcentrationRiskGuard(unittest.IsolatedAsyncioTestCase):
         self.patcher_settings = patch('ibkr_core.features.trading.trader._load_settings',
                                       return_value=_SETTINGS)
         self.patcher_settings.start()
+        # Isolate sizing from the live VIX feed (see TestPositionSizing.setUp).
+        self.patcher_vix = patch('ibkr_core.features.trading.trader._get_vix_size_factor',
+                                 return_value=1.0)
+        self.patcher_vix.start()
 
     def tearDown(self):
         self.patcher_db.stop()
         self.patcher_settings.stop()
+        self.patcher_vix.stop()
 
     async def test_rejects_buy_when_existing_plus_new_exceeds_limit(self):
         """Existing AAPL position + new buy > max_position_size_pct → REJECTED_FUNDS."""
