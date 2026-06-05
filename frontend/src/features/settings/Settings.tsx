@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Stack } from '@/components/ui/layout'
-import { Field, Heading } from '@/components/ui/primitives'
+import { Field, Heading, Toggle } from '@/components/ui/primitives'
 import { Text } from '@/components/ui/text'
 import {
   Select,
@@ -633,148 +633,51 @@ const Settings = () => {
               </Field>
             </div>
 
-            <div className="p-4 rounded-xl border border-brand-primary/20 bg-brand-primary/5 overflow-hidden relative">
-              <div className="flex items-center justify-between mb-2 relative z-10">
-                <div className="flex-1 pr-4">
-                  <Label
-                    htmlFor="use_atr_stops"
-                    className="text-sm font-bold text-brand-light cursor-pointer"
-                  >
-                    ATR-Based Stops
-                  </Label>
-                  <p className="text-[11px] text-brand-light/70 mt-1 leading-relaxed opacity-90">
-                    Use ATR volatility to set dynamic stop-loss and take-profit levels instead of
-                    fixed percentages.
-                  </p>
-                </div>
-                <div className="relative shrink-0">
-                  <input
-                    id="use_atr_stops"
-                    type="checkbox"
-                    className="sr-only peer"
-                    checked={settings.use_atr_stops ?? true}
-                    onChange={(e) => set('use_atr_stops', e.target.checked)}
-                  />
-                  <div
-                    onClick={() => set('use_atr_stops', !(settings.use_atr_stops ?? true))}
-                    className="flex w-10 h-5.5 bg-brand-divider peer-checked:bg-brand-primary rounded-full cursor-pointer transition-all duration-300 relative"
-                  >
-                    <div
-                      className={`absolute top-0.5 left-0.5 bg-white rounded-full h-4.5 w-4.5 transition-transform duration-300 shadow-sm ${(settings.use_atr_stops ?? true) ? 'translate-x-4.5' : ''}`}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
+            <Toggle
+              id="use_atr_stops"
+              label="ATR-Based Stops"
+              description="Use ATR volatility to set dynamic stop-loss and take-profit levels instead of fixed percentages."
+              checked={settings.use_atr_stops ?? true}
+              onChange={(v) => set('use_atr_stops', v)}
+            />
 
-            {/* Trailing Stop */}
-            <div className="p-4 rounded-xl border border-brand-primary/20 bg-brand-primary/5 overflow-hidden relative">
-              <div className="flex items-center justify-between mb-2 relative z-10">
-                <div className="flex-1 pr-4">
-                  <Label htmlFor="use_trailing_stop" className="text-sm font-bold text-brand-light cursor-pointer">
-                    Trailing Stop
-                  </Label>
-                  <p className="text-[11px] text-brand-light/70 mt-1 leading-relaxed opacity-90">
-                    Move stop loss up as price rises, locking in gains from the high-water mark.
-                  </p>
-                </div>
-                <div className="relative shrink-0">
-                  <input id="use_trailing_stop" type="checkbox" className="sr-only peer"
-                    checked={settings.use_trailing_stop ?? true}
-                    onChange={(e) => set('use_trailing_stop', e.target.checked)} />
-                  <div onClick={() => set('use_trailing_stop', !(settings.use_trailing_stop ?? true))}
-                    className="flex w-10 h-5.5 bg-brand-divider peer-checked:bg-brand-primary rounded-full cursor-pointer transition-all duration-300 relative">
-                    <div className={`absolute top-0.5 left-0.5 bg-white rounded-full h-4.5 w-4.5 transition-transform duration-300 shadow-sm ${(settings.use_trailing_stop ?? true) ? 'translate-x-4.5' : ''}`} />
-                  </div>
-                </div>
-              </div>
-            </div>
+            <Toggle
+              id="use_trailing_stop"
+              label="Trailing Stop"
+              description="Move stop loss up as price rises, locking in gains from the high-water mark."
+              checked={settings.use_trailing_stop ?? true}
+              onChange={(v) => set('use_trailing_stop', v)}
+            />
 
-            {/* Kelly Position Sizing */}
-            <div className="p-4 rounded-xl border border-brand-primary/20 bg-brand-primary/5 overflow-hidden relative">
-              <div className="flex items-center justify-between mb-2 relative z-10">
-                <div className="flex-1 pr-4">
-                  <Label htmlFor="use_kelly_sizing" className="text-sm font-bold text-brand-light cursor-pointer">
-                    Kelly Position Sizing
-                  </Label>
-                  <p className="text-[11px] text-brand-light/70 mt-1 leading-relaxed opacity-90">
-                    Scale position size by signal confidence (half-Kelly). High confidence = bigger position, low confidence = smaller.
-                  </p>
-                </div>
-                <div className="relative shrink-0">
-                  <input id="use_kelly_sizing" type="checkbox" className="sr-only peer"
-                    checked={settings.use_kelly_sizing ?? true}
-                    onChange={(e) => set('use_kelly_sizing', e.target.checked)} />
-                  <div onClick={() => set('use_kelly_sizing', !(settings.use_kelly_sizing ?? true))}
-                    className="flex w-10 h-5.5 bg-brand-divider peer-checked:bg-brand-primary rounded-full cursor-pointer transition-all duration-300 relative">
-                    <div className={`absolute top-0.5 left-0.5 bg-white rounded-full h-4.5 w-4.5 transition-transform duration-300 shadow-sm ${(settings.use_kelly_sizing ?? true) ? 'translate-x-4.5' : ''}`} />
-                  </div>
-                </div>
-              </div>
-            </div>
+            <Toggle
+              id="use_kelly_sizing"
+              label="Kelly Position Sizing"
+              description="Scale position size by signal confidence (half-Kelly). High confidence = bigger position, low confidence = smaller."
+              checked={settings.use_kelly_sizing ?? true}
+              onChange={(v) => set('use_kelly_sizing', v)}
+            />
 
-            {/* Pullback Entry Filter */}
-            <div className="p-4 rounded-xl border border-brand-primary/20 bg-brand-primary/5 overflow-hidden relative">
-              <div className="flex items-center justify-between mb-2 relative z-10">
-                <div className="flex-1 pr-4">
-                  <Label htmlFor="require_pullback_entry" className="text-sm font-bold text-brand-light cursor-pointer">
-                    Pullback Entry Filter
-                  </Label>
-                  <p className="text-[11px] text-brand-light/70 mt-1 leading-relaxed opacity-90">
-                    Only buy when price has dipped 1–5% from recent high while trend is still up. Avoids buying at local peaks.
-                  </p>
-                </div>
-                <div className="relative shrink-0">
-                  <input id="require_pullback_entry" type="checkbox" className="sr-only peer"
-                    checked={settings.require_pullback_entry ?? true}
-                    onChange={(e) => set('require_pullback_entry', e.target.checked)} />
-                  <div onClick={() => set('require_pullback_entry', !(settings.require_pullback_entry ?? true))}
-                    className="flex w-10 h-5.5 bg-brand-divider peer-checked:bg-brand-primary rounded-full cursor-pointer transition-all duration-300 relative">
-                    <div className={`absolute top-0.5 left-0.5 bg-white rounded-full h-4.5 w-4.5 transition-transform duration-300 shadow-sm ${(settings.require_pullback_entry ?? true) ? 'translate-x-4.5' : ''}`} />
-                  </div>
-                </div>
-              </div>
-            </div>
+            <Toggle
+              id="require_pullback_entry"
+              label="Pullback Entry Filter"
+              description="Only buy when price has dipped 1–5% from recent high while trend is still up. Avoids buying at local peaks."
+              checked={settings.require_pullback_entry ?? true}
+              onChange={(v) => set('require_pullback_entry', v)}
+            />
 
-            {/* Use Limit Orders */}
-            <div className="p-4 rounded-xl border border-brand-primary/20 bg-brand-primary/5 overflow-hidden relative">
-              <div className="flex items-center justify-between mb-2 relative z-10">
-                <div className="flex-1 pr-4">
-                  <Label htmlFor="use_limit_orders" className="text-sm font-bold text-brand-light cursor-pointer">
-                    Use Limit Orders
-                  </Label>
-                  <p className="text-[11px] text-brand-light/70 mt-1 leading-relaxed opacity-90">
-                    Place limit orders instead of market orders to reduce slippage. Uses mid-price ± tolerance.
-                  </p>
-                </div>
-                <div className="relative shrink-0">
-                  <input id="use_limit_orders" type="checkbox" className="sr-only peer"
-                    checked={settings.use_limit_orders ?? false}
-                    onChange={(e) => set('use_limit_orders', e.target.checked)} />
-                  <div onClick={() => set('use_limit_orders', !(settings.use_limit_orders ?? false))}
-                    className="flex w-10 h-5.5 bg-brand-divider peer-checked:bg-brand-primary rounded-full cursor-pointer transition-all duration-300 relative">
-                    <div className={`absolute top-0.5 left-0.5 bg-white rounded-full h-4.5 w-4.5 transition-transform duration-300 shadow-sm ${(settings.use_limit_orders ?? false) ? 'translate-x-4.5' : ''}`} />
-                  </div>
-                </div>
-              </div>
+            <Toggle
+              id="use_limit_orders"
+              label="Use Limit Orders"
+              description="Place limit orders instead of market orders to reduce slippage. Uses mid-price ± tolerance."
+              checked={settings.use_limit_orders ?? false}
+              onChange={(v) => set('use_limit_orders', v)}
+            >
               {(settings.use_limit_orders ?? false) && (
-                <div className="mt-3">
-                  <Label htmlFor="limit_order_slippage_pct" className="block text-xs font-bold text-brand-light/70 mb-1 uppercase tracking-wider">
-                    Limit Tolerance %
-                  </Label>
-                  <input
-                    id="limit_order_slippage_pct"
-                    type="number"
-                    min={0.05}
-                    max={1.0}
-                    step={0.05}
-                    className="w-24 bg-brand-base border border-brand-divider rounded-lg px-3 py-1.5 text-sm font-mono text-brand-light focus:outline-none focus:border-brand-primary"
-                    value={settings.limit_order_slippage_pct ?? 0.1}
-                    onChange={(e) => set('limit_order_slippage_pct', Number(e.target.value))}
-                  />
-                </div>
+                <Field label="Limit Tolerance %" htmlFor="limit_order_slippage_pct">
+                  <Input id="limit_order_slippage_pct" type="number" min={0.05} max={1.0} step={0.05} mono className="w-24" value={settings.limit_order_slippage_pct ?? 0.1} onChange={(e) => set('limit_order_slippage_pct', Number(e.target.value))} />
+                </Field>
               )}
-            </div>
+            </Toggle>
 
             {/* Max Portfolio Correlation */}
             <div>

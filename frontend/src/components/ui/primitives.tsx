@@ -67,6 +67,57 @@ export function Segmented<T extends string>({
   )
 }
 
+// Labelled toggle card: title + description on the left, a switch on the right.
+export function Toggle({
+  id,
+  label,
+  description,
+  checked,
+  onChange,
+  children,
+}: {
+  id?: string
+  label: string
+  description?: ReactNode
+  checked: boolean
+  onChange: (v: boolean) => void
+  children?: ReactNode
+}) {
+  return (
+    <div className="p-4 rounded-xl border border-brand-primary/20 bg-brand-primary/5 relative">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex-1">
+          <label htmlFor={id} className="block text-sm font-bold text-brand-light cursor-pointer">
+            {label}
+          </label>
+          {description && (
+            <p className="text-[11px] text-brand-light/70 mt-1 leading-relaxed">{description}</p>
+          )}
+        </div>
+        <button
+          type="button"
+          role="switch"
+          id={id}
+          aria-checked={checked}
+          onClick={() => onChange(!checked)}
+          className={cn(
+            'shrink-0 relative flex w-10 h-[22px] rounded-full cursor-pointer transition-colors duration-300',
+            checked ? 'bg-brand-primary' : 'bg-brand-divider',
+          )}
+        >
+          <span
+            className={cn(
+              'absolute top-0.5 left-0.5 bg-white rounded-full h-[18px] w-[18px] shadow-sm transition-transform duration-300',
+              checked && 'translate-x-[18px]',
+            )}
+          />
+        </button>
+      </div>
+      {children}
+    </div>
+  )
+}
+
 // Form field: uppercase label + control + optional help text. Owns the
 // label/help styling so feature forms pass only text + the control.
 export function Field({
