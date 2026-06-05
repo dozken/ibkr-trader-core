@@ -702,146 +702,45 @@ const Settings = () => {
               </p>
             </div>
 
-            <div className="p-4 rounded-xl border border-brand-primary/20 bg-brand-primary/5 overflow-hidden relative">
-              <div className="flex items-center justify-between mb-2 relative z-10">
-                <div className="flex-1 pr-4">
-                  <Label
-                    htmlFor="enable_discovery_auto"
-                    className="text-sm font-bold text-brand-light cursor-pointer"
-                  >
-                    Auto-Execute Discovery Scans
-                  </Label>
-                  <p className="text-[11px] text-brand-light/70 mt-1 leading-relaxed opacity-90">
-                    Periodically scan the market for halal opportunities and auto-execute signals that meet your threshold.
-                  </p>
-                </div>
-                <div className="relative shrink-0">
-                  <input
-                    id="enable_discovery_auto"
-                    type="checkbox"
-                    className="sr-only peer"
-                    checked={settings.enable_discovery_auto ?? false}
-                    onChange={(e) => set('enable_discovery_auto', e.target.checked)}
-                  />
-                  <div
-                    onClick={() => set('enable_discovery_auto', !(settings.enable_discovery_auto ?? false))}
-                    className="flex w-10 h-5.5 bg-brand-divider peer-checked:bg-brand-primary rounded-full cursor-pointer transition-all duration-300 relative"
-                  >
-                    <div
-                      className={`absolute top-0.5 left-0.5 bg-white rounded-full h-4.5 w-4.5 transition-transform duration-300 shadow-sm ${(settings.enable_discovery_auto ?? false) ? 'translate-x-4.5' : ''}`}
-                    />
-                  </div>
-                </div>
-              </div>
+            <Toggle
+              id="enable_discovery_auto"
+              label="Auto-Execute Discovery Scans"
+              description="Periodically scan the market for halal opportunities and auto-execute signals that meet your threshold."
+              checked={settings.enable_discovery_auto ?? false}
+              onChange={(v) => set('enable_discovery_auto', v)}
+            >
               {(settings.enable_discovery_auto ?? false) && (
-                <div className="mt-3">
-                  <Label htmlFor="discovery_interval_hours" className="block text-xs font-bold text-brand-light/70 mb-1 uppercase tracking-wider">
-                    Scan Interval (hours)
-                  </Label>
-                  <input
-                    id="discovery_interval_hours"
-                    type="number"
-                    min={1}
-                    max={24}
-                    className="w-24 bg-brand-base border border-brand-divider rounded-lg px-3 py-1.5 text-sm font-mono text-brand-light focus:outline-none focus:border-brand-primary"
-                    value={settings.discovery_interval_hours ?? 6}
-                    onChange={(e) => set('discovery_interval_hours', Number(e.target.value))}
-                  />
-                </div>
+                <Field label="Scan Interval (hours)" htmlFor="discovery_interval_hours">
+                  <Input id="discovery_interval_hours" type="number" min={1} max={24} mono className="w-24" value={settings.discovery_interval_hours ?? 6} onChange={(e) => set('discovery_interval_hours', Number(e.target.value))} />
+                </Field>
               )}
-            </div>
+            </Toggle>
 
-            <div className="p-4 rounded-xl border border-brand-accent/30 bg-brand-accent/5 overflow-hidden relative">
-              <div className="flex items-center justify-between mb-2 relative z-10">
-                <div className="flex-1 pr-4">
-                  <Label
-                    htmlFor="use_global_universe"
-                    className="text-sm font-bold text-brand-light cursor-pointer flex items-center gap-1.5"
-                  >
-                    🌍 Global Halal Universe
-                  </Label>
-                  <p className="text-[11px] text-brand-light/70 mt-1 leading-relaxed opacity-90">
-                    Fold ~356 halal-eligible stocks across 33 regions into every main-loop cycle (open markets only). Asia overnight, MENA Sun-Thu, EU mornings.
-                  </p>
-                </div>
-                <div className="relative shrink-0">
-                  <input
-                    id="use_global_universe"
-                    type="checkbox"
-                    className="sr-only peer"
-                    checked={settings.use_global_universe ?? false}
-                    onChange={(e) => set('use_global_universe', e.target.checked)}
-                  />
-                  <div
-                    onClick={() => set('use_global_universe', !(settings.use_global_universe ?? false))}
-                    className="flex w-10 h-5.5 bg-brand-divider peer-checked:bg-brand-accent rounded-full cursor-pointer transition-all duration-300 relative"
-                  >
-                    <div
-                      className={`absolute top-0.5 left-0.5 bg-white rounded-full h-4.5 w-4.5 transition-transform duration-300 shadow-sm ${(settings.use_global_universe ?? false) ? 'translate-x-4.5' : ''}`}
-                    />
-                  </div>
-                </div>
-              </div>
+            <Toggle
+              id="use_global_universe"
+              tone="accent"
+              label="🌍 Global Halal Universe"
+              description="Fold ~356 halal-eligible stocks across 33 regions into every main-loop cycle (open markets only). Asia overnight, MENA Sun-Thu, EU mornings."
+              checked={settings.use_global_universe ?? false}
+              onChange={(v) => set('use_global_universe', v)}
+            >
               {(settings.use_global_universe ?? false) && (
                 <div className="mt-3 space-y-4">
-                  <div>
-                    <Label htmlFor="global_universe_cap_per_cycle" className="block text-xs font-bold text-brand-light/70 mb-1 uppercase tracking-wider">
-                      Max symbols per cycle
-                    </Label>
-                    <input
-                      id="global_universe_cap_per_cycle"
-                      type="number"
-                      min={10}
-                      max={200}
-                      className="w-24 bg-brand-base border border-brand-divider rounded-lg px-3 py-1.5 text-sm font-mono text-brand-light focus:outline-none focus:border-brand-accent"
-                      value={settings.global_universe_cap_per_cycle ?? 60}
-                      onChange={(e) => set('global_universe_cap_per_cycle', Number(e.target.value))}
-                    />
-                    <p className="text-[10px] text-brand-light/50 mt-1">
-                      Higher = more coverage but slower cycles. 60 = ~2min/cycle.
-                    </p>
-                  </div>
-
-                  <RegionSelector
-                    value={settings.enabled_regions}
-                    onChange={(regs) => set('enabled_regions', regs)}
-                  />
+                  <Field label="Max symbols per cycle" htmlFor="global_universe_cap_per_cycle" help="Higher = more coverage but slower cycles. 60 = ~2min/cycle.">
+                    <Input id="global_universe_cap_per_cycle" type="number" min={10} max={200} mono className="w-24" value={settings.global_universe_cap_per_cycle ?? 60} onChange={(e) => set('global_universe_cap_per_cycle', Number(e.target.value))} />
+                  </Field>
+                  <RegionSelector value={settings.enabled_regions} onChange={(regs) => set('enabled_regions', regs)} />
                 </div>
               )}
-            </div>
+            </Toggle>
 
-            <div className="p-4 rounded-xl border border-brand-primary/20 bg-brand-primary/5 overflow-hidden relative">
-              <div className="flex items-center justify-between relative z-10">
-                <div className="flex-1 pr-4">
-                  <Label
-                    htmlFor="enable_halal_drip"
-                    className="text-sm font-bold text-brand-light cursor-pointer"
-                  >
-                    Halal DRIP
-                  </Label>
-                  <p className="text-[11px] text-brand-light/70 mt-1 leading-relaxed opacity-90">
-                    Auto-reinvest purified dividends back into the same halal stock (minus impure revenue %).
-                  </p>
-                </div>
-                <div className="relative shrink-0">
-                  <input
-                    id="enable_halal_drip"
-                    type="checkbox"
-                    className="sr-only peer"
-                    checked={settings.enable_halal_drip ?? false}
-                    onChange={(e) => set('enable_halal_drip', e.target.checked)}
-                  />
-                  <div
-                    onClick={() => set('enable_halal_drip', !(settings.enable_halal_drip ?? false))}
-                    className="flex w-10 h-5.5 bg-brand-divider peer-checked:bg-brand-primary rounded-full cursor-pointer transition-all duration-300 relative"
-                  >
-                    <div
-                      className={`absolute top-0.5 left-0.5 bg-white rounded-full h-4.5 w-4.5 transition-transform duration-300 shadow-sm ${(settings.enable_halal_drip ?? false) ? 'translate-x-4.5' : ''}`}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
+            <Toggle
+              id="enable_halal_drip"
+              label="Halal DRIP"
+              description="Auto-reinvest purified dividends back into the same halal stock (minus impure revenue %)."
+              checked={settings.enable_halal_drip ?? false}
+              onChange={(v) => set('enable_halal_drip', v)}
+            />
 
             <div>
               <Label

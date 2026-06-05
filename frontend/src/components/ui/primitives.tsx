@@ -74,17 +74,21 @@ export function Toggle({
   description,
   checked,
   onChange,
+  tone = 'primary',
   children,
 }: {
   id?: string
-  label: string
+  label: ReactNode
   description?: ReactNode
   checked: boolean
   onChange: (v: boolean) => void
+  tone?: 'primary' | 'accent'
   children?: ReactNode
 }) {
+  const card = tone === 'accent' ? 'border-brand-accent/30 bg-brand-accent/5' : 'border-brand-primary/20 bg-brand-primary/5'
+  const on = tone === 'accent' ? 'bg-brand-accent' : 'bg-brand-primary'
   return (
-    <div className="p-4 rounded-xl border border-brand-primary/20 bg-brand-primary/5 relative">
+    <div className={cn('p-4 rounded-xl border relative', card)}>
       <div className="flex items-center justify-between gap-4">
         <div className="flex-1">
           <label htmlFor={id} className="block text-sm font-bold text-brand-light cursor-pointer">
@@ -102,7 +106,7 @@ export function Toggle({
           onClick={() => onChange(!checked)}
           className={cn(
             'shrink-0 relative flex w-10 h-[22px] rounded-full cursor-pointer transition-colors duration-300',
-            checked ? 'bg-brand-primary' : 'bg-brand-divider',
+            checked ? on : 'bg-brand-divider',
           )}
         >
           <span
