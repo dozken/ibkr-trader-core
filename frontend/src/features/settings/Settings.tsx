@@ -407,66 +407,15 @@ const Settings = () => {
           </div>
           <p className="text-xs text-brand-light/50 mb-6">Controls how big each trade is and how stop-losses protect your money.</p>
           <div className="space-y-4">
-            <div>
-              <label
-                htmlFor="min_trade_size"
-                className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-              >
-                Minimum Order Size (USD)
-              </label>
-              <Input
-                id="min_trade_size"
-                type="number"
-                min={1}
-                className="font-mono"
-                value={settings.min_trade_size}
-                onChange={(e) => set('min_trade_size', parseFloat(e.target.value))}
-              />
-              <p className="text-xs text-brand-light/60 mt-1">
-                Prevents tiny, inefficient trades that waste commissions.
-              </p>
-            </div>
-            <div>
-              <label
-                htmlFor="position_size_pct"
-                className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-              >
-                Target Position Size (% of portfolio)
-              </label>
-              <Input
-                id="position_size_pct"
-                type="number"
-                min={1}
-                max={25}
-                step={0.5}
-                className="font-mono"
-                value={settings.position_size_pct ?? 5}
-                onChange={(e) => set('position_size_pct', parseFloat(e.target.value))}
-              />
-              <p className="text-xs text-brand-light/60 mt-1">
-                Each new position targets this % of portfolio. Hard-capped by Max Position Size above.
-              </p>
-            </div>
-            <div>
-              <label
-                htmlFor="max_commission_pct"
-                className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-              >
-                Max Commission Impact (%)
-              </label>
-              <Input
-                id="max_commission_pct"
-                type="number"
-                min={0}
-                step={0.1}
-                className="font-mono"
-                value={settings.max_commission_pct}
-                onChange={(e) => set('max_commission_pct', parseFloat(e.target.value))}
-              />
-              <p className="text-xs text-brand-light/60 mt-1">
-                Trade is blocked if fees &gt; this % of value.
-              </p>
-            </div>
+            <Field label="Minimum Order Size (USD)" htmlFor="min_trade_size" help="Prevents tiny, inefficient trades that waste commissions.">
+              <Input id="min_trade_size" type="number" min={1} mono value={settings.min_trade_size} onChange={(e) => set('min_trade_size', parseFloat(e.target.value))} />
+            </Field>
+            <Field label="Target Position Size (% of portfolio)" htmlFor="position_size_pct" help="Each new position targets this % of portfolio. Hard-capped by Max Position Size above.">
+              <Input id="position_size_pct" type="number" min={1} max={25} step={0.5} mono value={settings.position_size_pct ?? 5} onChange={(e) => set('position_size_pct', parseFloat(e.target.value))} />
+            </Field>
+            <Field label="Max Commission Impact (%)" htmlFor="max_commission_pct" help="Trade is blocked if fees > this % of value.">
+              <Input id="max_commission_pct" type="number" min={0} step={0.1} mono value={settings.max_commission_pct} onChange={(e) => set('max_commission_pct', parseFloat(e.target.value))} />
+            </Field>
           </div>
         </section>
 
@@ -664,87 +613,18 @@ const Settings = () => {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label
-                  htmlFor="time_exit_days"
-                  className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-                >
-                  Stale Thesis Exit (days)
-                </label>
-                <Input
-                  id="time_exit_days"
-                  type="number"
-                  min="14"
-                  max="365"
-                  className="font-mono"
-                  value={settings.time_exit_days ?? 45}
-                  onChange={(e) => set('time_exit_days', Number(e.target.value))}
-                />
-                <p className="text-xs text-brand-light/60 mt-1">
-                  Sell if held longer than this with less than target gain.
-                </p>
-              </div>
-              <div>
-                <label
-                  htmlFor="partial_profit_pct"
-                  className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-                >
-                  Partial Profit Target %
-                </label>
-                <Input
-                  id="partial_profit_pct"
-                  type="number"
-                  min="2"
-                  max="50"
-                  className="font-mono"
-                  value={settings.partial_profit_pct ?? 10}
-                  onChange={(e) => set('partial_profit_pct', Number(e.target.value))}
-                />
-                <p className="text-xs text-brand-light/60 mt-1">
-                  Sell half position at this unrealized gain.
-                </p>
-              </div>
-              <div>
-                <label
-                  htmlFor="partial_profit_fraction"
-                  className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-                >
-                  Partial Sell Fraction
-                </label>
-                <Input
-                  id="partial_profit_fraction"
-                  type="number"
-                  min="0.1"
-                  max="0.9"
-                  step="0.1"
-                  className="font-mono"
-                  value={settings.partial_profit_fraction ?? 0.5}
-                  onChange={(e) => set('partial_profit_fraction', Number(e.target.value))}
-                />
-                <p className="text-xs text-brand-light/60 mt-1">
-                  Fraction of position to sell at partial profit (0.5 = half).
-                </p>
-              </div>
-              <div>
-                <label
-                  htmlFor="re_entry_cooldown_days"
-                  className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-                >
-                  Re-Entry Cooldown (days)
-                </label>
-                <Input
-                  id="re_entry_cooldown_days"
-                  type="number"
-                  min="0"
-                  max="90"
-                  className="font-mono"
-                  value={settings.re_entry_cooldown_days ?? 14}
-                  onChange={(e) => set('re_entry_cooldown_days', Number(e.target.value))}
-                />
-                <p className="text-xs text-brand-light/60 mt-1">
-                  Block re-buying a symbol for this many days after take-profit exit.
-                </p>
-              </div>
+              <Field label="Stale Thesis Exit (days)" htmlFor="time_exit_days" help="Sell if held longer than this with less than target gain.">
+                <Input id="time_exit_days" type="number" min="14" max="365" mono value={settings.time_exit_days ?? 45} onChange={(e) => set('time_exit_days', Number(e.target.value))} />
+              </Field>
+              <Field label="Partial Profit Target %" htmlFor="partial_profit_pct" help="Sell half position at this unrealized gain.">
+                <Input id="partial_profit_pct" type="number" min="2" max="50" mono value={settings.partial_profit_pct ?? 10} onChange={(e) => set('partial_profit_pct', Number(e.target.value))} />
+              </Field>
+              <Field label="Partial Sell Fraction" htmlFor="partial_profit_fraction" help="Fraction of position to sell at partial profit (0.5 = half).">
+                <Input id="partial_profit_fraction" type="number" min="0.1" max="0.9" step="0.1" mono value={settings.partial_profit_fraction ?? 0.5} onChange={(e) => set('partial_profit_fraction', Number(e.target.value))} />
+              </Field>
+              <Field label="Re-Entry Cooldown (days)" htmlFor="re_entry_cooldown_days" help="Block re-buying a symbol for this many days after take-profit exit.">
+                <Input id="re_entry_cooldown_days" type="number" min="0" max="90" mono value={settings.re_entry_cooldown_days ?? 14} onChange={(e) => set('re_entry_cooldown_days', Number(e.target.value))} />
+              </Field>
               <div>
                 <label
                   htmlFor="rerate_sell_threshold"
