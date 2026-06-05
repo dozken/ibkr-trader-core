@@ -33,7 +33,8 @@ import {
 } from 'recharts'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Page, PageHeader, PageSection, CardGrid, ActionRow, InfoRow, Stack } from '@/components/ui/layout'
+import { Page, PageHeader, PageSection, CardGrid, ActionRow, InfoRow, Stack, Cluster } from '@/components/ui/layout'
+import { Heading, StatusDot } from '@/components/ui/primitives'
 import { Text, Eyebrow } from '@/components/ui/text'
 import { Abbr, InfoTip, TextTip, Tooltip as AppTooltip } from '../../components/Tooltip'
 import { API_KEY, ROUTES, withAccount } from '../../shared/routes'
@@ -1370,49 +1371,28 @@ const Dashboard = () => {
   return (
     <Page>
       <PageHeader>
-        <div className="flex flex-col gap-1">
-          <ActionRow>
-            <h1 className="heading-1 mb-0">
-              <ShieldCheck className="text-brand-success" />
-              IBKR Shariah Trader
-            </h1>
+        <Stack gap="xs">
+          <Cluster gap="md">
+            <Heading icon={ShieldCheck} iconTone="success">IBKR Shariah Trader</Heading>
             <AccountTypeBadge type={portfolio.account_type} />
-          </ActionRow>
-          <p className="text-brand-light/70">Ironclad Portfolio Monitoring</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-4 self-start">
+          </Cluster>
+          <Text tone="muted">Ironclad Portfolio Monitoring</Text>
+        </Stack>
+        <Cluster gap="md" selfStart>
           <Button
             variant="outline"
             size="sm"
+            icon={Zap}
+            loading={rebalanceMutation.isPending}
             onClick={() => rebalanceMutation.mutate()}
-            disabled={rebalanceMutation.isPending}
-            className="text-xs h-9 border-brand-primary/50 text-brand-primary hover:bg-brand-primary/10"
           >
-            {rebalanceMutation.isPending ? (
-              <RefreshCw size={14} className="animate-spin mr-2" />
-            ) : (
-              <Zap size={14} className="mr-2" />
-            )}
             Rebalance Now
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setEmergencyModalStep(1)}
-            className="text-xs h-9 border-red-500/50 text-red-400 hover:bg-red-500/10"
-          >
-            <AlertTriangle size={14} className="mr-2" />
+          <Button variant="destructive" size="sm" icon={AlertTriangle} onClick={() => setEmergencyModalStep(1)}>
             Emergency Exit
           </Button>
-          <InfoRow className=" text-xs">
-            <div
-              className={`w-2 h-2 rounded-full ${isConnected ? 'bg-brand-success animate-pulse' : 'bg-brand-danger'}`}
-            />
-            <span className="text-brand-light/70 font-mono">
-              {isConnected ? 'WS CONNECTED' : 'WS DISCONNECTED'}
-            </span>
-          </InfoRow>
-        </div>
+          <StatusDot ok={isConnected}>{isConnected ? 'WS Connected' : 'WS Disconnected'}</StatusDot>
+        </Cluster>
       </PageHeader>
 
       {/* ── Trading paused banner ── */}

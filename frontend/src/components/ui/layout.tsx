@@ -50,8 +50,66 @@ export function InfoRow({ className, ...props }: React.ComponentProps<'div'>) {
   return <div className={cn("flex items-center gap-1.5", className)} {...props} />
 }
 
-// 7. Standard vertical stack
-// Always uses gap-4 for vertical lists of items
-export function Stack({ className, ...props }: React.ComponentProps<'div'>) {
-  return <div className={cn("flex flex-col gap-4", className)} {...props} />
+// ── Spacing/alignment scales (semantic props → tailwind, owned here) ────────
+type Gap = 'none' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
+const GAP: Record<Gap, string> = {
+  none: 'gap-0', xs: 'gap-1', sm: 'gap-2', md: 'gap-4', lg: 'gap-6', xl: 'gap-8',
+}
+type Align = 'start' | 'center' | 'end' | 'baseline' | 'stretch'
+const ALIGN: Record<Align, string> = {
+  start: 'items-start', center: 'items-center', end: 'items-end',
+  baseline: 'items-baseline', stretch: 'items-stretch',
+}
+type Justify = 'start' | 'center' | 'end' | 'between'
+const JUSTIFY: Record<Justify, string> = {
+  start: 'justify-start', center: 'justify-center', end: 'justify-end', between: 'justify-between',
+}
+
+// 7. Vertical stack — gap defaults to md (gap-4)
+export function Stack({
+  gap = 'md', align, className, ...props
+}: React.ComponentProps<'div'> & { gap?: Gap; align?: Align }) {
+  return <div className={cn('flex flex-col', GAP[gap], align && ALIGN[align], className)} {...props} />
+}
+
+// 8. Horizontal cluster — wraps, with gap/align/justify and optional self-start.
+export function Cluster({
+  gap = 'sm', align = 'center', justify, wrap = true, selfStart, className, ...props
+}: React.ComponentProps<'div'> & {
+  gap?: Gap; align?: Align; justify?: Justify; wrap?: boolean; selfStart?: boolean
+}) {
+  return (
+    <div
+      className={cn(
+        'flex', wrap && 'flex-wrap', GAP[gap], ALIGN[align],
+        justify && JUSTIFY[justify], selfStart && 'self-start', className,
+      )}
+      {...props}
+    />
+  )
+}
+
+// 9. Non-wrapping horizontal row.
+export function Row(props: React.ComponentProps<typeof Cluster>) {
+  return <Cluster wrap={false} {...props} />
+}
+
+// 10. Generic padded box.
+export function Box({
+  p = 'md', className, ...props
+}: React.ComponentProps<'div'> & { p?: Gap }) {
+  const PAD: Record<Gap, string> = {
+    none: 'p-0', xs: 'p-1', sm: 'p-2', md: 'p-4', lg: 'p-6', xl: 'p-8',
+  }
+  return <div className={cn(PAD[p], className)} {...props} />
+}
+
+// 11. Horizontal divider.
+export function Divider({ className, ...props }: React.ComponentProps<'hr'>) {
+  return <hr className={cn('border-0 border-t border-brand-divider', className)} {...props} />
+}
+
+// 12. Flexible spacer (pushes siblings apart in a flex row/col).
+export function Spacer() {
+  return <div className="flex-1" />
 }

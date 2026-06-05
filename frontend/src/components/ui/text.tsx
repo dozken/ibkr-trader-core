@@ -28,20 +28,33 @@ const DEFAULT_TAG: Record<Variant, ElementType> = {
   eyebrow: 'p',
 }
 
+type Tone = 'default' | 'muted' | 'subtle' | 'primary' | 'success' | 'danger' | 'warning'
+
+const TONE_CLASS: Record<Tone, string> = {
+  default: '',
+  muted: 'text-brand-light/70',
+  subtle: 'text-brand-light/50',
+  primary: 'text-brand-primary',
+  success: 'text-brand-success',
+  danger: 'text-brand-danger',
+  warning: 'text-brand-warning',
+}
+
 interface TextProps extends HTMLAttributes<HTMLElement> {
   variant?: Variant
+  tone?: Tone
   as?: ElementType
   mono?: boolean
   children?: ReactNode
 }
 
 export const Text = forwardRef<HTMLElement, TextProps>(
-  ({ variant = 'body', as, mono, className, children, ...props }, ref) => {
+  ({ variant = 'body', tone = 'default', as, mono, className, children, ...props }, ref) => {
     const Tag = (as ?? DEFAULT_TAG[variant]) as ElementType
     return (
       <Tag
         ref={ref as never}
-        className={cn(VARIANT_CLASS[variant], mono && 't-num', className)}
+        className={cn(VARIANT_CLASS[variant], TONE_CLASS[tone], mono && 't-num', className)}
         {...props}
       >
         {children}
