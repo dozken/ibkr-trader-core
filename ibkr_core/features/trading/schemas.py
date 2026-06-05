@@ -18,6 +18,9 @@ class TradeSignal(BaseModel):
     t_score: Optional[int] = None   # Technical score
     s_score: Optional[int] = None   # Sentiment score
     vix_tier: str = "CALM"          # "CALM" | "ELEVATED" | "CRISIS"
+    # Shariah verdict for the symbol (attached after screening) so the UI can
+    # show the halal status on each signal card. None = not screened.
+    compliance: Optional[ComplianceStatus] = None
     timestamp: datetime = datetime.now()
 
 
