@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Stack } from '@/components/ui/layout'
-import { Field, Heading, Toggle } from '@/components/ui/primitives'
+import { Field, Heading, Pill, Toggle } from '@/components/ui/primitives'
 import { Text } from '@/components/ui/text'
 import {
   Select,
@@ -465,16 +465,10 @@ const Settings = () => {
                 </SelectContent>
               </Select>
             </Field>
-            <div>
-              <label className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase">
-                Excluded Sectors
-              </label>
+            <Field label="Excluded Sectors">
               <div className="flex flex-wrap gap-2 mb-2">
                 {settings.sector_exclusion.map((s) => (
-                  <span
-                    key={s}
-                    className="flex items-center gap-1.5 px-2.5 py-1 bg-brand-danger/10 border border-brand-danger/20 text-brand-danger text-[10px] font-bold uppercase tracking-wider rounded-full group"
-                  >
+                  <Pill key={s} tone="danger">
                     {s}
                     <Button
                       type="button"
@@ -482,21 +476,19 @@ const Settings = () => {
                       size="icon-xs"
                       className="h-auto w-auto p-0.5 hover:bg-brand-danger/20 rounded-full"
                       onClick={() =>
-                        set(
-                          'sector_exclusion',
-                          settings.sector_exclusion.filter((x) => x !== s),
-                        )
+                        set('sector_exclusion', settings.sector_exclusion.filter((x) => x !== s))
                       }
                     >
                       <X size={10} strokeWidth={3} />
                     </Button>
-                  </span>
+                  </Pill>
                 ))}
               </div>
               <div className="flex gap-2">
                 <Input
                   type="text"
-                  className="font-mono flex-1 text-sm h-9"
+                  mono
+                  className="flex-1 text-sm h-9"
                   placeholder="Add sector…"
                   value={newSector}
                   onChange={(e) => setNewSector(e.target.value)}
@@ -507,17 +499,9 @@ const Settings = () => {
                     }
                   }}
                 />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  className="h-9 w-9 border-brand-divider/60 hover:border-brand-primary/50"
-                  onClick={addSector}
-                >
-                  <Plus size={16} />
-                </Button>
+                <Button type="button" variant="outline" size="icon-sm" className="h-9 w-9" onClick={addSector} icon={Plus} />
               </div>
-            </div>
+            </Field>
           </div>
         </section>
 
@@ -529,13 +513,11 @@ const Settings = () => {
           </h2>
           <p className="text-xs text-brand-light/50 mb-6">Advanced order routing and AI signal settings. Leave defaults unless you know what you're changing.</p>
           <div className="space-y-4">
-            <div>
-              <Label
-                htmlFor="risk_profile"
-                className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-              >
-                Risk Profile
-              </Label>
+            <Field
+              label="Risk Profile"
+              htmlFor="risk_profile"
+              help={<>Sets default stop-loss / take-profit for bracket orders:{' '}<span className="text-brand-danger font-mono">−{riskDefaults.stop}%</span> /{' '}<span className="text-brand-success font-mono">+{riskDefaults.take}%</span></>}
+            >
               <Select
                 value={settings.risk_profile}
                 onValueChange={(v) => set('risk_profile', v as any)}
@@ -549,67 +531,21 @@ const Settings = () => {
                   <SelectItem value="AGGRESSIVE">Aggressive</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-brand-light/60 mt-1">
-                Sets default stop-loss / take-profit for bracket orders:{' '}
-                <span className="text-brand-danger font-mono">−{riskDefaults.stop}%</span> /{' '}
-                <span className="text-brand-success font-mono">+{riskDefaults.take}%</span>
-              </p>
-            </div>
+            </Field>
 
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label
-                  htmlFor="stop_loss_pct"
-                  className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-                >
-                  Stop-Loss Override (%)
-                </label>
-                <Input
-                  id="stop_loss_pct"
-                  type="number"
-                  step="0.5"
-                  min="0"
-                  className="font-mono"
-                  placeholder={`${riskDefaults.stop}% (profile default)`}
-                  value={settings.stop_loss_pct ?? ''}
-                  onChange={(e) =>
-                    set('stop_loss_pct', e.target.value === '' ? null : parseFloat(e.target.value))
-                  }
-                />
+              <Field label="Stop-Loss Override (%)" htmlFor="stop_loss_pct">
+                <Input id="stop_loss_pct" type="number" step="0.5" min="0" mono placeholder={`${riskDefaults.stop}% (profile default)`} value={settings.stop_loss_pct ?? ''} onChange={(e) => set('stop_loss_pct', e.target.value === '' ? null : parseFloat(e.target.value))} />
                 {settings.stop_loss_pct !== null && (
-                  <p className="text-xs text-brand-warning mt-1">
-                    Override active: {effectiveStop}%
-                  </p>
+                  <Text variant="tiny" tone="warning" className="mt-1">Override active: {effectiveStop}%</Text>
                 )}
-              </div>
-              <div>
-                <label
-                  htmlFor="take_profit_pct"
-                  className="block text-xs font-bold text-brand-light/90 mb-1 tracking-widest uppercase"
-                >
-                  Take-Profit Override (%)
-                </label>
-                <Input
-                  id="take_profit_pct"
-                  type="number"
-                  step="0.5"
-                  min="0"
-                  className="font-mono"
-                  placeholder={`${riskDefaults.take}% (profile default)`}
-                  value={settings.take_profit_pct ?? ''}
-                  onChange={(e) =>
-                    set(
-                      'take_profit_pct',
-                      e.target.value === '' ? null : parseFloat(e.target.value),
-                    )
-                  }
-                />
+              </Field>
+              <Field label="Take-Profit Override (%)" htmlFor="take_profit_pct">
+                <Input id="take_profit_pct" type="number" step="0.5" min="0" mono placeholder={`${riskDefaults.take}% (profile default)`} value={settings.take_profit_pct ?? ''} onChange={(e) => set('take_profit_pct', e.target.value === '' ? null : parseFloat(e.target.value))} />
                 {settings.take_profit_pct !== null && (
-                  <p className="text-xs text-brand-success mt-1">
-                    Override active: {effectiveTake}%
-                  </p>
+                  <Text variant="tiny" tone="success" className="mt-1">Override active: {effectiveTake}%</Text>
                 )}
-              </div>
+              </Field>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
