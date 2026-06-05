@@ -29,7 +29,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Page, PageHeader, PageSection, CardGrid, ActionRow, InfoRow, Stack, Cluster } from '@/components/ui/layout'
-import { Heading, Segmented } from '@/components/ui/primitives'
+import { Heading, Pill, Segmented } from '@/components/ui/primitives'
 import { Text } from '@/components/ui/text'
 import { Tooltip, TextTip } from '../../components/Tooltip'
 import { API_BASE, API_KEY, ROUTES } from '../../shared/routes'
@@ -323,11 +323,7 @@ const VIX_MAXES: Record<string, { f: number; t: number; s: number }> = {
   CRISIS:   { f: 45, t: 25, s: 30 },
 }
 
-const VIX_COLORS: Record<string, string> = {
-  CALM: 'text-brand-success bg-brand-success/10 border-brand-success/20',
-  ELEVATED: 'text-brand-warning bg-brand-warning/10 border-brand-warning/20',
-  CRISIS: 'text-brand-danger bg-brand-danger/10 border-brand-danger/20',
-}
+const VIX_TONE = { CALM: 'success', ELEVATED: 'warning', CRISIS: 'danger' } as const
 
 const MultiFactorBreakdown: React.FC<{ signal: TradeSignal }> = ({ signal }) => {
   const { f_score = 0, t_score = 0, s_score = 0, vix_tier } = signal
@@ -634,20 +630,9 @@ const SignalRow: React.FC<{
                         ${livePrice.toFixed(2)}
                       </span>
                     )}
-                    {isStale && (
-                      <Badge
-                        variant="outline"
-                        className="bg-brand-warning/10 text-brand-warning border-brand-warning/30 text-[9px] px-1.5 h-4 uppercase tracking-tighter"
-                      >
-                        Stale Data
-                      </Badge>
-                    )}
+                    {isStale && <Pill tone="warning">Stale Data</Pill>}
                   </div>
-                  {signal.vix_tier && (
-                    <span className={`text-[8px] px-1 py-0.5 rounded border font-bold uppercase tracking-widest ${VIX_COLORS[signal.vix_tier]}`}>
-                      {signal.vix_tier}
-                    </span>
-                  )}
+                  {signal.vix_tier && <Pill tone={VIX_TONE[signal.vix_tier]}>{signal.vix_tier}</Pill>}
                 </InfoRow>
                 <InfoRow className="">
                   <button
@@ -775,19 +760,8 @@ const SignalRow: React.FC<{
                     ${livePrice.toFixed(2)}
                   </span>
                 )}
-                {isStale && (
-                  <Badge
-                    variant="outline"
-                    className="bg-brand-warning/10 text-brand-warning border-brand-warning/30 text-[9px] px-1.5 h-4 uppercase tracking-tighter"
-                  >
-                    Stale Data
-                  </Badge>
-                )}
-                {signal.vix_tier && (
-                  <span className={`text-[8px] px-1 py-0.5 rounded border font-bold uppercase tracking-widest ${VIX_COLORS[signal.vix_tier]}`}>
-                    {signal.vix_tier}
-                  </span>
-                )}
+                {isStale && <Pill tone="warning">Stale Data</Pill>}
+                {signal.vix_tier && <Pill tone={VIX_TONE[signal.vix_tier]}>{signal.vix_tier}</Pill>}
               </InfoRow>
               <InfoRow className="">
                 <button
