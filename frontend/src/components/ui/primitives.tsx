@@ -149,6 +149,59 @@ export function Field({
   )
 }
 
+// Tonal block container (multi-line content) — like Alert but block layout.
+type CalloutTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
+const CALLOUT_TONE: Record<CalloutTone, string> = {
+  neutral: 'border-brand-divider bg-brand-surface',
+  info: 'border-brand-primary/30 bg-brand-primary/5',
+  success: 'border-brand-success/40 bg-brand-success/5',
+  warning: 'border-brand-warning/50 bg-brand-warning/5',
+  danger: 'border-brand-danger bg-brand-danger/10',
+}
+export function Callout({
+  tone = 'neutral',
+  className,
+  children,
+}: {
+  tone?: CalloutTone
+  className?: string
+  children: ReactNode
+}) {
+  return <div className={cn('rounded-xl border p-5', CALLOUT_TONE[tone], className)}>{children}</div>
+}
+
+// Stat cell for grids/trays: label + value (+ optional sub). Tone colors value.
+type StatTone = 'default' | 'success' | 'warning' | 'danger' | 'accent' | 'primary'
+const STATCARD_TONE: Record<StatTone, string> = {
+  default: 'text-brand-light',
+  success: 'text-brand-success',
+  warning: 'text-brand-warning',
+  danger: 'text-brand-danger',
+  accent: 'text-brand-accent',
+  primary: 'text-brand-primary',
+}
+export function StatCard({
+  label,
+  value,
+  sub,
+  tone = 'default',
+  tip,
+}: {
+  label: ReactNode
+  value: ReactNode
+  sub?: ReactNode
+  tone?: StatTone
+  tip?: string
+}) {
+  return (
+    <div title={tip}>
+      <p className="t-eyebrow">{label}</p>
+      <p className={cn('t-stat', STATCARD_TONE[tone])}>{value}</p>
+      {sub != null && <p className="t-tiny opacity-60 mt-0.5">{sub}</p>}
+    </div>
+  )
+}
+
 // Inline banner/alert. Tone tints border+bg; pass href to make it a link
 // (adds hover affordance + a `group` for trailing arrows).
 type AlertTone = 'info' | 'success' | 'warning' | 'danger'

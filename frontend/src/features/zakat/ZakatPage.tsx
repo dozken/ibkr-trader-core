@@ -5,7 +5,7 @@ import { AlertCircle, Coins, ExternalLink, Heart, Info, RefreshCw, Zap } from 'l
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Page, PageHeader, PageSection, CardGrid, ActionRow, InfoRow, Stack } from '@/components/ui/layout'
-import { Heading } from '@/components/ui/primitives'
+import { Callout, Heading } from '@/components/ui/primitives'
 import { Text } from '@/components/ui/text'
 import { Input } from '@/components/ui/input'
 import { InfoTip, TextTip } from '../../components/Tooltip'
@@ -307,13 +307,7 @@ function ZakatPage() {
 
       {/* ── Hawl Status ──────────────────────────────────────────────────────── */}
       {hawl && (
-        <div className={`mb-6 rounded-xl border p-5 ${
-          hawl.is_due
-            ? 'border-brand-danger bg-brand-danger/10'
-            : hawl.hawl_start
-              ? 'border-brand-warning/50 bg-brand-warning/5'
-              : 'border-brand-divider bg-brand-surface'
-        }`}>
+        <Callout className="mb-6" tone={hawl.is_due ? 'danger' : hawl.hawl_start ? 'warning' : 'neutral'}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-start gap-3">
               <div className={`text-2xl ${hawl.is_due ? 'animate-pulse' : ''}`}>
@@ -418,7 +412,7 @@ function ZakatPage() {
               )}
             </div>
           </div>
-        </div>
+        </Callout>
       )}
 
       {/* ── Zakat ────────────────────────────────────────────────────────────── */}
