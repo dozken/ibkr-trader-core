@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router'
 import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
@@ -186,19 +187,43 @@ export function StatCard({
   sub,
   tone = 'default',
   tip,
+  href,
+  bordered = false,
+  size = 'md',
 }: {
   label: ReactNode
   value: ReactNode
   sub?: ReactNode
   tone?: StatTone
   tip?: string
+  href?: string
+  bordered?: boolean
+  size?: 'md' | 'lg'
 }) {
-  return (
-    <div title={tip}>
+  const valueCls = size === 'lg' ? 'text-2xl font-bold font-mono tracking-tight' : 't-stat'
+  const inner = (
+    <>
       <p className="t-eyebrow">{label}</p>
-      <p className={cn('t-stat', STATCARD_TONE[tone])}>{value}</p>
+      <p className={cn(valueCls, STATCARD_TONE[tone])}>{value}</p>
       {sub != null && <p className="t-tiny opacity-60 mt-0.5">{sub}</p>}
-    </div>
+    </>
+  )
+  if (bordered) {
+    return (
+      <div title={tip} className="rounded-lg border border-brand-divider bg-brand-surface p-4">
+        {inner}
+      </div>
+    )
+  }
+  if (href) {
+    return (
+      <Link to={href} title={tip} className="block hover:bg-brand-primary/5 transition-colors">
+        {inner}
+      </Link>
+    )
+  }
+  return (
+    <div title={tip}>{inner}</div>
   )
 }
 

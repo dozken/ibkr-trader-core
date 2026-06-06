@@ -15,6 +15,7 @@ import {
 import { ROUTES } from '@/shared/routes'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { StatCard as UIStatCard } from '@/components/ui/primitives'
 import { useTheme } from '@/lib/ThemeContext'
 import { chartTheme } from '@/lib/chartTheme'
 
@@ -67,13 +68,15 @@ const fmtCurrency = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 
 function StatCard({ label, value, sub, positive }: { label: string; value: string; sub?: string; positive?: boolean }) {
-  const color = positive === undefined ? '' : positive ? 'text-brand-success' : 'text-brand-danger'
   return (
-    <div className="bg-brand-surface border border-brand-divider rounded-lg p-4">
-      <div className="text-xs text-brand-light/50 uppercase tracking-wide mb-1">{label}</div>
-      <div className={`text-2xl font-bold font-mono ${color}`}>{value}</div>
-      {sub && <div className="text-xs text-brand-light/50 mt-1">{sub}</div>}
-    </div>
+    <UIStatCard
+      bordered
+      size="lg"
+      label={label}
+      value={value}
+      sub={sub}
+      tone={positive === undefined ? 'default' : positive ? 'success' : 'danger'}
+    />
   )
 }
 
