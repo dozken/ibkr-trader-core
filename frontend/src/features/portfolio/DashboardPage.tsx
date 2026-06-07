@@ -1391,7 +1391,10 @@ const Dashboard = () => {
           <Button variant="destructive" size="sm" icon={AlertTriangle} onClick={() => setEmergencyModalStep(1)}>
             Emergency Exit
           </Button>
-          <StatusDot ok={isConnected}>{isConnected ? 'WS Connected' : 'WS Disconnected'}</StatusDot>
+          {/* Broker = the IBKR gateway link (the one that matters for trading). */}
+          <StatusDot ok={portfolio.connected}>{portfolio.connected ? 'Broker connected' : 'Broker offline'}</StatusDot>
+          {/* Live feed = the websocket (browser↔backend), NOT the broker. */}
+          <StatusDot ok={isConnected}>{isConnected ? 'Live feed' : 'Feed offline'}</StatusDot>
         </Cluster>
       </PageHeader>
 

@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/trades", tags=["trading"])
 
-_LIVE_PORTS = {7496, 4001}
+_LIVE_PORTS = {7496, 4001, 4003}  # 4003 = gnzsnz ib-gateway live API (4004 = paper)
 
 
 class TradeResponse(BaseModel):

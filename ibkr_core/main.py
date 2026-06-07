@@ -487,7 +487,9 @@ def system_readiness(request: Request):
     # ── IBKR connectivity ──────────────────────────────────────────────────────
     ibkr_connected = worker is not None and worker.ib.isConnected()
     port = int(os.getenv("IBKR_PORT", "7497"))
-    _LIVE_PORTS = {7496, 4001}
+    # 7496 = TWS live, 4001 = IBGW raw live, 4003 = gnzsnz ib-gateway live API
+    # (paper = 7497 / 4002 / 4004).
+    _LIVE_PORTS = {7496, 4001, 4003}
     port_type = "LIVE" if port in _LIVE_PORTS else "PAPER"
 
     # ── Drawdown CB ────────────────────────────────────────────────────────────
