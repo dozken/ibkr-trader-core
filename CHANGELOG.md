@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed (BREAKING)
 - Top-level Python package renamed `backend` → `ibkr_core` to prevent namespace shadowing when used as a library. All imports change from `from backend.X import Y` to `from ibkr_core.X import Y`. Downstream users must update imports + any `backend/` paths in their Dockerfiles / scripts.
 
+## [0.3.9] - 2026-06-13
+
+### Added
+- `signal_logs.benchmark_7d_pct` / `benchmark_30d_pct` — SPY return over the same forward window as each outcome, enabling market-relative (alpha) labels downstream. Migration `d7a2b9c41e08`.
+
+### Fixed
+- Restored missing migration `a1f7c2d83b90` (add `signal_logs.features`): `b2e9d4f17a3c` referenced it as parent but the file was absent from this repo, breaking `alembic upgrade head` for fresh installs.
+
 ## [Unreleased]
 
 ### Added

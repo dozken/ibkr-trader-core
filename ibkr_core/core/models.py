@@ -217,6 +217,8 @@ class SignalLog(Base):
     signal_price = Column(Float, nullable=True)   # price at signal time (filled async)
     outcome_7d_pct = Column(Float, nullable=True) # % return 7 days later
     outcome_30d_pct = Column(Float, nullable=True)
+    benchmark_7d_pct = Column(Float, nullable=True)   # SPY % return over the same 7d window
+    benchmark_30d_pct = Column(Float, nullable=True)  # SPY % return over the same 30d window
     outcome_checked_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=get_utc_now, nullable=False)
 
