@@ -14,6 +14,10 @@ class TradeSignal(BaseModel):
     confidence: int         # 0-100
     action: Literal['BUY', 'SELL', 'HOLD']
     reasoning: str
+    # Calibrated P(beat benchmark) from the supervised alpha model, when active.
+    # A true probability (unlike heuristic `confidence`), so position sizing can
+    # Kelly-weight off it directly. None when the supervised model isn't driving.
+    win_probability: Optional[float] = None
     f_score: Optional[int] = None   # Fundamental score
     t_score: Optional[int] = None   # Technical score
     s_score: Optional[int] = None   # Sentiment score
@@ -46,6 +50,9 @@ class TradeBase(BaseModel):
 
 class TradeCreate(TradeBase):
     confidence: int = 50  # signal confidence 0-100, used for Kelly sizing
+    # Calibrated P(beat benchmark); when set, preferred over `confidence` for
+    # Kelly sizing because it's a real probability, not a heuristic score.
+    win_probability: Optional[float] = None
 
 
 class Trade(TradeBase):

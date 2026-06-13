@@ -67,19 +67,29 @@ def _slippage_scale(symbol: str) -> float:
         return 1.0
 
 
-def _kelly_scale(confidence: float, settings: dict) -> float:
+def _kelly_scale(confidence: float, settings: dict, win_prob: float | None = None) -> float:
     """
-    Half-Kelly fraction normalised to 1.0 at baseline confidence (0.65).
+    Half-Kelly fraction normalised to 1.0 at the baseline win-probability.
     Returns a multiplier in [0.5, 1.5] to scale the base position size.
+
+    `confidence` is the heuristic 0-1 score; when `win_prob` is supplied it is a
+    *calibrated* probability from the supervised model and is preferred — its
+    baseline is 0.50 (a coin-flip edge) instead of the heuristic's 0.65, because
+    a calibrated 0.55 is already a real edge worth a full-size bet whereas a
+    heuristic score of 55 is not.
     """
     tp = (settings.get("take_profit_pct") or 15.0) / 100
     sl = (settings.get("stop_loss_pct") or 8.0) / 100
     b = tp / sl if sl > 0 else 1.875
-    p = max(0.0, min(1.0, confidence))
+    if win_prob is not None:
+        p = max(0.0, min(1.0, win_prob))
+        baseline_p = 0.50
+    else:
+        p = max(0.0, min(1.0, confidence))
+        baseline_p = 0.65
     k_full = (p * b - (1.0 - p)) / b
     half_k = max(0.0, k_full * 0.5)
-    # Normalise: at baseline p=0.65 the scale should be 1.0
-    baseline = max(0.001, (0.65 * b - 0.35) / b * 0.5)
+    baseline = max(0.001, (baseline_p * b - (1.0 - baseline_p)) / b * 0.5)
     return max(0.5, min(1.5, half_k / baseline))
 
 
@@ -90,6 +100,7 @@ def _calculate_position_size(
     settings: dict,
     confidence: float = 0.5,
     symbol: str = "",
+    win_probability: float | None = None,
 ) -> float:
     """
     Fractional-share position size per SETTINGS_SCHEMA.md:
@@ -110,7 +121,7 @@ def _calculate_position_size(
         return 0.0
     vix_factor = _get_vix_size_factor()
     if settings.get("use_kelly_sizing", True):
-        kelly_factor = _kelly_scale(confidence, settings)
+        kelly_factor = _kelly_scale(confidence, settings, win_prob=win_probability)
         dollars = dollars * kelly_factor
     slip_factor = _slippage_scale(symbol) if symbol else 1.0
     qty = (dollars / price) * vix_factor * slip_factor
@@ -447,6 +458,7 @@ class Trader:
                         available_funds, net_liq, price, settings,
                         confidence=trade_req.confidence / 100,
                         symbol=trade.symbol,
+                        win_probability=getattr(trade_req, "win_probability", None),
                     )
 
                 if trade.quantity < _MIN_FRACTIONAL_QTY:

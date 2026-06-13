@@ -558,6 +558,48 @@ class TestVIXAdjustedSizing(unittest.TestCase):
         self.assertAlmostEqual(qty, 10.0, places=5)
 
 
+class TestCalibratedKellySizing(unittest.TestCase):
+    """When a calibrated win_prob is supplied, Kelly uses a 0.50 baseline so a
+    real probabilistic edge sizes up, independent of the heuristic confidence."""
+
+    _SET = {"take_profit_pct": 15.0, "stop_loss_pct": 8.0}
+
+    def test_calibrated_baseline_is_neutral_at_half(self):
+        from ibkr_core.features.trading.trader import _kelly_scale
+        # 0.50 calibrated is the neutral baseline → 1.0x; below it scales down.
+        self.assertAlmostEqual(_kelly_scale(0.0, self._SET, win_prob=0.50), 1.0, places=3)
+        self.assertLess(_kelly_scale(0.0, self._SET, win_prob=0.45), 1.0)
+
+    def test_calibrated_high_prob_scales_up(self):
+        from ibkr_core.features.trading.trader import _kelly_scale
+        big = _kelly_scale(0.0, self._SET, win_prob=0.70)
+        mid = _kelly_scale(0.0, self._SET, win_prob=0.55)
+        self.assertGreater(big, mid)
+        self.assertGreater(mid, 1.0)  # 0.55 calibrated is already an edge → >baseline
+
+    def test_win_prob_overrides_confidence(self):
+        from ibkr_core.features.trading.trader import _kelly_scale
+        # low heuristic confidence but strong calibrated prob → sizes up
+        self.assertGreater(_kelly_scale(0.30, self._SET, win_prob=0.70), 1.0)
+
+    def test_none_win_prob_uses_confidence_path(self):
+        from ibkr_core.features.trading.trader import _kelly_scale
+        # baseline confidence 0.65 → ~1.0x
+        self.assertAlmostEqual(_kelly_scale(0.65, self._SET), 1.0, places=2)
+
+    def test_position_size_threads_win_probability(self):
+        from ibkr_core.features.trading.trader import _calculate_position_size
+        base = {"min_trade_size": 1.0, "cash_reserve_pct": 0.0,
+                "max_position_size_pct": 100.0, "use_kelly_sizing": True,
+                "take_profit_pct": 15.0, "stop_loss_pct": 8.0}
+        with patch("ibkr_core.features.trading.trader.get_current_vix", return_value=15.0):
+            hi = _calculate_position_size(1000.0, 1000.0, 100.0, base,
+                                          confidence=0.5, win_probability=0.75)
+            lo = _calculate_position_size(1000.0, 1000.0, 100.0, base,
+                                          confidence=0.5, win_probability=0.50)
+        self.assertGreater(hi, lo)
+
+
 class TestSectorConcentrationLimit(unittest.TestCase):
     """_exceeds_concentration_limit blocks trades that push a sector over max_sector_exposure_pct."""
 

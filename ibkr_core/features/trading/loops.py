@@ -9,8 +9,8 @@ import yfinance as yf
 # (symbol, action) → date last alerted; prevents duplicate Telegram noise per day
 _signal_alerted: dict[Tuple[str, str], date] = {}
 
-# ATR stop cache: symbol → (stop_pct, fetched_at_timestamp)
-_atr_cache: dict[str, tuple[float, float]] = {}
+# ATR stop cache: (symbol, multiplier) → (stop_pct, fetched_at_timestamp)
+_atr_cache: dict[tuple[str, float], tuple[float, float]] = {}
 _ATR_CACHE_TTL = 86400.0  # 24 hours in seconds
 
 
@@ -45,6 +45,29 @@ def _atr_stop_pct(symbol: str, multiplier: float = 2.5) -> float | None:
         return None
 
 
+# Wider ATR stops in volatile regimes avoid getting whipsawed out of good
+# positions on noise; tighter stops in calm regimes cut losers faster.
+_REGIME_ATR_SCALE = {"CALM": 1.0, "ELEVATED": 1.2, "CRISIS": 1.4}
+
+
+def _regime_atr_multiplier(settings: dict) -> float:
+    """ATR stop multiplier scaled by the current VIX regime.
+
+    Base = settings['atr_stop_multiplier'] (default 2.5). When
+    settings['atr_regime_scaling'] is on (default), the base is widened by the
+    VIX tier so CRISIS regimes tolerate larger swings before stopping out.
+    """
+    base = float(settings.get("atr_stop_multiplier") or 2.5)
+    if not (settings.get("atr_regime_scaling") if settings.get("atr_regime_scaling") is not None else True):
+        return base
+    try:
+        from ibkr_core.features.compliance.vix import get_current_vix, vix_to_tier
+        tier = vix_to_tier(get_current_vix())
+    except Exception:
+        tier = "CALM"
+    return round(base * _REGIME_ATR_SCALE.get(tier, 1.0), 3)
+
+
 async def _ibkr_daily_bars(worker, symbol: str, days: int = 30):
     """Fetch daily OHLC from IBKR. Returns (high, low, close) arrays or None."""
     try:
@@ -71,11 +94,16 @@ async def _ibkr_daily_bars(worker, symbol: str, days: int = 30):
         return None
 
 
-async def _get_atr_stop(symbol: str, worker=None) -> float | None:
-    """Return cached ATR stop pct, refreshing if stale (>24 h). Prefers IBKR over yfinance."""
+async def _get_atr_stop(symbol: str, worker=None, multiplier: float = 2.5) -> float | None:
+    """Return cached ATR stop pct, refreshing if stale (>24 h). Prefers IBKR over yfinance.
+
+    The cache is keyed on (symbol, multiplier) so a regime change that widens
+    the multiplier doesn't serve a stale stop computed for the old regime.
+    """
     import time
 
-    cached = _atr_cache.get(symbol)
+    key = (symbol, round(multiplier, 3))
+    cached = _atr_cache.get(key)
     if cached is not None:
         val, ts = cached
         if time.time() - ts < _ATR_CACHE_TTL:
@@ -85,12 +113,12 @@ async def _get_atr_stop(symbol: str, worker=None) -> float | None:
     if worker and worker.ib.isConnected():
         bars = await _ibkr_daily_bars(worker, symbol)
         if bars:
-            result = _compute_atr_stop(*bars)
+            result = _compute_atr_stop(*bars, multiplier=multiplier)
     if result is None:
-        result = await asyncio.to_thread(_atr_stop_pct, symbol)
+        result = await asyncio.to_thread(_atr_stop_pct, symbol, multiplier)
 
     if result is not None:
-        _atr_cache[symbol] = (result, time.time())
+        _atr_cache[key] = (result, time.time())
     return result
 
 
@@ -317,7 +345,8 @@ async def _dispatch_signal(
             pass
         logger.info(f"Auto-{signal.action} {signal.symbol} (confidence={signal.confidence}%, threshold={auto_threshold}%)")
         t = trade or TradeCreate(symbol=signal.symbol, quantity=0, side=signal.action,
-                                confidence=signal.confidence)
+                                confidence=signal.confidence,
+                                win_probability=getattr(signal, "win_probability", None))
         result = await trader.execute_trade(t, exchange=exchange, pre_screened=compliance)
         logger.info(f"Trade {signal.symbol}: {result.state}")
     else:
@@ -517,7 +546,8 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
 
                 # Determine effective stop distance (ATR-based or fixed)
                 if use_atr_stops:
-                    atr_stop = await _get_atr_stop(symbol, worker=worker)
+                    atr_mult = _regime_atr_multiplier(settings)
+                    atr_stop = await _get_atr_stop(symbol, worker=worker, multiplier=atr_mult)
                     stop_loss_pct = atr_stop if atr_stop is not None else fixed_stop_loss_pct
                     if atr_stop is None:
                         logger.debug("ATR fetch failed for %s — falling back to fixed stop %.1f%%", symbol, fixed_stop_loss_pct * 100)

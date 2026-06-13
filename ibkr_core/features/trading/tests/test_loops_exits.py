@@ -23,6 +23,35 @@ def _loops_module():
     return loops
 
 
+class TestRegimeAtrMultiplier(unittest.TestCase):
+    """ATR stop multiplier widens with the VIX regime (CALM<ELEVATED<CRISIS)."""
+
+    def _mult(self, tier, settings=None):
+        loops = _loops_module()
+        with patch("ibkr_core.features.compliance.vix.get_current_vix", return_value=20.0), \
+             patch("ibkr_core.features.compliance.vix.vix_to_tier", return_value=tier):
+            return loops._regime_atr_multiplier(settings or {})
+
+    def test_calm_is_base(self):
+        self.assertAlmostEqual(self._mult("CALM", {"atr_stop_multiplier": 2.5}), 2.5, places=3)
+
+    def test_crisis_wider_than_calm(self):
+        calm = self._mult("CALM", {"atr_stop_multiplier": 2.5})
+        elevated = self._mult("ELEVATED", {"atr_stop_multiplier": 2.5})
+        crisis = self._mult("CRISIS", {"atr_stop_multiplier": 2.5})
+        self.assertLess(calm, elevated)
+        self.assertLess(elevated, crisis)
+
+    def test_scaling_disabled_returns_base(self):
+        m = self._mult("CRISIS", {"atr_stop_multiplier": 3.0, "atr_regime_scaling": False})
+        self.assertAlmostEqual(m, 3.0, places=3)
+
+    def test_vix_failure_falls_back_to_base(self):
+        loops = _loops_module()
+        with patch("ibkr_core.features.compliance.vix.get_current_vix", side_effect=Exception("net")):
+            self.assertAlmostEqual(loops._regime_atr_multiplier({"atr_stop_multiplier": 2.5}), 2.5, places=3)
+
+
 class TestHWMTracking(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
