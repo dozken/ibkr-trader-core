@@ -88,28 +88,3 @@ export function Cluster({
     />
   )
 }
-
-// 9. Non-wrapping horizontal row.
-export function Row(props: React.ComponentProps<typeof Cluster>) {
-  return <Cluster wrap={false} {...props} />
-}
-
-// 10. Generic padded box.
-export function Box({
-  p = 'md', className, ...props
-}: React.ComponentProps<'div'> & { p?: Gap }) {
-  const PAD: Record<Gap, string> = {
-    none: 'p-0', xs: 'p-1', sm: 'p-2', md: 'p-4', lg: 'p-6', xl: 'p-8',
-  }
-  return <div className={cn(PAD[p], className)} {...props} />
-}
-
-// 11. Horizontal divider.
-export function Divider({ className, ...props }: React.ComponentProps<'hr'>) {
-  return <hr className={cn('border-0 border-t border-brand-divider', className)} {...props} />
-}
-
-// 12. Flexible spacer (pushes siblings apart in a flex row/col).
-export function Spacer() {
-  return <div className="flex-1" />
-}

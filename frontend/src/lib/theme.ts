@@ -13,7 +13,7 @@
 // A theme carries BOTH a CSS skin (data-theme attr → index.css) and a layout
 // preset. `layout` is the only thing components branch on; everything visual
 // stays in CSS. Add a theme = one entry here + one scoped CSS block.
-export type LayoutId = 'topnav' | 'sidebar'
+type LayoutId = 'topnav' | 'sidebar'
 
 export interface Theme {
   id: string
@@ -25,13 +25,13 @@ export interface Theme {
 // Classic + Mihrab were deprecated/removed. The theme infra is kept so charts
 // can read live tokens via useTheme()/chartTheme(); add a theme here + a token
 // block in index.css to reintroduce switching.
-export const THEMES = [
+const THEMES = [
   { id: 'aegov', label: 'AEGOV (UAE)', layout: 'topnav' },
 ] as const satisfies readonly Theme[]
 
 export type ThemeId = (typeof THEMES)[number]['id']
 
-export const DEFAULT_THEME: ThemeId = 'aegov'
+const DEFAULT_THEME: ThemeId = 'aegov'
 
 export function themeConfig(id: ThemeId): Theme {
   return THEMES.find((t) => t.id === id) ?? THEMES[0]

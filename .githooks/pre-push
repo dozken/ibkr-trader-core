@@ -1,0 +1,11 @@
+#!/bin/sh
+# Pre-push hook: run knip on the frontend. Any unused code/deps block the push.
+# Fix the findings or update frontend/knip.json. CI enforces the same gate.
+if [ -d frontend ]; then
+  echo "pre-push: running knip in frontend..."
+  if ! ( cd frontend && bunx knip ); then
+    echo "pre-push: knip reported findings — push blocked. Fix them or update knip.json." >&2
+    exit 1
+  fi
+fi
+exit 0

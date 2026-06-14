@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
-import { applyTheme, getTheme, setTheme as persistTheme, themeConfig, type Theme, type ThemeId } from './theme'
+import { getTheme, setTheme as persistTheme, themeConfig, type Theme, type ThemeId } from './theme'
 
 interface ThemeCtx {
   theme: Theme
@@ -29,7 +29,3 @@ export function useTheme(): ThemeCtx {
   if (!ctx) throw new Error('useTheme must be used within ThemeProvider')
   return ctx
 }
-
-// Keep boot-time application available for main.tsx (pre-render in index.html
-// handles FOUC; this is the belt-and-suspenders apply on mount).
-export { applyTheme, getTheme }

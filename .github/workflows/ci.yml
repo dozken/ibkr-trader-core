@@ -32,6 +32,8 @@ jobs:
       - run: cd frontend && bun install
       - name: Lint
         run: cd frontend && bunx biome check .
+      - name: Knip (unused code/deps)
+        run: cd frontend && bunx knip
       - name: Typecheck
         run: cd frontend && bun run typecheck
       - name: Test
