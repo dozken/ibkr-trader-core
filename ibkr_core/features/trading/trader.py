@@ -453,6 +453,17 @@ class Trader:
                     asyncio.to_thread(self.worker.get_net_liquidation),
                 )
 
+                # Capital cap: size as if the account held only `trading_capital_cap`,
+                # ignoring balance beyond it (e.g. a $1B paper account tested at $436).
+                # net_liq drives position-% sizing; available_funds is the cap minus
+                # capital already deployed, so total exposure can't exceed the cap.
+                _cap = settings.get("trading_capital_cap")
+                if _cap and float(_cap) > 0:
+                    _cap = float(_cap)
+                    _invested = max(0.0, net_liq - available_funds)
+                    available_funds = max(0.0, _cap - _invested)
+                    net_liq = min(net_liq, _cap)
+
                 if trade.quantity == 0:
                     trade.quantity = _calculate_position_size(
                         available_funds, net_liq, price, settings,

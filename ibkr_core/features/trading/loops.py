@@ -527,6 +527,11 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
             from ibkr_core.features.compliance.screening import live_shariah_screen
             _trail = settings.get("use_trailing_stop")
             use_trailing = True if _trail is None else bool(_trail)
+            # Trailing distance from HWM, independent of the hard floor stop.
+            # Falls back to stop_loss_pct (old single-knob behavior) when unset.
+            trailing_stop_pct = float(
+                settings.get("trailing_stop_pct") or settings.get("stop_loss_pct") or 8.0
+            ) / 100
             time_exit_days = int(settings.get("time_exit_days") or 45)
             time_exit_min_gain = float(settings.get("time_exit_min_gain_pct") or 5.0) / 100
             partial_pct = float(settings.get("partial_profit_pct") or 10.0) / 100
@@ -613,8 +618,10 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                 # ── Full exit checks ───────────────────────────────────────────
                 exit_reason: str | None = None
 
-                # Trailing stop (measured from HWM) — protects locked-in gains
-                if use_trailing and trail_drop >= stop_loss_pct:
+                # Trailing stop (measured from HWM) — protects locked-in gains.
+                # Uses trailing_stop_pct (wide, lets winners run) — distinct from
+                # the tight hard floor below.
+                if use_trailing and trail_drop >= trailing_stop_pct:
                     stop_label = "ATR-trail" if use_atr_stops else "trail"
                     exit_reason = f"Trailing stop ({stop_label}): -{trail_drop:.1%} from HWM ${hwm_price:.2f}"
                 # Fixed floor stop (always active, from avg cost) — catches straight-down losses

@@ -61,6 +61,16 @@ class Settings(BaseModel):
     ]
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
+    # Trailing-stop distance from high-water mark, as a %. Distinct from the
+    # hard stop_loss_pct floor: lets winners run (e.g. trail 25%) while still
+    # cutting losers at a tight fixed stop (e.g. 8%). Falls back to stop_loss_pct
+    # when unset, preserving prior single-knob behavior.
+    trailing_stop_pct: Optional[float] = None
+    # Cap the capital the bot sizes positions off, ignoring balance beyond it.
+    # Lets a huge (e.g. $1B paper) account be tested as if it held only $cap.
+    # When set, sizing treats net-liq as min(real, cap) and available cash as
+    # (cap − already-deployed). Unset = use the real account balance.
+    trading_capital_cap: Optional[float] = None
     auto_execute_threshold: int = 60
     signal_min_confidence: int = 30
     auto_compliance_check: bool = True

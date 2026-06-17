@@ -32,6 +32,8 @@ class PartialSettings(BaseModel):
     watchlist: Optional[List[str]] = None
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
+    trailing_stop_pct: Optional[float] = None
+    trading_capital_cap: Optional[float] = None
     auto_execute_threshold: Optional[int] = None
     signal_min_confidence: Optional[int] = None
     auto_compliance_check: Optional[bool] = None
