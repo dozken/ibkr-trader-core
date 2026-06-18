@@ -685,7 +685,7 @@ class IBKRWorker:
                 logger.info("place_order no-short guard: clamping SELL %s %.4f → held %.4f",
                             trade.symbol, quantity, held)
                 quantity = round(held, 4)
-        settings = _ls()
+        settings = _ls(self.account_id)
         if settings.get("use_limit_orders", False):
             price = await self.get_last_price(trade.symbol, exchange)
             slip = settings.get("limit_order_slippage_pct", 0.1) / 100
