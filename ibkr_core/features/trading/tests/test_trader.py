@@ -222,6 +222,59 @@ class TestTrader(unittest.IsolatedAsyncioTestCase):
         self.mock_worker.place_order.assert_not_called()
 
     @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
+    async def test_execute_buy_loads_per_account_settings(self, mock_check):
+        """B1 regression: Trader(account_id=N) must load settings_N, not global.
+
+        The per-account capital cap / stops live in settings_{account_id}.json;
+        if execute_trade calls _load_settings() with no account_id it silently
+        reads global settings and the cap (e.g. $436 paper) is voided. Do NOT
+        mock this away — assert the account_id is threaded through.
+        """
+        mock_check.return_value = _COMPLIANT
+        self.mock_worker.get_available_funds.return_value = 10000.0
+        self.mock_worker.get_net_liquidation.return_value = 10000.0
+        self.mock_worker.get_positions.return_value = []
+        # account_id set → execute_trade runs the read_only guard (a DB lookup);
+        # return a non-read-only account so the BUY proceeds to settings load.
+        self.mock_db.query.return_value.filter.return_value.first.return_value = \
+            MagicMock(read_only=False)
+        trader = Trader(self.mock_worker, account_id=4)
+
+        captured = {}
+        def _fake_load(account_id=None):
+            captured["account_id"] = account_id
+            return _SETTINGS
+        with patch('ibkr_core.features.trading.trader._load_settings', side_effect=_fake_load):
+            trade_req = TradeCreate(symbol="AAPL", quantity=5, side="BUY")
+            await trader.execute_trade(trade_req, sector="Technology",
+                                       debt=10, cash=10, revenue=100,
+                                       prohibited_income=1, mkt_cap=1000)
+        self.assertEqual(captured.get("account_id"), 4)
+
+    @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
+    async def test_bracket_exits_false_uses_plain_order(self, mock_check):
+        """B2 regression: bracket_exits=False enters via place_order (no resting
+        SELL children) so main_loop can drive the % trailing stop + floor."""
+        mock_check.return_value = _COMPLIANT
+        self.mock_worker.get_available_funds.return_value = 10000.0
+        self.mock_worker.get_net_liquidation.return_value = 20000.0
+        self.mock_worker.get_positions.return_value = []
+        self.mock_worker.get_last_price = AsyncMock(return_value=150.0)
+        self.mock_worker.place_order.return_value = 999
+
+        with patch('ibkr_core.features.trading.trader._load_settings',
+                   return_value={**_SETTINGS, "bracket_exits": False}):
+            trade_req = TradeCreate(symbol="AAPL", quantity=10, side="BUY")
+            trade = await self.trader.execute_trade(trade_req, sector="Technology",
+                                              debt=10, cash=10, revenue=100,
+                                              prohibited_income=1, mkt_cap=1000)
+
+        self.assertEqual(trade.state, TradeState.SUBMITTED)
+        self.assertEqual(trade.ibkr_order_id, 999)
+        self.mock_worker.place_order.assert_awaited()
+        self.mock_worker.place_bracket_order.assert_not_called()
+
+    @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
     async def test_execute_buy_auto_sizes_quantity(self, mock_check):
         mock_check.return_value = _COMPLIANT
         self.mock_worker.get_available_funds.return_value = 10000.0

@@ -33,6 +33,7 @@ class PartialSettings(BaseModel):
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
     trailing_stop_pct: Optional[float] = None
+    bracket_exits: Optional[bool] = None
     trading_capital_cap: Optional[float] = None
     auto_execute_threshold: Optional[int] = None
     signal_min_confidence: Optional[int] = None

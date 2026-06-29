@@ -419,7 +419,7 @@ class Trader:
             machine.transition_to(TradeState.PRE_ORDER)
             trade.state = machine.state
             
-            settings = _load_settings()
+            settings = _load_settings(self.account_id)
             price = await self.worker.get_last_price(trade.symbol, exchange)
 
             # Fail-closed: if price is missing or zero, abort BUYs.
@@ -541,39 +541,48 @@ class Trader:
                 # Pre-commit PRE_ORDER to DB before IBKR call — crash recovery guard
                 self._persist_trade_history(db, trade)
 
-                # TWAP: split large orders to reduce market impact
-                avg_vol = await self.worker.get_avg_volume_20d(trade.symbol, exchange)
-                twap_thresh = float(settings.get("twap_threshold_pct", 0.5)) / 100
-                use_twap = avg_vol > 0 and (trade.quantity / avg_vol) > twap_thresh
-                if use_twap:
-                    n_slices = int(settings.get("twap_slices", 5))
-                    interval_secs = int(settings.get("twap_interval_secs", 60))
-                    slice_qty = trade.quantity / n_slices
-                    logger.info("TWAP execution for %s: %.4f shares in %d slices", trade.symbol, trade.quantity, n_slices)
-                    # Persist TWAP plan before any IBKR call — enables crash recovery
-                    twap_row = TwapExecution(
-                        symbol=trade.symbol,
-                        slice_qty=slice_qty,
-                        n_slices=n_slices,
-                        slices_submitted=0,
-                        interval_secs=interval_secs,
-                        stop_price=stop_price,
-                        tp_price=tp_price,
-                        trailing_amount=trailing_amount,
-                        exchange=exchange,
-                        status="RUNNING",
-                    )
-                    db.add(twap_row)
-                    db.commit()
-                    db.refresh(twap_row)
-                    order_id = await self.worker.place_twap_bracket_order(
-                        trade, stop_price, tp_price, exchange, trailing_amount, n_slices, interval_secs
-                    )
-                    twap_row.slices_submitted = 1
-                    db.commit()
-                    asyncio.create_task(_run_twap_slices(self.worker, twap_row.id))
+                # Loop-managed exits: when bracket_exits=False, enter as a plain
+                # limit BUY and let main_loop drive the trailing_stop_pct (from HWM)
+                # + stop_loss_pct floor. A native bracket's resting SELL children
+                # would park the symbol in pending_sell and suppress those loop
+                # checks, so the % trailing stop would never run. Required for the
+                # ride-winners config (use_atr_stops=False + use_trailing_stop=True).
+                if not settings.get("bracket_exits", True):
+                    order_id = await self.worker.place_order(trade, exchange)
                 else:
-                    order_id = await self.worker.place_bracket_order(trade, stop_price, tp_price, exchange, trailing_amount)
+                    # TWAP: split large orders to reduce market impact
+                    avg_vol = await self.worker.get_avg_volume_20d(trade.symbol, exchange)
+                    twap_thresh = float(settings.get("twap_threshold_pct", 0.5)) / 100
+                    use_twap = avg_vol > 0 and (trade.quantity / avg_vol) > twap_thresh
+                    if use_twap:
+                        n_slices = int(settings.get("twap_slices", 5))
+                        interval_secs = int(settings.get("twap_interval_secs", 60))
+                        slice_qty = trade.quantity / n_slices
+                        logger.info("TWAP execution for %s: %.4f shares in %d slices", trade.symbol, trade.quantity, n_slices)
+                        # Persist TWAP plan before any IBKR call — enables crash recovery
+                        twap_row = TwapExecution(
+                            symbol=trade.symbol,
+                            slice_qty=slice_qty,
+                            n_slices=n_slices,
+                            slices_submitted=0,
+                            interval_secs=interval_secs,
+                            stop_price=stop_price,
+                            tp_price=tp_price,
+                            trailing_amount=trailing_amount,
+                            exchange=exchange,
+                            status="RUNNING",
+                        )
+                        db.add(twap_row)
+                        db.commit()
+                        db.refresh(twap_row)
+                        order_id = await self.worker.place_twap_bracket_order(
+                            trade, stop_price, tp_price, exchange, trailing_amount, n_slices, interval_secs
+                        )
+                        twap_row.slices_submitted = 1
+                        db.commit()
+                        asyncio.create_task(_run_twap_slices(self.worker, twap_row.id))
+                    else:
+                        order_id = await self.worker.place_bracket_order(trade, stop_price, tp_price, exchange, trailing_amount)
             else:
                 # SELL: Settlement Guard check (T+2)
                 if not self._is_possession_confirmed(db, trade.symbol):

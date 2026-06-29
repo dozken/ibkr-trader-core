@@ -98,6 +98,14 @@ class Settings(BaseModel):
     require_pullback_entry: bool = True
     re_entry_cooldown_days: int = 14
     use_trailing_stop: bool = True
+    # When True (default), BUYs are placed as native IBKR bracket orders with
+    # broker-side stop/take-profit children. When False, BUYs are plain limit
+    # entries and the main loop drives exits (trailing_stop_pct from HWM +
+    # stop_loss_pct floor). Loop-managed exits are REQUIRED for the % trailing
+    # stop to run: a resting bracket SELL child parks the symbol in pending_sell
+    # and suppresses the loop's exit checks. Set False for the ride-winners
+    # config (use_atr_stops=False + use_trailing_stop=True).
+    bracket_exits: bool = True
     time_exit_days: int = 45
     time_exit_min_gain_pct: float = 5.0
     partial_profit_pct: float = 10.0

@@ -436,7 +436,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
     health.setdefault(loop_key, {"last_run": None, "status": "starting"})
     logger.info("Starting Main Loop for account %s...", account_id or "primary")
     health[loop_key]["status"] = "running"
-    trader = Trader(worker)
+    trader = Trader(worker, account_id=account_id)
     if manage_connection:
         connected = False
         while not connected:
@@ -849,7 +849,7 @@ async def cash_sweep_loop(worker, manager: ConnectionManager, health: dict, acco
         await asyncio.sleep(_POLL_S)
 
     health["cash_sweep_loop"]["status"] = "running"
-    trader = Trader(worker)
+    trader = Trader(worker, account_id=account_id)
 
     while True:
         sleep_s = 1800  # default 30 min; overridden by settings below
@@ -1190,7 +1190,7 @@ async def discovery_loop(worker, manager: ConnectionManager, health: dict, accou
     """
     logger.info("Starting Discovery Auto-Execute Loop...")
     health["discovery_loop"] = {"status": "running", "last_run": None}
-    trader = Trader(worker)
+    trader = Trader(worker, account_id=account_id)
 
     while True:
         try:
@@ -1274,7 +1274,7 @@ async def position_rerating_loop(worker, manager: ConnectionManager, health: dic
                 continue
 
             threshold = int(settings.get("rerate_sell_threshold") or 35)
-            trader = Trader(worker)
+            trader = Trader(worker, account_id=account_id)
 
             from ibkr_core.core.strategy import get_active_strategy
             strategy = get_active_strategy()
