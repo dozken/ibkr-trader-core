@@ -21,6 +21,7 @@ import {
   CartesianGrid,
   Cell,
   ComposedChart,
+  LabelList,
   Line,
   LineChart,
   Pie,
@@ -791,6 +792,21 @@ const PortfolioHistoryChart: React.FC<{ data: any[]; showNet: boolean; currentVa
     return { ...b, pct, hasData: firstNonNull != null && lastNonNull != null }
   })
 
+  // Index of last non-null point per series — anchors the inline end-of-line label
+  const lastIdx: Record<string, number> = { _dollars: chartData.length - 1 }
+  for (const b of benchSeries) {
+    let idx = -1
+    chartData.forEach((d, i) => { if (d[b.key] != null) idx = i })
+    lastIdx[b.key] = idx
+  }
+  const EndLabel = ({ x, y, value, index, seriesKey, text, color }: any) => {
+    if (index !== lastIdx[seriesKey] || value == null) return null
+    return (
+      <text x={x - 6} y={y} dy={-5} fontSize={10} fontWeight={700} fill={color} textAnchor="end"
+        style={{ paintOrder: 'stroke', stroke: ct.surface, strokeWidth: 3 }}>{text}</text>
+    )
+  }
+
   return (
     <div className="card p-0 overflow-hidden">
       <header className="px-6 pt-5 pb-3 flex items-start justify-between gap-4">
@@ -810,7 +826,7 @@ const PortfolioHistoryChart: React.FC<{ data: any[]; showNet: boolean; currentVa
       </header>
       <div className="h-[220px] w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} margin={{ top: 8, right: 0, left: 0, bottom: 0 }}>
+          <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={color} stopOpacity={0.2} />
@@ -865,7 +881,9 @@ const PortfolioHistoryChart: React.FC<{ data: any[]; showNet: boolean; currentVa
               fill="url(#chartGrad)"
               dot={false}
               activeDot={{ r: 4, fill: color, strokeWidth: 0 }}
-            />
+            >
+              <LabelList dataKey="_dollars" content={(p: any) => <EndLabel {...p} seriesKey="_dollars" text="Portfolio" color={color} />} />
+            </Area>
             {benchSeries.map((b) => (
               <Line
                 key={b.key}
@@ -879,7 +897,9 @@ const PortfolioHistoryChart: React.FC<{ data: any[]; showNet: boolean; currentVa
                 activeDot={{ r: 4, fill: b.color, strokeWidth: 0 }}
                 connectNulls
                 isAnimationActive={false}
-              />
+              >
+                <LabelList dataKey={b.key} content={(p: any) => <EndLabel {...p} seriesKey={b.key} text={b.label} color={b.color} />} />
+              </Line>
             ))}
           </ComposedChart>
         </ResponsiveContainer>
