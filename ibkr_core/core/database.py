@@ -22,9 +22,10 @@ def get_database_url() -> str:
             return env_url.replace("postgres://", "postgresql://", 1)
         return env_url
 
-    # Default logic: detect live vs paper via port
-    # TWS Live: 7496, Gateway Live: 4001
-    live_ports = {"7496", "4001"}
+    # Default logic: detect live vs paper via port. Mirrors the canonical
+    # order_policy.LIVE_PORTS (kept as a local string literal to avoid core→features
+    # import inversion): TWS live 7496, IBGW raw live 4001, gnzsnz live API 4003.
+    live_ports = {"7496", "4001", "4003"}
     port = os.environ.get("IBKR_PORT", "7497")
     
     # Path is relative to the root of the app in Docker or Local

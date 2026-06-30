@@ -2,7 +2,7 @@ import os
 import math
 import logging
 import asyncio
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 from datetime import datetime, UTC
 from dotenv import load_dotenv
 from ibkr_core.core.market_hours import get_exchange_config
@@ -52,6 +52,10 @@ class IBKRWorker:
         self._last_request_time = 0.0
         self._fill_callback = None  # optional async (symbol, action, qty, price) hook
         self._competing_session = False  # set when IBKR error 10197 (competing live session) seen
+        # Actual IBKR market-data type after connect (1=realtime, 3=delayed); None
+        # until connected. Lets /api/system/trading report data_mode authoritatively
+        # instead of inferring from the port.
+        self._market_data_type: Optional[int] = None
 
     async def _wait_for_pacing(self):
         """Simple delay to ensure we don't spam requests too fast."""
@@ -94,6 +98,9 @@ class IBKRWorker:
             self.ib.errorEvent += self._on_error
             if subscription_for_port(self.port) is DataState.DELAYED:
                 self.ib.reqMarketDataType(3)
+                self._market_data_type = 3  # delayed
+            else:
+                self._market_data_type = 1  # realtime (IBKR default)
 
             return True
         except asyncio.CancelledError:

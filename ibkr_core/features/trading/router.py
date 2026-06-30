@@ -8,6 +8,7 @@ from datetime import datetime
 from ibkr_core.core.database import get_db, SessionLocal
 from ibkr_core.core.models import TradeHistory, TwapExecution, PendingSignal, SignalLog
 from ibkr_core.features.trading.schemas import TradeCreate
+from ibkr_core.features.trading.order_policy import LIVE_PORTS as _LIVE_PORTS
 from ibkr_core.core.state import TradeState
 from ibkr_core.core.auth import require_api_key
 import logging
@@ -15,8 +16,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/trades", tags=["trading"])
-
-_LIVE_PORTS = {7496, 4001, 4003}  # 4003 = gnzsnz ib-gateway live API (4004 = paper)
 
 
 class TradeResponse(BaseModel):

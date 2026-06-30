@@ -31,6 +31,9 @@ from ibkr_core.features.settings.router import router as settings_router
 from ibkr_core.features.trading.loops import cash_sweep_loop, main_loop, halal_drip_loop, discovery_loop, position_rerating_loop
 from ibkr_core.features.trading.accounts_router import router as accounts_router
 from ibkr_core.features.trading.gateway_router import router as gateway_router
+# Canonical live-gateway API ports (7496 TWS / 4001 IBGW raw / 4003 gnzsnz live;
+# paper = 7497 / 4002 / 4004). Single source of truth in order_policy.
+from ibkr_core.features.trading.order_policy import LIVE_PORTS as _LIVE_PORTS
 from ibkr_core.features.trading.router import router as trading_router
 from ibkr_core.features.trading.worker import IBKRWorker
 from ibkr_core.features.trading.account_manager import get_account_manager
@@ -183,10 +186,6 @@ def _assert_paper_test_safety() -> None:
 
     Returns silently otherwise, so normal single-mode operation is untouched.
     """
-    # 7496 = TWS live, 4001 = IBGW raw live, 4003 = gnzsnz ib-gateway live API
-    # (paper = 7497 / 4002 / 4004) — same set the readiness check + worker use.
-    _LIVE_PORTS = {7496, 4001, 4003}
-
     def _is_live(acc) -> bool:
         # Real money if flagged live OR pointed at a live gateway API port
         # (a paper flag on a live port is still treated as live — fail-safe).
@@ -402,9 +401,6 @@ async def lifespan(app: FastAPI):
 # ---------------------------------------------------------------------------
 system_router = APIRouter()
 
-# 7496 = TWS live, 4001 = IBGW raw live, 4003 = gnzsnz ib-gateway live API
-# (paper = 7497 / 4002 / 4004) — same set the readiness check + worker use.
-_LIVE_PORTS = {7496, 4001, 4003}
 
 
 def _loop_ok(entry: dict) -> bool:

@@ -16,6 +16,7 @@ from ibkr_core.core.models import TradeHistory, PortfolioSnapshot, PositionCompl
 from ibkr_core.core.state import TradeState
 from ibkr_core.features.portfolio.allocator import PortfolioAllocator
 from ibkr_core.features.trading.schemas import TradeSignal, TradeCreate
+from ibkr_core.features.trading.order_policy import LIVE_PORTS as _LIVE_PORTS
 from ibkr_core.features.settings.service import load_settings
 
 logger = logging.getLogger(__name__)
@@ -216,9 +217,8 @@ async def get_rebalance_preview(request: Request) -> List[TradeCreate]:
 def get_portfolio_value(request: Request, account_id: Optional[int] = None) -> PortfolioValue:
     worker = _resolve_worker(request, account_id)
 
-    live_ports = {7496, 4001, 4003}
     worker_port = worker.port if worker else int(os.environ.get("IBKR_PORT", "7497"))
-    account_type = "LIVE" if worker_port in live_ports else "PAPER"
+    account_type = "LIVE" if worker_port in _LIVE_PORTS else "PAPER"
     
     try:
         if worker and worker.ib.isConnected():
@@ -761,9 +761,8 @@ def get_portfolio_summary(request: Request, db: Session = Depends(get_db),
                           account_id: Optional[int] = None) -> PortfolioSummaryResponse:
     worker = _resolve_worker(request, account_id)
 
-    live_ports = {7496, 4001, 4003}
     worker_port = worker.port if worker else int(os.environ.get("IBKR_PORT", "7497"))
-    account_type: Literal["PAPER", "LIVE"] = "LIVE" if worker_port in live_ports else "PAPER"
+    account_type: Literal["PAPER", "LIVE"] = "LIVE" if worker_port in _LIVE_PORTS else "PAPER"
     connected = False
     available_funds = 0.0
     positions: list = []
