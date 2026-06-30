@@ -1,8 +1,15 @@
 import json
+import logging
 import os
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, ValidationError
+
+logger = logging.getLogger(__name__)
+
+# Unknown keys already warned about, keyed by (account_id, key). Loaders run every
+# cycle, so we surface each unknown key once per process instead of spamming logs.
+_warned_unknown_keys: set = set()
 
 SETTINGS_DIR = os.environ.get("SETTINGS_DIR", os.path.join(os.path.dirname(__file__), "../../../data"))
 # Legacy single-file path — kept for callers that haven't migrated
@@ -16,6 +23,11 @@ RISK_STOP_TAKE: dict = {
 
 
 class Settings(BaseModel):
+    # extra='allow' preserves keys core does not define — notably the private AI
+    # plugin's flags (supervised_active, ev_auto_tune, …). This also fixes the
+    # router round-trip that previously dropped them on every settings save.
+    model_config = ConfigDict(extra="allow")
+
     min_trade_size: float = 100.0
     max_commission_pct: float = 0.5
     cash_reserve_pct: float = 10.0
@@ -78,6 +90,11 @@ class Settings(BaseModel):
     cash_sweep_enabled: bool = True
     cash_sweep_interval_min: int = 30
     use_atr_stops: bool = True
+    # Base ATR multiplier for the volatility stop, widened by VIX regime when
+    # atr_regime_scaling is on. Read by loops._regime_atr_multiplier; promoted to
+    # first-class fields so core stops reading keys absent from its own model.
+    atr_stop_multiplier: float = 2.5
+    atr_regime_scaling: bool = True
     enable_discovery_auto: bool = True
     discovery_interval_hours: int = 6
     # Global trading: when True, main_loop pulls open-market halal symbols
@@ -132,12 +149,74 @@ def _settings_path(account_id: Optional[int]) -> str:
     return os.path.join(SETTINGS_DIR, "settings.json")
 
 
+def _validate_settings(merged: dict, account_id: Optional[int]) -> dict:
+    """Coerce/validate a raw merged settings dict through the Settings model.
+
+    Policy for the per-account config choke point:
+      * Unknown keys (e.g. the private AI plugin's supervised_active / ev_auto_tune)
+        are PRESERVED via extra='allow' and logged once at WARNING — never dropped,
+        never fatal — so genuine typos surface without breaking the open-core plugin.
+      * Known keys with a type-invalid value are logged at CRITICAL and reset to the
+        field's default. This loader NEVER raises on a bad settings_{id}.json: an
+        unmanaged open position is worse than one ignored setting, so we degrade
+        gracefully and alert instead of halting the account loop.
+    """
+    known = set(Settings.model_fields)
+    defaults = Settings().model_dump()
+
+    for key in merged:
+        if key not in known:
+            cache_key = (account_id, key)
+            if cache_key not in _warned_unknown_keys:
+                _warned_unknown_keys.add(cache_key)
+                logger.warning(
+                    "settings_%s.json: unknown key %r (preserved, unvalidated)",
+                    account_id, key,
+                )
+
+    attempt = dict(merged)
+    # Reset offending known keys to their default until the model validates.
+    for _ in range(len(known) + 1):
+        try:
+            return Settings(**attempt).model_dump()
+        except ValidationError as exc:
+            recovered = False
+            for err in exc.errors():
+                key = err["loc"][0] if err["loc"] else None
+                if key in known and attempt.get(key) != defaults.get(key):
+                    logger.critical(
+                        "settings_%s.json: invalid value %r for %r (%s) — "
+                        "falling back to default %r",
+                        account_id, attempt.get(key), key, err.get("msg"), defaults.get(key),
+                    )
+                    attempt[key] = defaults[key]
+                    recovered = True
+            if not recovered:
+                # Unrecoverable by resetting known keys (should not happen under
+                # extra='allow'); drop the offending keys defensively rather than raise.
+                for err in exc.errors():
+                    loc = err["loc"][0] if err["loc"] else None
+                    attempt.pop(loc, None)
+
+    # Last resort: known-key defaults plus any preserved unknown keys.
+    safe = dict(defaults)
+    safe.update({k: v for k, v in merged.items() if k not in known})
+    return safe
+
+
 def load_settings(account_id: Optional[int] = None) -> dict:
     """
     Load settings with layered override:
       1. Model defaults
       2. Global settings.json
       3. Account-specific settings_{account_id}.json  (if account_id given)
+
+    The merged result is schema-validated (see _validate_settings): known keys are
+    type-checked and bad values fall back to defaults; unknown plugin keys survive.
+
+    NOTE: trading code MUST pass account_id so the signal path and execution path
+    read the SAME effective per-account config. A bare load_settings() in
+    ibkr_core/features/trading/ is config drift and is banned by CI.
     """
     base = Settings().model_dump()
 
@@ -152,7 +231,7 @@ def load_settings(account_id: Optional[int] = None) -> dict:
             with open(account_path) as f:
                 base.update(json.load(f))
 
-    return base
+    return _validate_settings(base, account_id)
 
 
 def save_settings(data: dict, account_id: Optional[int] = None) -> None:

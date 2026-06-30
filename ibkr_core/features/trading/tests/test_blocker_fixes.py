@@ -155,6 +155,7 @@ class TestReconciliation(unittest.IsolatedAsyncioTestCase):
         from ibkr_core.features.trading.worker import IBKRWorker
         w = MagicMock(spec=IBKRWorker)
         w._reconnecting = False
+        w.account_id = None  # instance attr (not in spec); reconnect now reads it for per-account settings
         w._reconnect = IBKRWorker._reconnect.__get__(w, IBKRWorker)
         w.connect = AsyncMock(return_value=True)
 

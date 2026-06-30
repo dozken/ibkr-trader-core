@@ -14,7 +14,10 @@ def _make_worker():
     w = IBKRWorker.__new__(IBKRWorker)
     w.ib = MagicMock()
     w.host = "127.0.0.1"
-    w.port = 7497
+    # LIVE port: keeps place_order on the MARKET path (no delayed-data marketable-LIMIT
+    # upgrade / price fetch) so the order-shape assertions below stay deterministic.
+    # Delayed-data routing is covered separately in test_order_policy.py.
+    w.port = 7496
     w.client_id = 1
     w.ibkr_account_id = None
     w.account_id = None

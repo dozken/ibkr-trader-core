@@ -1118,7 +1118,7 @@ async def halal_drip_loop(worker, manager: ConnectionManager, health: dict, acco
     while True:
         sleep_s = 21600  # Check every 6 hours
         try:
-            settings = load_settings()
+            settings = load_settings(account_id)
             if not settings.get("enable_halal_drip", False):
                 await asyncio.sleep(3600)
                 continue

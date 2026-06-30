@@ -5,6 +5,7 @@ import os
 import re
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import List, Literal, Optional
 
 from ibkr_core.core.logging_config import setup_logging, install_asyncio_excepthook
 
@@ -13,6 +14,7 @@ setup_logging()
 from fastapi import APIRouter, FastAPI, Request, WebSocket, WebSocketDisconnect, Response
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from pydantic import BaseModel
 
 from ibkr_core.core.database import init_db
 from ibkr_core.core.request_id import RequestIDMiddleware
@@ -166,6 +168,60 @@ def verify_env_sync():
     except Exception as e:
         logger.warning(f"Failed to read frontend/.env for sync check: {e}")
 
+
+def _assert_paper_test_safety() -> None:
+    """Refuse to boot when a paper test could run alongside real money.
+
+    Defense-in-depth companion to the compose ``live`` profile gating: even if an
+    operator hand-rolls ``docker compose --profile live up`` (or flips the live
+    gateway back on) during a paper test, this aborts startup. Raises
+    ``RuntimeError`` — surfaced by the lifespan startup-crash handler — when EITHER:
+
+      (a) COEXISTENCE: an active LIVE account and an active PAPER account both
+          exist in the DB (the genuinely dangerous state); OR
+      (b) FLAG: env ``PAPER_TEST`` is truthy AND any active LIVE account exists.
+
+    Returns silently otherwise, so normal single-mode operation is untouched.
+    """
+    # 7496 = TWS live, 4001 = IBGW raw live, 4003 = gnzsnz ib-gateway live API
+    # (paper = 7497 / 4002 / 4004) — same set the readiness check + worker use.
+    _LIVE_PORTS = {7496, 4001, 4003}
+
+    def _is_live(acc) -> bool:
+        # Real money if flagged live OR pointed at a live gateway API port
+        # (a paper flag on a live port is still treated as live — fail-safe).
+        return (not acc.is_paper) or (acc.port in _LIVE_PORTS)
+
+    from ibkr_core.core.models import Account
+    db = SessionLocal()
+    try:
+        active = db.query(Account).filter(Account.is_active.is_(True)).all()
+    finally:
+        db.close()
+
+    live = [a for a in active if _is_live(a)]
+    paper = [a for a in active if not _is_live(a)]
+
+    def _fmt(accts) -> str:
+        return str([(a.id, a.label, a.port) for a in accts])
+
+    paper_test = os.getenv("PAPER_TEST", "").strip().lower() in ("1", "true", "yes")
+
+    if live and paper:
+        raise RuntimeError(
+            "Refusing to boot: active LIVE and PAPER accounts coexist — a paper "
+            f"test must not run alongside real money. LIVE={_fmt(live)} "
+            f"PAPER={_fmt(paper)}. Deactivate one side (is_active=false) or stop "
+            "the live gateway."
+        )
+    if paper_test and live:
+        raise RuntimeError(
+            "Refusing to boot: PAPER_TEST is set but active LIVE account(s) "
+            f"present: {_fmt(live)}. Deactivate them (is_active=false) or stop "
+            "the live gateway before a paper test."
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     tasks = []
@@ -202,6 +258,10 @@ async def lifespan(app: FastAPI):
             _seed_db.close()
 
         account_manager = get_account_manager()
+        # Defense-in-depth: refuse to boot if a paper test could run alongside
+        # real money. Raised here — before any worker connects — so a
+        # misconfiguration aborts startup rather than trading live.
+        _assert_paper_test_safety()
         primary_account_id: int | None = None
         if account_manager.list_account_ids():
             # Multi-account: primary worker = first account
@@ -342,6 +402,21 @@ async def lifespan(app: FastAPI):
 # ---------------------------------------------------------------------------
 system_router = APIRouter()
 
+# 7496 = TWS live, 4001 = IBGW raw live, 4003 = gnzsnz ib-gateway live API
+# (paper = 7497 / 4002 / 4004) — same set the readiness check + worker use.
+_LIVE_PORTS = {7496, 4001, 4003}
+
+
+def _loop_ok(entry: dict) -> bool:
+    """A background-loop health entry is OK unless it is still starting, in
+    CRITICAL_ERROR, or carries an ``error: <ExcType>`` status. set_loop_error
+    writes the prefixed form, so match the prefix — an exact "error" check
+    silently passed every errored loop. Shared by /api/system/readiness and
+    /api/system/trading.
+    """
+    status = (entry or {}).get("status") or ""
+    return not (status in ("starting", "CRITICAL_ERROR") or status.startswith("error"))
+
 
 @system_router.get("/")
 def read_root():
@@ -469,12 +544,6 @@ def system_readiness(request: Request):
     worker = getattr(request.app.state, "worker", None)
 
     # ── Loop health ────────────────────────────────────────────────────────────
-    def _loop_ok(entry: dict) -> bool:
-        # set_loop_error writes "error: <ExcType>", so match the prefix — an
-        # exact "error" check silently passed every errored loop.
-        status = entry.get("status") or ""
-        return not (status in ("starting", "CRITICAL_ERROR") or status.startswith("error"))
-
     # The primary trading loop runs under "main_loop" in single-account mode but
     # under "main_loop_<account_id>" in multi-account mode (the plain "main_loop"
     # entry is then a vestigial seed that stays "starting" forever). Require at
@@ -491,9 +560,6 @@ def system_readiness(request: Request):
     # (e.g. env=4003 live while the active account trades paper on 4004), which
     # would mislabel a paper run as LIVE.
     port = int(getattr(worker, "port", None) or os.getenv("IBKR_PORT", "7497"))
-    # 7496 = TWS live, 4001 = IBGW raw live, 4003 = gnzsnz ib-gateway live API
-    # (paper = 7497 / 4002 / 4004).
-    _LIVE_PORTS = {7496, 4001, 4003}
     port_type = "LIVE" if port in _LIVE_PORTS else "PAPER"
 
     # ── Drawdown CB ────────────────────────────────────────────────────────────
@@ -644,6 +710,227 @@ def system_readiness(request: Request):
         "recent_errors": recent_errors,
         "note": "Switch port to LIVE (4001) and update DATABASE_URL before going live." if port_type == "PAPER" else None,
     }
+
+
+class ActiveAccount(BaseModel):
+    id: int
+    label: str
+    is_paper: bool
+    read_only: bool
+    port: int
+    connected: bool
+
+
+class TradingInvariants(BaseModel):
+    """Typed live-trading safety posture — verify with one ``assert resp["ok"]``
+    instead of stitching /readiness + /gateway + /accounts together by hand."""
+    ok: bool
+    live_gateway: Literal["stopped", "connected"]
+    expected_paper: bool
+    any_live_account_active: bool
+    active_account: Optional[ActiveAccount]
+    # Capital-cap budget for the primary active account; same math the trader
+    # uses to size (invested = net_liq − available_funds).
+    cap: Optional[float]
+    invested: float
+    cap_budget: Optional[float]
+    # Exit posture for the primary active account.
+    exits_armed: bool
+    use_trailing_stop: bool
+    trailing_stop_pct: Optional[float]
+    stop_loss_pct: Optional[float]
+    bracket_exits: bool
+    main_loop_healthy: bool
+    # Market-data mode (paper ports run delayed). Inferred from the port unless
+    # the worker stores its actual reqMarketDataType.
+    data_mode: Literal["delayed", "realtime"]
+    data_mode_inferred: bool
+    violations: List[str]
+
+
+@system_router.get("/api/system/trading", response_model=TradingInvariants)
+@system_router.get("/health/trading", response_model=TradingInvariants, include_in_schema=False)
+def system_trading(request: Request) -> TradingInvariants:
+    """Structured live-trading invariants for the active account(s).
+
+    Read-only, mirrors /api/system/readiness wiring (app.state.worker /
+    account_manager / loop_health + SessionLocal). Returns a top-level ``ok``
+    plus a ``violations`` list so verifying the safety posture (e.g. real-money
+    paused during a paper test, exits armed, cap budget, delayed data) is one
+    assert rather than eyeballing positions across several endpoints.
+    """
+    from ibkr_core.core.models import Account
+    from ibkr_core.features.settings.service import load_settings
+
+    am = getattr(request.app.state, "account_manager", None)
+    primary_worker = getattr(request.app.state, "worker", None)
+    health = getattr(request.app.state, "loop_health", {}) or {}
+
+    def _connected(w) -> bool:
+        try:
+            return bool(w is not None and w.ib.isConnected())
+        except Exception:
+            return False
+
+    # ── Active accounts (DB is the source of truth for is_active) ───────────────
+    active: list = []
+    db_ok = True
+    try:
+        with SessionLocal() as db:
+            active = [
+                {"id": a.id, "label": a.label, "is_paper": a.is_paper,
+                 "read_only": a.read_only, "port": a.port}
+                for a in db.query(Account)
+                           .filter(Account.is_active.is_(True))
+                           .order_by(Account.id).all()
+            ]
+    except Exception:
+        db_ok = False  # can't read posture ⇒ fail-safe to a violation below
+    any_live_active = any(not a["is_paper"] for a in active)
+
+    # ── Live gateway: "connected" iff a worker on a live port is connected ──────
+    workers: list = []
+    if am is not None:
+        try:
+            for aid in am.list_account_ids():
+                w = am.get_worker_by_id(aid)
+                if w is not None:
+                    workers.append(w)
+        except Exception:
+            workers = []
+    if primary_worker is not None and not any(primary_worker is w for w in workers):
+        workers.append(primary_worker)
+    live_gateway = "stopped"
+    for w in workers:
+        if int(getattr(w, "port", 0) or 0) in _LIVE_PORTS and _connected(w):
+            live_gateway = "connected"
+            break
+
+    # ── Primary active account: cap budget + exit posture + data mode ───────────
+    active_account: Optional[ActiveAccount] = None
+    cap: Optional[float] = None
+    invested = 0.0
+    cap_budget: Optional[float] = None
+    exits_armed = False
+    use_trailing = False
+    trailing_pct: Optional[float] = None
+    stop_pct: Optional[float] = None
+    bracket = False
+    main_loop_healthy = False
+    data_mode = "delayed"
+    data_mode_inferred = True
+
+    if active:
+        acc = active[0]
+        worker = None
+        if am is not None:
+            try:
+                worker = am.get_worker_by_id(acc["id"])
+            except Exception:
+                worker = None
+        if worker is None:
+            worker = primary_worker
+        connected = _connected(worker)
+        port = acc["port"]
+        _wp = getattr(worker, "port", None)
+        if isinstance(_wp, int):
+            port = _wp
+        active_account = ActiveAccount(
+            id=acc["id"], label=acc["label"], is_paper=acc["is_paper"],
+            read_only=acc["read_only"], port=port, connected=connected,
+        )
+
+        # data_mode: prefer a worker-stored reqMarketDataType, else infer from port.
+        # (3 = delayed, 4 = delayed-frozen; 1/2 = live/frozen real-time.)
+        _mdt = getattr(worker, "_market_data_type", None)
+        if isinstance(_mdt, int):
+            data_mode = "delayed" if _mdt in (3, 4) else "realtime"
+            data_mode_inferred = False
+        else:
+            data_mode = "realtime" if port in _LIVE_PORTS else "delayed"
+            data_mode_inferred = True
+
+        try:
+            s = load_settings(account_id=acc["id"])
+        except Exception:
+            s = {}
+        cap = s.get("trading_capital_cap")
+        if connected:
+            try:
+                net_liq = float(worker.get_net_liquidation())
+                available = float(worker.get_available_funds())
+                invested = max(0.0, net_liq - available)
+            except Exception:
+                invested = 0.0
+        if cap is not None and float(cap) > 0:
+            cap = float(cap)
+            cap_budget = max(0.0, cap - invested)  # mirrors trader.py:463-464 sizing
+        else:
+            cap = None  # 0 / unset ⇒ uncapped
+            cap_budget = None
+
+        use_trailing = bool(s.get("use_trailing_stop"))
+        trailing_pct = s.get("trailing_stop_pct")
+        stop_pct = s.get("stop_loss_pct")
+        bracket = bool(s.get("bracket_exits"))
+        main_loop_healthy = _loop_ok(
+            health.get(f"main_loop_{acc['id']}", health.get("main_loop", {}))
+        )
+        # Native brackets arm exits broker-side; otherwise the main loop drives
+        # the trailing/hard stop, so it must be live with a stop distance set.
+        if bracket:
+            exits_armed = True
+        else:
+            exits_armed = use_trailing and bool(trailing_pct or stop_pct) and main_loop_healthy
+
+    # ── Intended mode + invariant violations ────────────────────────────────────
+    paper_test = os.getenv("PAPER_TEST", "").strip().lower() in ("1", "true", "yes")
+    # Expected paper iff an explicit PAPER_TEST flag is set, or every active
+    # account is paper (normal paper operation). A live account under normal
+    # live operation (no flag) leaves expected_paper False — no false violation.
+    expected_paper = paper_test or (bool(active) and all(a["is_paper"] for a in active))
+
+    violations: List[str] = []
+    if not db_ok:
+        violations.append("could not read accounts from DB — trading posture unverified")
+    if expected_paper and any_live_active:
+        live_ids = [a["id"] for a in active if not a["is_paper"]]
+        violations.append(
+            f"real-money NOT paused — active LIVE account(s) {live_ids} present "
+            "while paper mode expected"
+        )
+    if expected_paper and live_gateway == "connected":
+        violations.append("live gateway connected while paper mode expected")
+    if active_account is not None and not exits_armed:
+        violations.append(f"account {active_account.id} exits not armed")
+    # Coexistence is dangerous regardless of intended/flagged mode: an active LIVE
+    # and an active PAPER account at once means real-money trading is not isolated.
+    # Mirrors _assert_paper_test_safety's boot-time refusal (#1) so this endpoint
+    # cannot report ok=true for the exact state the startup guard refuses to boot on.
+    if any_live_active and any(a["is_paper"] for a in active):
+        violations.append(
+            "active LIVE and PAPER accounts coexist — real-money trading not isolated"
+        )
+
+    return TradingInvariants(
+        ok=not violations,
+        live_gateway=live_gateway,
+        expected_paper=expected_paper,
+        any_live_account_active=any_live_active,
+        active_account=active_account,
+        cap=cap,
+        invested=invested,
+        cap_budget=cap_budget,
+        exits_armed=exits_armed,
+        use_trailing_stop=use_trailing,
+        trailing_stop_pct=trailing_pct,
+        stop_loss_pct=stop_pct,
+        bracket_exits=bracket,
+        main_loop_healthy=main_loop_healthy,
+        data_mode=data_mode,
+        data_mode_inferred=data_mode_inferred,
+        violations=violations,
+    )
 
 
 @system_router.get("/metrics")

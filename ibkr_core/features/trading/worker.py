@@ -6,6 +6,13 @@ from typing import Any, List, Dict
 from datetime import datetime, UTC
 from dotenv import load_dotenv
 from ibkr_core.core.market_hours import get_exchange_config
+from ibkr_core.features.trading.order_policy import (
+    BRACKET_ENTRY_PREMIUM_PCT,
+    DataState,
+    OrderPolicy,
+    marketable_limit,
+    subscription_for_port,
+)
 
 load_dotenv()
 
@@ -85,8 +92,7 @@ class IBKRWorker:
             self.ib.execDetailsEvent += self._on_exec_details
             self.ib.disconnectedEvent += self._on_disconnect
             self.ib.errorEvent += self._on_error
-            _LIVE_PORTS = {7496, 4001, 4003}
-            if self.port not in _LIVE_PORTS:
+            if subscription_for_port(self.port) is DataState.DELAYED:
                 self.ib.reqMarketDataType(3)
 
             return True
@@ -334,7 +340,7 @@ class IBKRWorker:
                     await reconcile_with_ibkr(self)
                     from ibkr_core.features.settings.service import load_settings
                     from ibkr_core.features.alerts.dispatcher import alert
-                    s = load_settings()
+                    s = load_settings(self.account_id)
                     await alert(
                         "IBKR Reconnected",
                         f"Connection restored after {attempt} attempt(s).",
@@ -344,7 +350,7 @@ class IBKRWorker:
             logger.error("All reconnect attempts failed — manual intervention required")
             from ibkr_core.features.settings.service import load_settings
             from ibkr_core.features.alerts.dispatcher import alert
-            s = load_settings()
+            s = load_settings(self.account_id)
             await alert(
                 "CRITICAL: IBKR Connection Lost",
                 "Failed to reconnect after 10 attempts (~8 minutes). Manual restart required.",
@@ -686,18 +692,26 @@ class IBKRWorker:
                             trade.symbol, quantity, held)
                 quantity = round(held, 4)
         settings = _ls(self.account_id)
-        if settings.get("use_limit_orders", False):
-            price = await self.get_last_price(trade.symbol, exchange)
-            # Fail-closed: a 0/None price would build a $0.00 limit that rests
-            # forever (or fills absurdly). Refuse rather than submit a junk order.
-            if not price or price <= 0:
-                raise ValueError(
-                    f"Refusing limit {trade.side} {trade.symbol}: no usable price "
-                    f"({price}) — likely missing/blocked market data."
-                )
-            slip = settings.get("limit_order_slippage_pct", 0.1) / 100
-            lmt = round(price * (1 + slip if trade.side == "BUY" else 1 - slip), 2)
-            order = LimitOrder(trade.side, quantity, lmt)
+        # Order-type decision is centralised in OrderPolicy (pure, broker-free).
+        # Base intent comes from use_limit_orders; the policy upgrades a MARKET
+        # order to a marketable LIMIT on delayed data (a bare MARKET would be
+        # cancelled by IBKR 10349) and fail-closes on a 0/None price.
+        base_type = "LMT" if settings.get("use_limit_orders", False) else "MKT"
+        data_state = subscription_for_port(self.port)
+        # Source a price only when a limit may be needed (operator opt-in or
+        # delayed data) — avoids an unnecessary market-data round-trip otherwise.
+        price = (
+            await self.get_last_price(trade.symbol, exchange)
+            if base_type == "LMT" or data_state is DataState.DELAYED
+            else 0.0
+        )
+        decision = OrderPolicy.decide(
+            data_state, base_type, trade.side, price,
+            settings.get("limit_order_slippage_pct", 0.1),
+            symbol=trade.symbol,
+        )
+        if decision.order_type == "LMT":
+            order = LimitOrder(trade.side, quantity, decision.limit_price)
         else:
             order = MarketOrder(trade.side, quantity)
         trade_obj = self.ib.placeOrder(contract, order)
@@ -741,7 +755,10 @@ class IBKRWorker:
         # Entry limit slightly above current price so it fills immediately like a market order.
         # bracketOrder() signature: (action, qty, limitPrice, takeProfitPrice, stopLossPrice)
         signal_price = getattr(trade, "signal_price", None) or stop_price / 0.95
-        entry_limit = round(signal_price * 1.005, 2)  # 0.5% premium ensures fill
+        # Marketable-limit entry: BRACKET_ENTRY_PREMIUM_PCT (0.5%) above signal so
+        # it fills immediately like a market order. Reuses the same helper as the
+        # single-order path, but with its own distinct premium (not slippage_pct).
+        entry_limit = marketable_limit(signal_price, "BUY", BRACKET_ENTRY_PREMIUM_PCT)
 
         # Use ib_insync bracketOrder helper — handles OCA group + transmit flags correctly
         bracket = self.ib.bracketOrder(
