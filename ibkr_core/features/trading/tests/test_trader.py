@@ -366,6 +366,75 @@ class TestTrader(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(deployed, 136.0)
 
     @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
+    async def test_whole_share_fallback_floors_quantity(self, mock_check):
+        """allow_fractional_shares=False → BUY floored to whole shares (IBKR 10243)."""
+        mock_check.return_value = _COMPLIANT
+        self.mock_worker.get_net_liquidation.return_value = 10000.0
+        self.mock_worker.get_available_funds.return_value = 10000.0
+        self.mock_worker.get_positions.return_value = []
+        self.mock_worker.get_last_price = AsyncMock(return_value=150.0)
+        self.mock_worker.place_bracket_order.return_value = 201
+
+        nofrac = {**_SETTINGS, "max_position_size_pct": 10.0, "cash_reserve_pct": 0.0,
+                  "allow_fractional_shares": False}
+        with patch('ibkr_core.features.trading.trader._load_settings', return_value=nofrac):
+            trade_req = TradeCreate(symbol="AAPL", quantity=0, side="BUY")
+            trade = await self.trader.execute_trade(trade_req, sector="Technology",
+                                              debt=10, cash=10, revenue=100,
+                                              prohibited_income=1, mkt_cap=1000)
+
+        self.assertEqual(trade.state, TradeState.SUBMITTED)
+        # 10% of 10000 = $1000 budget / $150 = 6.67 → floored to 6 whole shares.
+        self.assertEqual(trade.quantity, 6.0)
+
+    @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
+    async def test_whole_share_deploys_within_position_limit(self, mock_check):
+        """Whole-share mode with a cap large enough to hold ≥1 share inside the
+        per-position limit deploys floored whole shares."""
+        mock_check.return_value = _COMPLIANT
+        self.mock_worker.get_net_liquidation.return_value = 1_090_501.17
+        self.mock_worker.get_available_funds.return_value = 1_088_974.36
+        self.mock_worker.get_positions.return_value = []  # flat → cap budget = $4000
+        self.mock_worker.get_last_price = AsyncMock(return_value=215.0)
+        self.mock_worker.place_bracket_order.return_value = 202
+
+        # cap $4000, position sized at max_position_size_pct 35% = $1400 / $215 =
+        # 6.51 → floored to 6 whole shares ($1290), inside the 35% limit.
+        nofrac = {**_SETTINGS, "trading_capital_cap": 4000.0, "max_position_size_pct": 35.0,
+                  "cash_reserve_pct": 0.0, "max_sector_exposure_pct": 100.0,
+                  "min_sector_count": 1, "allow_fractional_shares": False}
+        with patch('ibkr_core.features.trading.trader._load_settings', return_value=nofrac):
+            trade_req = TradeCreate(symbol="AAPL", quantity=0, side="BUY")
+            trade = await self.trader.execute_trade(trade_req, sector="Technology",
+                                              debt=10, cash=10, revenue=100,
+                                              prohibited_income=1, mkt_cap=1000)
+
+        self.assertEqual(trade.state, TradeState.SUBMITTED)
+        self.assertEqual(trade.quantity, 6.0)
+
+    @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
+    async def test_whole_share_rejects_when_budget_under_one_share(self, mock_check):
+        """Budget can't fund even one whole share → REJECTED_FUNDS (not a 10243 error)."""
+        mock_check.return_value = _COMPLIANT
+        self.mock_worker.get_net_liquidation.return_value = 1_090_501.17
+        self.mock_worker.get_available_funds.return_value = 1_088_974.36
+        self.mock_worker.get_positions.return_value = []  # cap budget = $436
+        self.mock_worker.get_last_price = AsyncMock(return_value=900.0)  # 25% of 436 = $109 < $900
+        self.mock_worker.place_bracket_order.return_value = 203
+
+        nofrac = {**_SETTINGS, "trading_capital_cap": 436.0, "max_position_size_pct": 35.0,
+                  "cash_reserve_pct": 0.0, "max_sector_exposure_pct": 100.0,
+                  "min_sector_count": 1, "allow_fractional_shares": False}
+        with patch('ibkr_core.features.trading.trader._load_settings', return_value=nofrac):
+            trade_req = TradeCreate(symbol="AAPL", quantity=0, side="BUY")
+            trade = await self.trader.execute_trade(trade_req, sector="Technology",
+                                              debt=10, cash=10, revenue=100,
+                                              prohibited_income=1, mkt_cap=1000)
+
+        self.assertEqual(trade.state, TradeState.REJECTED_FUNDS)
+        self.mock_worker.place_bracket_order.assert_not_called()
+
+    @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
     async def test_execute_buy_compliance_fail(self, mock_check):
         mock_check.return_value = ComplianceStatus(
             symbol="BANK", sector="Conventional Finance", is_compliant=False,

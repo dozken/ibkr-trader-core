@@ -152,6 +152,10 @@ class Settings(BaseModel):
     use_kelly_sizing: bool = True
     use_limit_orders: bool = False
     limit_order_slippage_pct: float = 0.1
+    # Some IBKR accounts cannot place fractional-sized orders via API (Error 10243).
+    # Default True preserves fractional sizing; set False to floor BUYs to whole
+    # shares (see Trader.execute_trade whole-share fallback).
+    allow_fractional_shares: bool = True
     max_correlation: float = 0.85
     rl_weight: float = 0.2
     rerate_sell_threshold: int = 35

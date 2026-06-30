@@ -504,6 +504,28 @@ class Trader:
                     )
                     trade.quantity = affordable_qty
 
+                # Whole-share fallback: some accounts cannot place fractional orders
+                # via API (IBKR Error 10243 "use desktop version") — without this the
+                # bot's fractional sizing makes EVERY buy fail at submit. When
+                # fractional is disabled, floor to whole shares. A budget that can't
+                # fund even one whole share within the position limits rejects cleanly
+                # (REJECTED_FUNDS) instead of erroring at the broker. NOTE: a small
+                # capital cap may be unable to hold a whole high-priced share inside
+                # the per-position limit — raise the cap or enable fractional.
+                if not settings.get("allow_fractional_shares", True):
+                    whole = math.floor(trade.quantity)
+                    if whole < 1:
+                        logger.info(
+                            "REJECT_FUNDS %s: whole-share mode — sized %.4f sh (<1) "
+                            "in budget $%.2f @ $%.2f",
+                            trade.symbol, trade.quantity, available_funds, price,
+                        )
+                        machine.transition_to(TradeState.REJECTED_FUNDS)
+                        trade.state = machine.state
+                        self._persist_trade_history(db, trade)
+                        return trade
+                    trade.quantity = float(whole)
+
                 if _exceeds_concentration_limit(trade.symbol, trade.quantity, price, net_liq, self.worker, settings):
                     machine.transition_to(TradeState.REJECTED_FUNDS)
                     trade.state = machine.state
