@@ -460,8 +460,14 @@ class Trader:
                 _cap = settings.get("trading_capital_cap")
                 if _cap and float(_cap) > 0:
                     _cap = float(_cap)
-                    _invested = max(0.0, net_liq - available_funds)
-                    available_funds = max(0.0, _cap - _invested)
+                    # Capital already deployed = market value of held positions.
+                    # Do NOT use (net_liq - available_funds): paper accounts carry a
+                    # baseline NLV-over-cash accrual gap even when fully flat (here
+                    # ~$1.5k on a $1M account, positions=0), which would peg the cap
+                    # budget at 0 for any cap below that gap and block every BUY.
+                    _held = await asyncio.to_thread(self.worker.get_positions)
+                    _invested = sum(max(0.0, float(p.get("market_value") or 0.0)) for p in _held)
+                    available_funds = max(0.0, min(available_funds, _cap - _invested))
                     net_liq = min(net_liq, _cap)
 
                 if trade.quantity == 0:

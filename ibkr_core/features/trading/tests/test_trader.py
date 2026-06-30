@@ -307,6 +307,65 @@ class TestTrader(unittest.IsolatedAsyncioTestCase):
         self.mock_worker.place_bracket_order.assert_not_called()
 
     @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
+    async def test_capital_cap_budget_uses_position_value_not_funds_gap(self, mock_check):
+        """trading_capital_cap budget = cap - market value of held positions.
+
+        Regression: a flat paper account where NetLiq sits above cash by a
+        baseline accrual gap (here 1090501 - 1088974 = 1526.81) must NOT count
+        that gap as 'invested'. The old (net_liq - available_funds) proxy pegged
+        the $436-cap budget at 0 and rejected every BUY despite zero positions.
+        """
+        mock_check.return_value = _COMPLIANT
+        self.mock_worker.get_net_liquidation.return_value = 1_090_501.17
+        self.mock_worker.get_available_funds.return_value = 1_088_974.36
+        self.mock_worker.get_positions.return_value = []  # fully flat
+        self.mock_worker.get_last_price = AsyncMock(return_value=100.0)
+        self.mock_worker.place_bracket_order.return_value = 101
+
+        capped = {**_SETTINGS, "trading_capital_cap": 436.0,
+                  "max_position_size_pct": 100.0, "cash_reserve_pct": 0.0,
+                  "max_sector_exposure_pct": 100.0, "min_sector_count": 1}
+        with patch('ibkr_core.features.trading.trader._load_settings', return_value=capped):
+            trade_req = TradeCreate(symbol="AAPL", quantity=0, side="BUY")
+            trade = await self.trader.execute_trade(trade_req, sector="Technology",
+                                              debt=10, cash=10, revenue=100,
+                                              prohibited_income=1, mkt_cap=1000)
+
+        self.assertEqual(trade.state, TradeState.SUBMITTED)
+        # Budget = full $436 cap (gap ignored). Deployed $ near the cap, allowing
+        # the sizer's small fee/slippage reserve. Old proxy → budget 0 → REJECTED.
+        deployed = trade.quantity * 100.0
+        self.assertGreater(deployed, 0.97 * 436.0)
+        self.assertLessEqual(deployed, 436.0)
+
+    @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
+    async def test_capital_cap_budget_subtracts_held_market_value(self, mock_check):
+        """Budget shrinks by the market value of positions already held."""
+        mock_check.return_value = _COMPLIANT
+        self.mock_worker.get_net_liquidation.return_value = 1_090_501.17
+        self.mock_worker.get_available_funds.return_value = 1_088_974.36
+        self.mock_worker.get_positions.return_value = [
+            {"symbol": "MSFT", "quantity": 1, "market_value": 300.0},
+        ]
+        self.mock_worker.get_last_price = AsyncMock(return_value=100.0)
+        self.mock_worker.place_bracket_order.return_value = 102
+
+        capped = {**_SETTINGS, "trading_capital_cap": 436.0,
+                  "max_position_size_pct": 100.0, "cash_reserve_pct": 0.0,
+                  "max_sector_exposure_pct": 100.0, "min_sector_count": 1}
+        with patch('ibkr_core.features.trading.trader._load_settings', return_value=capped):
+            trade_req = TradeCreate(symbol="AAPL", quantity=0, side="BUY")
+            trade = await self.trader.execute_trade(trade_req, sector="Technology",
+                                              debt=10, cash=10, revenue=100,
+                                              prohibited_income=1, mkt_cap=1000)
+
+        self.assertEqual(trade.state, TradeState.SUBMITTED)
+        # Budget = cap - held market value = 436 - 300 = 136 (not 436, not 0).
+        deployed = trade.quantity * 100.0
+        self.assertGreater(deployed, 0.97 * 136.0)
+        self.assertLessEqual(deployed, 136.0)
+
+    @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
     async def test_execute_buy_compliance_fail(self, mock_check):
         mock_check.return_value = ComplianceStatus(
             symbol="BANK", sector="Conventional Finance", is_compliant=False,

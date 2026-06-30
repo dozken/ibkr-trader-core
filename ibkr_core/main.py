@@ -857,14 +857,16 @@ def system_trading(request: Request) -> TradingInvariants:
         cap = s.get("trading_capital_cap")
         if connected:
             try:
-                net_liq = float(worker.get_net_liquidation())
-                available = float(worker.get_available_funds())
-                invested = max(0.0, net_liq - available)
+                # Deployed capital = market value of held positions. Must match
+                # trader.py sizing: (net_liq - available_funds) over-counts by a
+                # paper account's baseline NLV-over-cash accrual gap when flat.
+                held = worker.get_positions()
+                invested = sum(max(0.0, float(p.get("market_value") or 0.0)) for p in held)
             except Exception:
                 invested = 0.0
         if cap is not None and float(cap) > 0:
             cap = float(cap)
-            cap_budget = max(0.0, cap - invested)  # mirrors trader.py:463-464 sizing
+            cap_budget = max(0.0, cap - invested)  # mirrors trader.py sizing
         else:
             cap = None  # 0 / unset ⇒ uncapped
             cap_budget = None
