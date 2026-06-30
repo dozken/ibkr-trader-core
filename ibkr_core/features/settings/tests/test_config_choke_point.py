@@ -49,6 +49,31 @@ def test_per_account_overlay_differs_from_global(tmp_path, monkeypatch):
     assert account != glob
 
 
+def test_active_account_context_resolves_bare_load(tmp_path, monkeypatch):
+    """set_active_account binds a bare load_settings() to that account's overlay.
+
+    Without this, account-agnostic plugin call sites (e.g. the AI strategy's
+    _buy_threshold) read global settings.json — so settings_4's buy_threshold=60
+    was shadowed by global 85 and no ride-winners BUY ever fired.
+    """
+    from ibkr_core.features.settings.service import set_active_account
+    monkeypatch.setattr(service, "SETTINGS_DIR", str(tmp_path))
+    (tmp_path / "settings.json").write_text(json.dumps({"buy_threshold": 85}))
+    (tmp_path / "settings_4.json").write_text(json.dumps({"buy_threshold": 60}))
+    (tmp_path / "settings_7.json").write_text(json.dumps({"buy_threshold": 50}))
+    try:
+        # No context bound ⇒ global.
+        set_active_account(None)
+        assert load_settings()["buy_threshold"] == 85
+        # Bound ⇒ that account's overlay, even with no explicit arg.
+        set_active_account(4)
+        assert load_settings()["buy_threshold"] == 60
+        # An explicit account_id still wins over the bound context.
+        assert load_settings(account_id=7)["buy_threshold"] == 50
+    finally:
+        set_active_account(None)  # never leak context into other tests
+
+
 def test_signal_and_exec_paths_load_identical_effective_settings(tmp_path, monkeypatch):
     """The dispatch/signal layer and Trader.execute_trade must agree byte-for-byte
     for the same account_id — the property that prevents B1-style cap/stop drift."""

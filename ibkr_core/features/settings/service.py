@@ -1,3 +1,4 @@
+import contextvars
 import json
 import logging
 import os
@@ -10,6 +11,27 @@ logger = logging.getLogger(__name__)
 # Unknown keys already warned about, keyed by (account_id, key). Loaders run every
 # cycle, so we surface each unknown key once per process instead of spamming logs.
 _warned_unknown_keys: set = set()
+
+# Per-task active account. A per-account loop binds this once at startup so that
+# account-AGNOSTIC call sites — notably the AI strategy's BUY-threshold gating,
+# which has no account_id in scope — resolve a bare load_settings() to that
+# account's settings_{id}.json instead of plain global settings.json. ContextVars
+# are task-local (and copied into asyncio.to_thread), so each account's loop task
+# keeps its own binding with no cross-talk. Unset (e.g. API handlers) ⇒ global.
+_active_account_id: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar(
+    "_active_account_id", default=None
+)
+
+
+def set_active_account(account_id: Optional[int]) -> None:
+    """Bind the active account for the current task's settings context.
+
+    Call once at the top of a per-account loop. A subsequent load_settings() with
+    no explicit account_id then layers settings_{account_id}.json over global,
+    closing the config-drift gap for code that can't thread account_id (e.g. a
+    plugin strategy). Passing an explicit account_id to load_settings still wins.
+    """
+    _active_account_id.set(account_id)
 
 SETTINGS_DIR = os.environ.get("SETTINGS_DIR", os.path.join(os.path.dirname(__file__), "../../../data"))
 # Legacy single-file path — kept for callers that haven't migrated
@@ -217,7 +239,14 @@ def load_settings(account_id: Optional[int] = None) -> dict:
     NOTE: trading code MUST pass account_id so the signal path and execution path
     read the SAME effective per-account config. A bare load_settings() in
     ibkr_core/features/trading/ is config drift and is banned by CI.
+
+    When account_id is omitted it falls back to the task-bound active account (see
+    set_active_account), so account-agnostic plugin call sites still get the right
+    per-account overlay; with neither set it loads plain global settings.
     """
+    if account_id is None:
+        account_id = _active_account_id.get()
+
     base = Settings().model_dump()
 
     global_path = os.path.join(SETTINGS_DIR, "settings.json")

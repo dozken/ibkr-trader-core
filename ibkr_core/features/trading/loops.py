@@ -230,7 +230,7 @@ from ibkr_core.features.compliance.schemas import (
 )
 from ibkr_core.features.compliance.screening import async_shariah_screen, screen_many
 from ibkr_core.features.portfolio.allocator import PortfolioAllocator
-from ibkr_core.features.settings.service import load_settings
+from ibkr_core.features.settings.service import load_settings, set_active_account
 from ibkr_core.features.trading.schemas import (
     PendingSignalMessage,
     PendingSignalPayload,
@@ -436,6 +436,10 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
     health.setdefault(loop_key, {"last_run": None, "status": "starting"})
     logger.info("Starting Main Loop for account %s...", account_id or "primary")
     health[loop_key]["status"] = "running"
+    # Bind this task's settings context so account-agnostic call sites in signal
+    # generation (e.g. the AI strategy's buy_threshold gate) read settings_{id},
+    # not bare global settings.json. Task-local — no cross-account leakage.
+    set_active_account(account_id)
     trader = Trader(worker, account_id=account_id)
     if manage_connection:
         connected = False
@@ -841,6 +845,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
 
 async def cash_sweep_loop(worker, manager: ConnectionManager, health: dict, account_id: Optional[int] = None) -> None:
     logger.info("Starting Cash Sweep Loop...")
+    set_active_account(account_id)
     health["cash_sweep_loop"]["status"] = "running"
 
     _POLL_S = 30
@@ -1099,6 +1104,7 @@ def _is_in_cooldown(symbol: str, days: int = 14) -> bool:
 
 async def halal_drip_loop(worker, manager: ConnectionManager, health: dict, account_id: Optional[int] = None) -> None:
     logger.info("Starting Halal DRIP Loop...")
+    set_active_account(account_id)
     health["halal_drip_loop"] = {"status": "running", "last_run": None}
 
     _MAX_WAIT_S = 300
@@ -1189,6 +1195,7 @@ async def discovery_loop(worker, manager: ConnectionManager, health: dict, accou
     Cadence: discovery_interval_hours (default 6h).
     """
     logger.info("Starting Discovery Auto-Execute Loop...")
+    set_active_account(account_id)
     health["discovery_loop"] = {"status": "running", "last_run": None}
     trader = Trader(worker, account_id=account_id)
 
@@ -1259,6 +1266,7 @@ async def position_rerating_loop(worker, manager: ConnectionManager, health: dic
     Prevents holding deteriorating positions until stop-loss triggers.
     """
     logger.info("Starting Position Re-Rating Loop...")
+    set_active_account(account_id)
     health["position_rerating_loop"] = {"status": "running", "last_run": None}
 
     while True:
