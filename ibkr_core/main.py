@@ -280,7 +280,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(main_loop(worker, manager, health, account_id=primary_account_id)),
             asyncio.create_task(compliance_audit_loop(worker, manager, health, account_manager=account_manager)),
             asyncio.create_task(cash_sweep_loop(worker, manager, health, account_id=primary_account_id)),
-            asyncio.create_task(halal_drip_loop(worker, manager, health)),
+            asyncio.create_task(halal_drip_loop(worker, manager, health, account_id=primary_account_id)),
             asyncio.create_task(discovery_loop(worker, manager, health, account_id=primary_account_id)),
             asyncio.create_task(position_rerating_loop(worker, manager, health, account_id=primary_account_id)),
             asyncio.create_task(portfolio_snapshot_loop(worker, health, account_id=primary_account_id)),
@@ -486,7 +486,11 @@ def system_readiness(request: Request):
 
     # ── IBKR connectivity ──────────────────────────────────────────────────────
     ibkr_connected = worker is not None and worker.ib.isConnected()
-    port = int(os.getenv("IBKR_PORT", "7497"))
+    # Prefer the connected worker's actual port — the IBKR_PORT env is a static
+    # default and can disagree with the per-account gateway the bot really uses
+    # (e.g. env=4003 live while the active account trades paper on 4004), which
+    # would mislabel a paper run as LIVE.
+    port = int(getattr(worker, "port", None) or os.getenv("IBKR_PORT", "7497"))
     # 7496 = TWS live, 4001 = IBGW raw live, 4003 = gnzsnz ib-gateway live API
     # (paper = 7497 / 4002 / 4004).
     _LIVE_PORTS = {7496, 4001, 4003}

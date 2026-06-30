@@ -109,6 +109,15 @@ async def _run_one_sweep(
     allocator_mock = MagicMock()
     allocator_mock.allocate.return_value = allocator_trades
 
+    # Isolate from the real DB: _dispatch_signal dedups pending signals and checks
+    # auto-execute cooldowns via SessionLocal(). Without this, a leftover row in
+    # the shared dev DB makes the dedup/cooldown skip the broadcast/execute and
+    # the test fails non-deterministically. Return no prior rows (.first() -> None)
+    # for both the direct (db = SessionLocal()) and context-manager forms.
+    mock_db = MagicMock()
+    mock_db.query.return_value.filter.return_value.first.return_value = None
+    mock_db.__enter__.return_value = mock_db
+
     sleep_count = [0]
 
     async def _fake_sleep(seconds):
@@ -128,6 +137,7 @@ async def _run_one_sweep(
         patch(f"{_LOOP_MODULE}.PortfolioAllocator", return_value=allocator_mock),
         patch(f"{_LOOP_MODULE}.Trader", return_value=trader_mock),
         patch(f"{_LOOP_MODULE}.send_alert", new=AsyncMock(side_effect=_alert)),
+        patch(f"{_LOOP_MODULE}.SessionLocal", return_value=mock_db),
         patch("asyncio.sleep", side_effect=_fake_sleep),
     ):
         try:

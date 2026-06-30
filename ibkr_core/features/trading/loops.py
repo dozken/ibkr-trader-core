@@ -1097,7 +1097,7 @@ def _is_in_cooldown(symbol: str, days: int = 14) -> bool:
     except Exception:
         return False
 
-async def halal_drip_loop(worker, manager: ConnectionManager, health: dict) -> None:
+async def halal_drip_loop(worker, manager: ConnectionManager, health: dict, account_id: Optional[int] = None) -> None:
     logger.info("Starting Halal DRIP Loop...")
     health["halal_drip_loop"] = {"status": "running", "last_run": None}
 
@@ -1113,7 +1113,7 @@ async def halal_drip_loop(worker, manager: ConnectionManager, health: dict) -> N
         await asyncio.sleep(_POLL_S)
         elapsed += _POLL_S
 
-    trader = Trader(worker)
+    trader = Trader(worker, account_id=account_id)
 
     while True:
         sleep_s = 21600  # Check every 6 hours

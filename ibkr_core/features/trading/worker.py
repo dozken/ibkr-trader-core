@@ -688,6 +688,13 @@ class IBKRWorker:
         settings = _ls(self.account_id)
         if settings.get("use_limit_orders", False):
             price = await self.get_last_price(trade.symbol, exchange)
+            # Fail-closed: a 0/None price would build a $0.00 limit that rests
+            # forever (or fills absurdly). Refuse rather than submit a junk order.
+            if not price or price <= 0:
+                raise ValueError(
+                    f"Refusing limit {trade.side} {trade.symbol}: no usable price "
+                    f"({price}) — likely missing/blocked market data."
+                )
             slip = settings.get("limit_order_slippage_pct", 0.1) / 100
             lmt = round(price * (1 + slip if trade.side == "BUY" else 1 - slip), 2)
             order = LimitOrder(trade.side, quantity, lmt)
