@@ -13,14 +13,24 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
-      - run: pip install -e ".[dev]"
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v6
+      - run: uv pip install --system -e ".[dev]"
       - name: Lint
         run: ruff check ibkr_core/
       - name: Smoke import
         run: |
           python -c "from ibkr_core.core.strategy import Strategy, load_strategy, get_active_strategy; print('strategy ok')"
           python -c "from ibkr_core.strategies.sma_crossover import SMACrossover; s = SMACrossover(); print(f'sma ok: {s.name}')"
+      - name: Guard per-account settings choke point
+        # Trading code must read settings via load_settings(account_id) so the
+        # signal path and execution path can never diverge. A bare load_settings()
+        # / _load_settings() (no account_id) is config drift — fail the build.
+        run: |
+          if grep -rEn --include='*.py' --exclude-dir=tests '_?load_settings\([[:space:]]*\)' ibkr_core/features/trading/; then
+            echo "::error::Bare load_settings()/_load_settings() in trading code — pass account_id"
+            exit 1
+          fi
       - name: Tests
         run: PYTHONPATH=. pytest ibkr_core/ -q --tb=short
 

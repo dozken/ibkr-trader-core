@@ -4,8 +4,8 @@ node = "22"
 
 [env]
 PYTHONPATH = "{{cwd}}"
-VIRTUAL_ENV = "{{cwd}}/ibkr_core/.venv"
-_.path = ["{{cwd}}/ibkr_core/.venv/bin"]
+VIRTUAL_ENV = "{{cwd}}/.venv"
+_.path = ["{{cwd}}/.venv/bin"]
 
 [tasks.backend]
 description = "Run backend dev server (hot-reload)"
@@ -24,8 +24,8 @@ description = "Run all tests"
 depends = ["test-backend", "test-frontend"]
 
 [tasks.test-backend]
-description = "Run backend tests"
-run = "cd backend && .venv/bin/pytest --ignore=features/trading/tests/test_ibkr_connection.py"
+description = "Run backend tests (host-side, mirrors CI)"
+run = "PYTHONPATH=. .venv/bin/pytest ibkr_core/ -q --tb=short"
 
 [tasks.test-frontend]
 description = "Run frontend tests"
