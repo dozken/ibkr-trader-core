@@ -468,6 +468,64 @@ class TestTrader(unittest.IsolatedAsyncioTestCase):
         self.mock_worker.place_order.assert_not_called()
 
 
+class TestPossessionConfirmed(unittest.TestCase):
+    """Unit tests for _is_possession_confirmed (Qabd/T+2 settlement guard)."""
+
+    def setUp(self):
+        self.worker = MagicMock()
+        self.trader = Trader(self.worker)
+
+    def _buy_row(self, days_old, state="REJECTED_FUNDS"):
+        from datetime import timedelta
+        row = MagicMock()
+        row.created_at = datetime.utcnow() - timedelta(days=days_old)
+        row.updated_at = row.created_at
+        row.state = state
+        return row
+
+    def _db(self, first_results):
+        """Mock db whose query().filter().order_by().first() yields results in order."""
+        db = MagicMock()
+        db.query.return_value.filter.return_value.order_by.return_value.first.side_effect = list(first_results)
+        return db
+
+    def test_held_with_stale_rejected_buy_confirms_possession(self):
+        """Held in IBKR + only old REJECTED buy records (>=2d) → possession TRUE.
+
+        Regression: previously trapped — no SUBMITTED/FILLED record returned False,
+        so a genuinely-held position could never be sold, stop-lossed, or divested
+        (even via emergency liquidation). first() order: settled=None,
+        submitted=None, oldest-any=old rejected.
+        """
+        self.worker.get_positions.return_value = [{"symbol": "NXPI", "quantity": 250}]
+        db = self._db([None, None, self._buy_row(40)])
+        self.assertTrue(self.trader._is_possession_confirmed(db, "NXPI"))
+
+    def test_held_with_fresh_buy_attempt_not_yet_settled(self):
+        """Held but oldest BUY attempt <2d old → Qabd (T+2) not satisfied → FALSE."""
+        self.worker.get_positions.return_value = [{"symbol": "NXPI", "quantity": 250}]
+        db = self._db([None, None, self._buy_row(1)])
+        self.assertFalse(self.trader._is_possession_confirmed(db, "NXPI"))
+
+    def test_held_with_no_buy_record_is_external_acquisition(self):
+        """Held in IBKR + zero bot BUY records → external acquisition → TRUE (unchanged)."""
+        self.worker.get_positions.return_value = [{"symbol": "NXPI", "quantity": 250}]
+        db = self._db([None, None, None])
+        self.assertTrue(self.trader._is_possession_confirmed(db, "NXPI"))
+
+    def test_not_held_in_ibkr_blocks(self):
+        """Not held in IBKR → cannot possess → FALSE (no-short / phantom-sell guard)."""
+        self.worker.get_positions.return_value = []
+        db = self._db([None])
+        self.assertFalse(self.trader._is_possession_confirmed(db, "NXPI"))
+
+    def test_settled_filled_buy_confirms_via_primary_path(self):
+        """Primary path: a FILLED buy >=2d old confirms without touching the fallback."""
+        self.worker.get_positions.return_value = [{"symbol": "NXPI", "quantity": 250}]
+        db = self._db([self._buy_row(5, state=TradeState.FILLED)])
+        self.assertTrue(self.trader._is_possession_confirmed(db, "NXPI"))
+
+
 class TestExceedsConcentrationLimit(unittest.TestCase):
     """Unit tests for the _exceeds_concentration_limit helper."""
 

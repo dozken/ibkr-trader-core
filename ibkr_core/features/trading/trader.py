@@ -775,16 +775,40 @@ class Trader:
                 .first()
             )
             if not oldest_submitted:
-                # Position exists in IBKR but no bot BUY record at all —
-                # externally acquired, settlement long passed.
-                any_buy = (
+                # No SUBMITTED record. The asset is genuinely held in IBKR
+                # (confirmed above), so Qabd possession is real regardless of the
+                # bot's own buy-record bookkeeping — which may be only REJECTED_*/
+                # IBKR_ERROR rows from failed re-attempts, or empty after a DB reset.
+                # Treating those as "not possessed" traps a real holding: it can
+                # never be sold, stop-lossed, or divested (even via emergency
+                # liquidation). Confirm settlement (T+2) via the age of the oldest
+                # BUY attempt of any state; fall back to external-acquisition if no
+                # bot record exists at all.
+                oldest_buy = (
                     db.query(TradeHistory)
                     .filter(TradeHistory.symbol == symbol, TradeHistory.side == "BUY")
+                    .order_by(TradeHistory.created_at.asc())
                     .first()
                 )
-                if any_buy is None:
+                if oldest_buy is None:
+                    # No bot BUY record at all — externally acquired, settlement long passed.
                     logger.info("_is_possession_confirmed: %s held in IBKR with no bot BUY record — external acquisition", symbol)
                     return True
+                acq_time = oldest_buy.created_at or oldest_buy.updated_at
+                if acq_time.tzinfo is None:
+                    acq_time = acq_time.replace(tzinfo=timezone.utc)
+                days_held = (datetime.now(timezone.utc) - acq_time).days
+                if days_held >= 2:
+                    logger.info(
+                        "_is_possession_confirmed: %s held in IBKR; oldest BUY attempt %dd old "
+                        "(state=%s) — possession confirmed despite no SUBMITTED/FILLED record",
+                        symbol, days_held, oldest_buy.state,
+                    )
+                    return True
+                logger.info(
+                    "_is_possession_confirmed: %s held but oldest BUY attempt only %dd old (<2d) — Qabd not satisfied",
+                    symbol, days_held,
+                )
                 return False
 
             buy_time = oldest_submitted.updated_at
