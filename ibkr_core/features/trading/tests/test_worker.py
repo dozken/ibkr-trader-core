@@ -186,6 +186,31 @@ class TestPlaceOrder(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(qty_passed, float)
         self.assertAlmostEqual(qty_passed, 10.0)
 
+    async def test_place_order_sets_tif_day(self):
+        """Plain order must set TIF=DAY explicitly — paper IB Gateway otherwise
+        applies an order preset and cancels at submit (Error 10349)."""
+        w = _make_worker()
+        w.ib.qualifyContractsAsync = AsyncMock()
+
+        placed_trade = MagicMock()
+        placed_trade.order.orderId = 99
+        w.ib.placeOrder.return_value = placed_trade
+
+        trade = MagicMock()
+        trade.side = "BUY"
+        trade.quantity = 5
+        trade.symbol = "MSFT"
+
+        with patch("ib_insync.Stock"), \
+             patch("ib_insync.MarketOrder") as MockMkt, \
+             patch("ibkr_core.features.trading.worker.get_exchange_config",
+                   return_value=(None, None, "SMART", "USD")):
+            await w.place_order(trade)
+
+        order_passed = w.ib.placeOrder.call_args[0][1]
+        self.assertEqual(order_passed.tif, "DAY")
+        self.assertIs(order_passed, MockMkt.return_value)
+
 
 class TestPlaceBracketOrder(unittest.IsolatedAsyncioTestCase):
     def _make_bracket_mocks(self, parent_order_id=42):

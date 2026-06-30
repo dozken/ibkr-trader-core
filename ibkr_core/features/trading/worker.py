@@ -714,6 +714,11 @@ class IBKRWorker:
             order = LimitOrder(trade.side, quantity, decision.limit_price)
         else:
             order = MarketOrder(trade.side, quantity)
+        # Paper IB Gateway forces TIF=DAY from an order preset and silently cancels
+        # an order that leaves TIF unset (Error 10349: "Order TIF was set to DAY
+        # based on order preset."). The bracket path already sets this explicitly;
+        # the plain path must too, or every plain LIMIT/MARKET is cancelled at submit.
+        order.tif = 'DAY'
         trade_obj = self.ib.placeOrder(contract, order)
         return trade_obj.order.orderId
 
