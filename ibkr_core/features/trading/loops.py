@@ -854,6 +854,62 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
             await asyncio.sleep(60)
 
 
+async def _cash_sleeve_buy(worker, trader, manager, settings: dict,
+                           available_cash: float, account_id: Optional[int]) -> bool:
+    """Park idle cash in a compliance-allowlisted broad Shariah ETF when momentum
+    selection is quiet (no BUY signals). Returns True iff a sleeve BUY was dispatched.
+
+    Off unless settings.cash_sweep_fallback_etf is set. Guards:
+      - sleeve value capped at cash_sweep_fallback_max_pct of the (capital-capped)
+        net-liq, so it accumulates one slice per quiet cycle and never dominates;
+      - the ETF must pass the AAOIFI compliance screen (allowlist → COMPLIANT);
+      - the market must be open.
+    The BUY is auto-sized (quantity=0) so it inherits the Trader's position-% and
+    trading_capital_cap sizing — no separate pricing path, no starving momentum
+    (this only runs when momentum produced nothing).
+    """
+    etf = (settings.get("cash_sweep_fallback_etf") or "").strip().upper()
+    if not etf:
+        return False
+    max_pct = float(settings.get("cash_sweep_fallback_max_pct", 20.0) or 0.0)
+    if max_pct <= 0:
+        return False
+
+    # Sleeve-cap guard: current ETF market value vs max_pct of effective net-liq.
+    net_liq = await asyncio.to_thread(worker.get_net_liquidation)
+    _cap = settings.get("trading_capital_cap")
+    if _cap and float(_cap) > 0:
+        net_liq = min(net_liq, float(_cap))
+    positions = await asyncio.to_thread(worker.get_positions)
+    etf_val = sum(max(0.0, float(p.get("market_value") or 0.0))
+                  for p in positions if (p.get("symbol") or "").upper() == etf)
+    if net_liq <= 0 or etf_val >= (max_pct / 100.0) * net_liq:
+        logger.info("Cash sleeve: %s at/over %.0f%% cap (val=%.2f, nlv=%.2f). Skipping.",
+                    etf, max_pct, etf_val, net_liq)
+        return False
+
+    compliance = await async_shariah_screen(etf)
+    if not compliance.is_compliant:
+        logger.warning("Cash sleeve: %s NOT compliant (%s). Skipping.", etf, compliance.reason)
+        return False
+
+    exchange = compliance.exchange or "NMS"
+    if not market_status(exchange)["is_open"]:
+        logger.info("Cash sleeve: %s (%s) market closed. Skipping.", etf, exchange)
+        return False
+
+    signal = TradeSignal(symbol=etf, sentiment_score=0.0, confidence=60,
+                         action="BUY", reasoning="Halal cash sleeve (momentum quiet)")
+    trade = TradeCreate(symbol=etf, quantity=0, side="BUY", order_type="MKT", confidence=60)
+    await _dispatch_signal(signal, compliance, exchange, trader, manager, settings,
+                           trade=trade, source="cash_sleeve", account_id=account_id)
+    logger.info("Cash sleeve: dispatched %s BUY to park idle $%.2f.", etf, available_cash)
+    await send_alert("Cash Sleeve",
+                     f"Parked idle cash in {etf} (momentum quiet).",
+                     settings.get("alert_channels", []))
+    return True
+
+
 async def cash_sweep_loop(worker, manager: ConnectionManager, health: dict, account_id: Optional[int] = None) -> None:
     logger.info("Starting Cash Sweep Loop...")
     set_active_account(account_id)
@@ -905,6 +961,12 @@ async def cash_sweep_loop(worker, manager: ConnectionManager, health: dict, acco
             buy_signals = [s for s in signals if s.action == "BUY"]
 
             if not buy_signals:
+                # Momentum quiet — optionally park idle cash in a halal ETF sleeve.
+                try:
+                    await _cash_sleeve_buy(worker, trader, manager, settings,
+                                           available_cash, account_id)
+                except Exception as sleeve_err:
+                    logger.exception("Cash sleeve error: %s", sleeve_err)
                 logger.info("Cash sweep: no BUY signals. Sleeping.")
                 await asyncio.sleep(sleep_s)
                 continue

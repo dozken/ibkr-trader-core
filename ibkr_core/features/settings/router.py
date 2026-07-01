@@ -41,6 +41,8 @@ class PartialSettings(BaseModel):
     compliance_check_interval_hours: Optional[int] = None
     cash_sweep_enabled: Optional[bool] = None
     cash_sweep_interval_min: Optional[int] = None
+    cash_sweep_fallback_etf: Optional[str] = None
+    cash_sweep_fallback_max_pct: Optional[float] = None
     use_atr_stops: Optional[bool] = None
     enable_halal_drip: Optional[bool] = None
     enable_discovery_auto: Optional[bool] = None

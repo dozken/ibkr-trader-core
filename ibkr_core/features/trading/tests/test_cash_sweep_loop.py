@@ -41,11 +41,12 @@ def _make_trade(symbol="AAPL", quantity=5.0):
     return TradeCreate(symbol=symbol, quantity=quantity, side="BUY", order_type="MKT")
 
 
-def _make_worker(connected=True, available_funds=5000.0):
+def _make_worker(connected=True, available_funds=5000.0, net_liquidation=100000.0, positions=None):
     worker = MagicMock()
     worker.ib.isConnected.return_value = connected
     worker.get_available_funds.return_value = available_funds
-    worker.get_positions.return_value = []
+    worker.get_net_liquidation.return_value = net_liquidation
+    worker.get_positions.return_value = positions if positions is not None else []
     return worker
 
 
@@ -354,6 +355,73 @@ class TestCashSweepLoop(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("AAPL", result["execute_calls"])
         self.assertNotIn("TOBK", result["execute_calls"])
+
+
+class TestCashSleeveFallback(unittest.IsolatedAsyncioTestCase):
+    """Halal cash sleeve: park idle cash in a broad Shariah ETF when momentum is quiet."""
+
+    def _base_settings(self, **over):
+        s = {
+            "cash_sweep_enabled": True,
+            "cash_sweep_interval_min": 30,
+            "min_trade_size": 100,
+            "auto_execute_threshold": 60,   # sleeve dispatches confidence=60
+            "signal_min_confidence": 30,
+            "alert_channels": [],
+        }
+        s.update(over)
+        return s
+
+    async def test_sleeve_disabled_by_default_no_etf_bought(self):
+        """No cash_sweep_fallback_etf → quiet momentum leaves cash idle (no ETF buy)."""
+        worker = _make_worker(available_funds=5000.0)
+        result = await _run_one_sweep(settings=self._base_settings(), worker=worker, signals=[])
+        self.assertEqual(result["execute_calls"], [])
+
+    async def test_sleeve_buys_etf_when_momentum_quiet(self):
+        """Fallback ETF set + no BUY signals + compliant + open + under cap → ETF bought."""
+        worker = _make_worker(available_funds=5000.0, net_liquidation=100000.0, positions=[])
+        settings = self._base_settings(cash_sweep_fallback_etf="ISDW",
+                                       cash_sweep_fallback_max_pct=20.0)
+        result = await _run_one_sweep(settings=settings, worker=worker, signals=[])
+        self.assertIn("ISDW", result["execute_calls"])
+        alerts = [a for a in result["alert_calls"] if "Cash Sleeve" in a[0]]
+        self.assertGreater(len(alerts), 0)
+
+    async def test_sleeve_respects_max_pct_cap(self):
+        """ETF already >= max_pct of net-liq → sleeve skips (no over-allocation)."""
+        # ISDW worth 25k on a 100k account, cap 20% → 25k >= 20k → skip.
+        worker = _make_worker(
+            available_funds=5000.0, net_liquidation=100000.0,
+            positions=[{"symbol": "ISDW", "market_value": 25000.0}],
+        )
+        settings = self._base_settings(cash_sweep_fallback_etf="ISDW",
+                                       cash_sweep_fallback_max_pct=20.0)
+        result = await _run_one_sweep(settings=settings, worker=worker, signals=[])
+        self.assertNotIn("ISDW", result["execute_calls"])
+
+    async def test_sleeve_not_triggered_when_momentum_has_buys(self):
+        """A live momentum BUY takes the normal path; sleeve does NOT also fire."""
+        worker = _make_worker(available_funds=5000.0, net_liquidation=100000.0)
+        settings = self._base_settings(cash_sweep_fallback_etf="ISDW")
+        result = await _run_one_sweep(
+            settings=settings, worker=worker,
+            signals=[_make_signal("AAPL", confidence=85)],
+            compliance_map={"AAPL": _make_compliance("AAPL", compliant=True)},
+            allocator_trades=[_make_trade("AAPL", quantity=5.0)],
+        )
+        self.assertNotIn("ISDW", result["execute_calls"])
+        self.assertIn("AAPL", result["execute_calls"])
+
+    async def test_sleeve_skips_non_compliant_etf(self):
+        """A mis-configured non-compliant fallback symbol is never bought (fail-closed)."""
+        worker = _make_worker(available_funds=5000.0, net_liquidation=100000.0)
+        settings = self._base_settings(cash_sweep_fallback_etf="HARAMETF")
+        result = await _run_one_sweep(
+            settings=settings, worker=worker, signals=[],
+            compliance_map={"HARAMETF": _make_compliance("HARAMETF", compliant=False)},
+        )
+        self.assertEqual(result["execute_calls"], [])
 
 
 if __name__ == "__main__":

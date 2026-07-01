@@ -111,6 +111,14 @@ class Settings(BaseModel):
     compliance_check_interval_hours: int = 12
     cash_sweep_enabled: bool = True
     cash_sweep_interval_min: int = 30
+    # Halal cash sleeve: when momentum selection is quiet (no BUY signals), park
+    # idle cash in a broad Shariah-compliant ETF instead of leaving it as a drag
+    # (the bot is otherwise cash-heavy in quiet regimes). "" = disabled. Symbol
+    # must be a compliance-allowlisted ETF (e.g. ISDW / SPUS / ISDU.L). Each quiet
+    # cycle adds one normal-sized (position-%-capped, capital-cap-respecting) slice
+    # until the sleeve reaches cash_sweep_fallback_max_pct of net-liq.
+    cash_sweep_fallback_etf: str = ""
+    cash_sweep_fallback_max_pct: float = 20.0
     use_atr_stops: bool = True
     # Base ATR multiplier for the volatility stop, widened by VIX regime when
     # atr_regime_scaling is on. Read by loops._regime_atr_multiplier; promoted to
