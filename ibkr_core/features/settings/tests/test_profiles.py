@@ -42,7 +42,7 @@ def test_ride_winners_overlay_values():
     assert overlay["use_trailing_stop"] is True
     assert overlay["use_atr_stops"] is False
     assert overlay["bracket_exits"] is False
-    assert overlay["trading_capital_cap"] == 436.0
+    assert overlay["trading_capital_cap"] == 5000.0  # whole-share smoke-test cap (see profiles.py)
     assert overlay["max_positions"] == 4
     assert overlay["max_position_size_pct"] == 35.0
     assert overlay["position_size_pct"] == 25.0

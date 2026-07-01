@@ -98,7 +98,12 @@ RIDE_WINNERS = StrategyProfile(
     use_trailing_stop=True,
     use_atr_stops=False,
     bracket_exits=False,
-    trading_capital_cap=436.0,
+    # Whole-share smoke-test cap: with IBKR fractional shares disabled
+    # (allow_fractional_shares=false), a $436 cap can't buy 1 whole share of a
+    # $200+ mega-cap without breaching the 35% concentration limit, so the test
+    # runs at $5000. Restore to 436.0 in lockstep with settings_4.json once
+    # fractional shares are enabled for a faithful $436 test.
+    trading_capital_cap=5000.0,
     max_positions=4,
     max_position_size_pct=35.0,
     position_size_pct=25.0,
