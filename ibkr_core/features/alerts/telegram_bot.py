@@ -251,6 +251,16 @@ async def telegram_bot_loop(worker, health: dict, account_manager=None) -> None:
         health["telegram_bot_loop"]["status"] = "disabled"
         return
 
+    # Inbound polling can be handed off to an external process (e.g. a host-side
+    # Claude Code bridge that owns getUpdates on this same bot token). Two pollers
+    # on one token steal each other's updates, so disable ours when delegated.
+    # Outbound alerts (send_telegram) are unaffected — they don't poll.
+    if os.getenv("TELEGRAM_INBOUND_ENABLED", "1").strip().lower() in ("0", "false", "no", "off"):
+        logger.info("Telegram inbound polling disabled (TELEGRAM_INBOUND_ENABLED=0) — "
+                    "external process owns updates. Outbound alerts still active.")
+        health["telegram_bot_loop"]["status"] = "disabled_inbound"
+        return
+
     health["telegram_bot_loop"]["status"] = "running"
     offset = 0
 

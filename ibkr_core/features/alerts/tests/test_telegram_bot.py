@@ -211,6 +211,18 @@ class TestTelegramBotLoop(unittest.IsolatedAsyncioTestCase):
             await telegram_bot_loop(_make_worker(), health)
         self.assertEqual(health["telegram_bot_loop"]["status"], "disabled")
 
+    async def test_inbound_disabled_via_env_returns_early(self):
+        """TELEGRAM_INBOUND_ENABLED=0 hands polling to an external process (host
+        Claude bridge) — the loop returns without ever calling getUpdates."""
+        from ibkr_core.features.alerts.telegram_bot import telegram_bot_loop
+        health = {"telegram_bot_loop": {"last_run": None, "status": "starting"}}
+        with patch("ibkr_core.features.alerts.telegram_bot.httpx.AsyncClient") as client, \
+             patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "tok", "TELEGRAM_CHAT_ID": "123",
+                                     "TELEGRAM_INBOUND_ENABLED": "0"}):
+            await telegram_bot_loop(_make_worker(), health)
+        self.assertEqual(health["telegram_bot_loop"]["status"], "disabled_inbound")
+        client.assert_not_called()  # never opened a polling client
+
     async def _run_one_poll(self, updates, env=None):
         from ibkr_core.features.alerts.telegram_bot import telegram_bot_loop
         health = {}
