@@ -1,7 +1,7 @@
 # Best Practices for Shariah Trading
 
 ## 1. Automated Liquidation (The Kill-Switch)
-A stock's compliance status is dynamic. If a held position fails a daily check (e.g., Debt > 33% Market Cap), the system must react.
+A stock's compliance status is dynamic. If a held position fails a daily check (e.g., Debt >= 30% Market Cap, per AAOIFI Shari'ah Standard No. 21), the system must react.
 - **Immediate Alert**: Notify user via high-priority channel (SMS/Push).
 - **Grace Period**: Default to 24-hour liquidation window to avoid flash-crash sell-offs, unless the violation is business-activity related (e.g., merging with a bank), which requires immediate exit.
 - **Audit Log**: Record the exact ratio violation that triggered the sell.
@@ -19,7 +19,7 @@ Selling before T+2 settlement is a risk of selling "what you do not own."
 
 ## 4. Financial Data Integrity
 Compliance is only as good as the data.
-- **Multi-Source Verification**: Compare ratios between two providers (e.g., Zoya and Yahoo Finance) if the ratio is close to the 33% threshold (e.g., between 30% and 33%).
+- **Multi-Source Verification**: Compare ratios between two providers (e.g., Zoya and Yahoo Finance) if the ratio is close to the 30% threshold (e.g., between 28% and 30%). Our AAOIFI screen stays canonical — a certifier may only tighten (block on doubt), never loosen the verdict.
 - **Cache Policy**: Financial ratios should be cached for 24 hours, but Business Activity status should be checked against the latest quarterly reports.
 
 ## 5. Testing & Quality (TDD)

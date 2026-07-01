@@ -4,7 +4,7 @@ Shariah compliance is only as strong as the data used for screening.
 
 ## 1. Multi-Source Consensus
 - **Conflict Resolution**: If two data providers (e.g., Zoya and Yahoo Finance) disagree on a ticker's compliance status, the system must **Default to Non-Compliant** (Haram) until human review.
-- **Strict Ratios**: If a ratio (e.g., Debt/Mkt Cap) is within a 2% "Danger Zone" of the 33% limit, the ticker is flagged as "Risky" and Buy orders are restricted.
+- **Strict Ratios**: If a ratio (e.g., Debt/Mkt Cap) is within a 2% "Danger Zone" of the 30% limit (AAOIFI Shari'ah Standard No. 21), the ticker is flagged as "Risky" and Buy orders are restricted.
 
 ## 2. Data Freshness (Stale-Data Guard)
 - **Financial Snapshots**: If a company's financial data is older than 120 days (missing a quarterly update), the system soft-locks the ticker.

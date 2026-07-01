@@ -72,7 +72,7 @@ See [`ibkr_core/core/strategy/base.py`](ibkr_core/core/strategy/base.py) for the
 
 ## Compliance
 
-Screening follows AAOIFI Shariah standards (33% debt-to-asset, 33% cash-to-asset, 5% non-compliant revenue caps by default). Buffers tighten under VIX stress. See [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md).
+Screening follows **AAOIFI Shari'ah Standard No. 21** (30% interest-based debt / market cap; 30% combined cash + interest-bearing securities / market cap — a single gate, not two; 5% non-compliant revenue, all by default). Buffers tighten under VIX stress. The canonical spec is [`COMPLIANCE.md`](COMPLIANCE.md) (see also [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md)).
 
 **Riba (interest), short selling, margin, and gharar-heavy instruments are blocked at the framework level — not just the strategy.**
 

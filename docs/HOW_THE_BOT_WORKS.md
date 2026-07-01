@@ -62,12 +62,12 @@ Weights also **learn from outcomes**: after 50+ resolved signals, the bot blends
 
 ## Step 3 — Shariah Compliance Screen
 
-Before ANY buy, each stock is screened via Zoya/Musaffa APIs:
+Before ANY buy, each stock is screened against our own **AAOIFI Shari'ah Standard No. 21** ratio screen (this is the canonical verdict; certifiers Zoya/Musaffa are advisory and may only *tighten* the result — block on doubt — never loosen it):
 
 | Rule | Limit |
 |------|-------|
-| Total debt / market cap | < 33% |
-| Cash & interest-bearing assets / market cap | < 33% |
+| Total interest-based debt / market cap | < 30% |
+| Cash & interest-bearing securities / market cap (single combined gate) | < 30% |
 | Impure revenue (haram income) | < 5% |
 | Excluded sectors | Gambling, Alcohol, Tobacco, Defense, Weapons, Adult Content, Pork, Conventional Finance, Insurance |
 
