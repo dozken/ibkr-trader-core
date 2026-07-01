@@ -206,6 +206,29 @@ class TestTrader(unittest.IsolatedAsyncioTestCase):
         self.mock_worker.place_order.assert_not_called()
 
     @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
+    async def test_noncompliant_sell_is_not_rejected(self, mock_check):
+        """Divestment is always permitted: a SELL of a HELD position that screens
+        NON-compliant must NOT be blocked by the compliance gate (you must be able to
+        exit a holding that became haram). Only BUYs are gated on compliance."""
+        non_compliant = ComplianceStatus(
+            symbol="AAPL", sector="Conventional Finance", is_compliant=False,
+            debt_to_mkt_cap=0.9, cash_to_mkt_cap=0.1, impure_revenue_pct=0.5,
+            reason="Prohibited sector",
+        )
+        mock_check.return_value = non_compliant
+        self.mock_worker.get_last_price = AsyncMock(return_value=150.0)
+        self.mock_worker.get_positions.return_value = [{"symbol": "AAPL", "quantity": 10}]
+        with patch.object(self.trader, "_is_possession_confirmed", return_value=True):
+            with patch('ibkr_core.features.trading.trader._load_settings',
+                       return_value={**_SETTINGS, "dry_run": True}):
+                trade_req = TradeCreate(symbol="AAPL", quantity=10, side="SELL")
+                trade = await self.trader.execute_trade(trade_req, pre_screened=non_compliant)
+
+        # NOT rejected on compliance — proceeds (dry-run here).
+        self.assertNotEqual(trade.state, TradeState.REJECTED_COMPLIANCE)
+        self.assertEqual(trade.state, TradeState.DRY_RUN)
+
+    @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
     async def test_no_short_guard_blocks_sell_when_not_held(self, mock_check):
         """SELL of an unheld symbol is blocked (would open a short — Rule #1)."""
         mock_check.return_value = _COMPLIANT

@@ -159,9 +159,14 @@ def check_shariah_compliance(
     """
     reasons = []
     ratio_buffer = max(0.0, ratio_buffer)  # a negative buffer must never LOOSEN thresholds
+    # Fail-closed on undeterminable data (COMPLIANCE.md §1): a positive market cap but
+    # missing fundamentals must BLOCK, not pass all-zero ratios as COMPLIANT.
     if mkt_cap <= 0:
-        # Fail-closed: cannot compute AAOIFI ratios without a positive market cap.
         reasons.append("Undeterminable: market cap <= 0")
+    if revenue <= 0:
+        reasons.append("Undeterminable: revenue data missing (cannot screen impure income)")
+    if debt <= 0 and cash <= 0 and interest_bearing_securities <= 0:
+        reasons.append("Undeterminable: balance-sheet data missing (debt+cash+interest-bearing all 0)")
     effective_sectors = _PROHIBITED_SECTORS | set(extra_excluded_sectors)
     for ps in effective_sectors:
         if ps.lower() in sector.lower():
@@ -174,7 +179,9 @@ def check_shariah_compliance(
 
     debt_threshold      = AAOIFI_DEBT_MAX - ratio_buffer / 100
     liquidity_threshold = AAOIFI_LIQUIDITY_MAX - ratio_buffer / 100
-    impure_threshold    = AAOIFI_IMPURE_MAX - ratio_buffer / 100
+    # Floor the impure threshold so a crisis VIX buffer (5pp) can't drive the 5% limit
+    # to 0 and block every name via imp_r >= 0.0.
+    impure_threshold    = max(0.005, AAOIFI_IMPURE_MAX - ratio_buffer / 100)
 
     if debt_ratio >= debt_threshold:
         reasons.append(f"Debt ratio ({debt_ratio:.2%}) >= {debt_threshold:.0%}")
@@ -332,25 +339,37 @@ def _live_shariah_screen_uncached(symbol: str, ratio_buffer_override: float | No
         # See COMPLIANCE.md §1/§3. Liquidity screen B is COMBINED (cash + int-bearing),
         # 30% thresholds, and our screen is authoritative (certifier is advisory below).
         mkt_cap  = financial_data["mkt_cap"]
-        debt_r   = financial_data["debt"] / mkt_cap if mkt_cap > 0 else 0.0
+        debt     = financial_data.get("debt", 0) or 0
         rev      = financial_data.get("revenue") or 0
         imp_r    = financial_data["prohibited_income"] / rev if rev > 0 else 0.0
         cash     = financial_data.get("cash", 0) or 0
         ibs      = financial_data.get("interest_bearing_securities", 0) or 0
+        debt_r   = debt / mkt_cap if mkt_cap > 0 else 0.0
         liq_r    = (cash + ibs) / mkt_cap if mkt_cap > 0 else 0.0
 
         debt_thr = AAOIFI_DEBT_MAX - ratio_buffer / 100
         liq_thr  = AAOIFI_LIQUIDITY_MAX - ratio_buffer / 100
-        imp_thr  = AAOIFI_IMPURE_MAX - ratio_buffer / 100
+        # Floor thresholds at a small epsilon so the VIX buffer can't drive a limit to 0
+        # (impure base is only 5% — a 5pp crisis buffer would otherwise make imp_r>=0.0
+        # block EVERY name). The buffer still tightens, just never to a block-all zero.
+        imp_thr  = max(0.005, AAOIFI_IMPURE_MAX - ratio_buffer / 100)
 
         ratio_note = " · ".join([
             f"Debt {debt_r:.1%}", f"Liquidity {liq_r:.1%} (cash+int-bearing)", f"Impure {imp_r:.2%}",
         ])
 
         ratio_reasons = []
+        # Fail-closed on undeterminable data (COMPLIANCE.md §1): a positive market cap but
+        # missing fundamentals must BLOCK, not silently pass all-zero ratios as COMPLIANT.
+        # A real operating equity has revenue AND some cash/debt on its balance sheet;
+        # all-zero means the data wasn't retrieved (common for foreign/regional tickers
+        # when FMP/AV keys are unset and no certifier verdict exists).
         if mkt_cap <= 0:
-            # Fail-closed: cannot compute AAOIFI ratios without a positive market cap.
             ratio_reasons.append("Undeterminable: market cap <= 0")
+        if rev <= 0:
+            ratio_reasons.append("Undeterminable: revenue data missing (cannot screen impure income)")
+        if debt <= 0 and cash <= 0 and ibs <= 0:
+            ratio_reasons.append("Undeterminable: balance-sheet data missing (debt+cash+interest-bearing all 0)")
         if debt_r >= debt_thr:
             ratio_reasons.append(f"Debt ratio {debt_r:.1%} >= {debt_thr:.0%}")
         if liq_r >= liq_thr:

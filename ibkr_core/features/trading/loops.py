@@ -772,7 +772,17 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                     cooldown_days = int(settings.get("re_entry_cooldown_days", 14))
                     max_corr = float(settings.get("max_correlation", 0.85))
 
+                    # Cross-sectional top-N: signals are sorted best-first (momentum
+                    # confidence), so dispatch at most (max_positions - current) BUYs this
+                    # cycle. Without this the loop could open more than max_positions when
+                    # many candidates pass the per-name filters (budget alone isn't a count cap).
+                    open_slots = max(0, max_positions - len(positions))
+                    dispatched_buys = 0
+
                     for cr in compliance_results:
+                        if dispatched_buys >= open_slots:
+                            logger.info("Top-N cap reached (%d open slots filled) — stopping BUY dispatch.", open_slots)
+                            break
                         exchange = cr.exchange or "NMS"
                         await manager.broadcast(ComplianceResultMessage(payload=ComplianceResultPayload(
                             symbol=cr.symbol,
@@ -814,6 +824,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                                 continue
                         last_symbol = cr.symbol
                         await _dispatch_signal(signal_map[cr.symbol], cr, exchange, trader, manager, settings, account_id=account_id)
+                        dispatched_buys += 1
 
                     # Rebalance SELLs (AI score-based)
                     sell_signals = await get_rebalance_sells(positions, signals)

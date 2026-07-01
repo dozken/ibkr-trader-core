@@ -72,6 +72,39 @@ class TestCompliance(unittest.TestCase):
         self.assertFalse(result.is_compliant)
         self.assertIn("Debt ratio", result.reason)
 
+    def test_missing_revenue_blocks_fail_closed(self):
+        # Positive mkt_cap but no revenue → cannot screen impure income → BLOCKED
+        # (must NOT pass all-zero ratios as COMPLIANT).
+        result = check_shariah_compliance(
+            "NO_REV", debt=10, cash=10, revenue=0,
+            prohibited_income=0, mkt_cap=100, sector="Technology",
+        )
+        self.assertFalse(result.is_compliant)
+        self.assertIn("revenue data missing", result.reason)
+
+    def test_missing_balance_sheet_blocks_fail_closed(self):
+        # Revenue present but debt+cash+interest-bearing all 0 → balance sheet not
+        # retrieved → BLOCKED (a leveraged name whose fundamentals were missing must
+        # not read as COMPLIANT via zero ratios).
+        result = check_shariah_compliance(
+            "NO_BALANCE", debt=0, cash=0, revenue=100,
+            prohibited_income=0, mkt_cap=100, sector="Technology",
+            interest_bearing_securities=0,
+        )
+        self.assertFalse(result.is_compliant)
+        self.assertIn("balance-sheet data missing", result.reason)
+
+    def test_crisis_vix_buffer_does_not_block_clean_name(self):
+        # At VIX>=30 the 5pp buffer would drive the 5% impure threshold to 0, making
+        # imp_r>=0.0 block EVERY name. The floor prevents that: a clean name (0 impure,
+        # low debt/liquidity) must still pass at buffer=5.
+        result = check_shariah_compliance(
+            "CLEAN_CRISIS", debt=5, cash=5, revenue=100,
+            prohibited_income=0, mkt_cap=100, sector="Technology",
+            ratio_buffer=5.0,
+        )
+        self.assertTrue(result.is_compliant)
+
     def test_aaoifi_revenue_ratio_fail(self):
         # TEST: (Prohibited income) / Total Revenue < 5%
         result = check_shariah_compliance(

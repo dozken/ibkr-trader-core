@@ -413,7 +413,12 @@ class Trader:
             )
             secure_log_entry(db, audit_entry)
             
-            if not compliance_status.is_compliant and not force_liquidation:
+            # Compliance gates BUYS only. Divestment (SELL) is ALWAYS permitted — you
+            # must be able to exit a holding that has become non-compliant, so a SELL
+            # is never blocked on compliance (force_liquidation also bypasses, for the
+            # kill-switch audit path). Rule #1 no-short is enforced separately below.
+            if (not compliance_status.is_compliant and not force_liquidation
+                    and trade.side != "SELL"):
                 machine.transition_to(TradeState.REJECTED_COMPLIANCE)
                 trade.state = machine.state
                 self._persist_trade_history(db, trade)
