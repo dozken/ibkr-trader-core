@@ -311,6 +311,10 @@ async def _dispatch_signal(
         # Cooldown gate: skip recent failures to prevent retry storms.
         #   REJECTED_FUNDS BUY: 24h (cash situation unlikely to change fast)
         #   REJECTED_FUNDS SELL: 1h (rare; allow retry)
+        #   REJECTED_COMPLIANCE BUY: 24h (non-halal name won't turn compliant fast)
+        #   REJECTED_COMPLIANCE SELL: 1h (Qabd/T+2 settlement or no-short guard —
+        #     condition can't change within the hour; without this, an exit-signalled
+        #     but unsettled position re-fires + re-logs every 60s until T+2)
         #   IBKR_ERROR: 15min (broker rejected — back off briefly)
         try:
             with SessionLocal() as _db:
@@ -340,6 +344,22 @@ async def _dispatch_signal(
                 if recent_reject:
                     logger.info("Auto-execute skip %s %s — REJECTED_FUNDS within %s",
                                 signal.symbol, signal.action, rej_window)
+                    return
+
+                # REJECTED_COMPLIANCE cooldown (side-aware). SELL blocks are the
+                # Qabd/T+2 settlement guard or the no-short guard — neither clears
+                # within an hour, so re-firing every loop only spams the trade log.
+                comp_window = timedelta(hours=24) if signal.action == "BUY" else timedelta(hours=1)
+                comp_cutoff = now - comp_window
+                recent_comp = _db.query(TradeHistory).filter(
+                    TradeHistory.symbol == signal.symbol,
+                    TradeHistory.side == signal.action,
+                    TradeHistory.state == TradeState.REJECTED_COMPLIANCE,
+                    TradeHistory.created_at >= comp_cutoff,
+                ).first()
+                if recent_comp:
+                    logger.info("Auto-execute skip %s %s — REJECTED_COMPLIANCE within %s",
+                                signal.symbol, signal.action, comp_window)
                     return
         except Exception:
             pass

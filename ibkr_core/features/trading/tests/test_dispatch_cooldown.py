@@ -82,6 +82,57 @@ class TestDispatchCooldown(unittest.IsolatedAsyncioTestCase):
 
         self.trader.execute_trade.assert_not_called()
 
+    async def test_skip_when_recent_rejected_compliance_sell_within_1h(self):
+        """Recent REJECTED_COMPLIANCE SELL (Qabd/T+2 or no-short guard) blocks re-fire for 1h.
+
+        Regression: an exit-signalled but unsettled position was re-dispatching and
+        re-logging a rejected trade every 60s until T+2 settlement (~5760 junk rows).
+        """
+        from ibkr_core.features.trading import loops
+
+        recent_comp = MagicMock()
+        recent_comp.created_at = datetime.utcnow() - timedelta(minutes=10)
+
+        mock_db = MagicMock()
+        mock_query = MagicMock()
+        mock_query.filter.return_value = mock_query
+        # err no, funds no, compliance yes
+        mock_query.first.side_effect = [None, None, recent_comp]
+        mock_db.query.return_value = mock_query
+        mock_session_local = MagicMock()
+        mock_session_local.return_value.__enter__.return_value = mock_db
+
+        with patch.object(loops, "SessionLocal", mock_session_local):
+            await loops._dispatch_signal(
+                _signal(action="SELL"), _COMPLIANCE, "NMS",
+                self.trader, self.manager, _SETTINGS,
+            )
+
+        self.trader.execute_trade.assert_not_called()
+
+    async def test_skip_when_recent_rejected_compliance_buy_within_24h(self):
+        """Recent REJECTED_COMPLIANCE BUY (non-halal name) blocks re-fire for 24h."""
+        from ibkr_core.features.trading import loops
+
+        recent_comp = MagicMock()
+        recent_comp.created_at = datetime.utcnow() - timedelta(hours=3)
+
+        mock_db = MagicMock()
+        mock_query = MagicMock()
+        mock_query.filter.return_value = mock_query
+        mock_query.first.side_effect = [None, None, recent_comp]
+        mock_db.query.return_value = mock_query
+        mock_session_local = MagicMock()
+        mock_session_local.return_value.__enter__.return_value = mock_db
+
+        with patch.object(loops, "SessionLocal", mock_session_local):
+            await loops._dispatch_signal(
+                _signal(symbol="NVDA", action="BUY"), _COMPLIANCE, "NMS",
+                self.trader, self.manager, _SETTINGS,
+            )
+
+        self.trader.execute_trade.assert_not_called()
+
     async def test_skip_sell_with_zero_quantity(self):
         """SELL with quantity=0 must be skipped (IBKR rejects with Error 321)."""
         from ibkr_core.features.trading import loops
