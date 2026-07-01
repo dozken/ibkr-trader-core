@@ -34,9 +34,10 @@ def vix_to_ratio_buffer(vix: float) -> float:
     """
     Maps VIX level to AAOIFI ratio buffer (percentage points to subtract from thresholds).
 
+    Applied to AAOIFI base thresholds 30% / 30% / 5% (debt / liquidity / impure).
     VIX < 20  → 0.0%  (calm — use static setting only)
-    20 ≤ VIX < 30 → 2.0%  (elevated vol — thresholds tighten to 31%/31%/3%)
-    VIX ≥ 30  → 5.0%  (crisis — thresholds tighten to 28%/28%/0%)
+    20 ≤ VIX < 30 → 2.0%  (elevated vol — thresholds tighten to 28%/28%/3%)
+    VIX ≥ 30  → 5.0%  (crisis — thresholds tighten to 25%/25%/0%)
     """
     if vix < 20.0:
         return 0.0

@@ -28,8 +28,8 @@ const ShariahAuditFeed: React.FC<ShariahAuditFeedProps> = ({ audits }) => {
           Live Shariah Audit Feed
         </h2>
         <div className="text-xs text-brand-light/70 font-mono flex gap-4">
-          <span>DEBT &lt; 33%</span>
-          <span>CASH &lt; 33%</span>
+          <span>DEBT &lt; 30%</span>
+          <span>LIQUIDITY &lt; 30%</span>
           <span>IMPURE &lt; 5%</span>
         </div>
       </div>
@@ -64,7 +64,7 @@ const ShariahAuditFeed: React.FC<ShariahAuditFeedProps> = ({ audits }) => {
                     <td
                       className={cn(
                         'table-cell text-sm font-mono',
-                        audit.debt_to_mkt_cap >= 0.33
+                        audit.debt_to_mkt_cap >= 0.30
                           ? 'text-brand-danger font-bold'
                           : 'text-brand-light',
                       )}
@@ -74,7 +74,7 @@ const ShariahAuditFeed: React.FC<ShariahAuditFeedProps> = ({ audits }) => {
                     <td
                       className={cn(
                         'table-cell text-sm font-mono',
-                        audit.cash_to_mkt_cap >= 0.33
+                        audit.cash_to_mkt_cap >= 0.30
                           ? 'text-brand-danger font-bold'
                           : 'text-brand-light',
                       )}

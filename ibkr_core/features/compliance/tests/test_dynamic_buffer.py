@@ -65,7 +65,8 @@ class TestGetCurrentVix(unittest.IsolatedAsyncioTestCase):
 class TestDynamicBufferComplianceEffect(unittest.TestCase):
     """
     Verifies that a stock passing at normal VIX can FAIL under high-VIX buffer.
-    Boundary stock: debt_ratio = 30% (passes 33% threshold, fails 28% threshold at VIX>30).
+    AAOIFI base debt threshold = 30% (COMPLIANCE.md §1). Boundary stock: debt = 27%
+    (passes at 0 buffer, fails at the 25% threshold when VIX>30 applies a 5pp buffer).
     """
 
     def _screen(self, ratio_buffer_override=None):
@@ -73,24 +74,25 @@ class TestDynamicBufferComplianceEffect(unittest.TestCase):
         from ibkr_core.features.compliance.screening import check_shariah_compliance
         return check_shariah_compliance(
             symbol="BOUNDARY_CO",
-            debt=30, cash=5, revenue=100,
+            debt=27, cash=5, revenue=100,
             prohibited_income=1, mkt_cap=100,
             sector="Technology",
             ratio_buffer=ratio_buffer_override if ratio_buffer_override is not None else 0.0,
         )
 
-    def test_30pct_debt_passes_at_zero_buffer(self):
+    def test_27pct_debt_passes_at_zero_buffer(self):
+        # 30% threshold; 27% < 30% → passes
         result = self._screen(ratio_buffer_override=0.0)
         self.assertTrue(result.is_compliant)
 
-    def test_30pct_debt_fails_at_5pct_buffer(self):
-        # 33% - 5% = 28% threshold; 30% debt > 28% → fails
+    def test_27pct_debt_fails_at_5pct_buffer(self):
+        # 30% - 5% = 25% threshold; 27% debt >= 25% → fails
         result = self._screen(ratio_buffer_override=5.0)
         self.assertFalse(result.is_compliant)
         self.assertIn("Debt ratio", result.reason)
 
-    def test_30pct_debt_fails_at_2pct_buffer(self):
-        # 33% - 2% = 31% threshold; 30% < 31% → still passes
+    def test_27pct_debt_passes_at_2pct_buffer(self):
+        # 30% - 2% = 28% threshold; 27% < 28% → still passes
         result = self._screen(ratio_buffer_override=2.0)
         self.assertTrue(result.is_compliant)
 
@@ -139,15 +141,15 @@ class TestLiveScreenWithBufferOverride(unittest.TestCase):
     def test_settings_buffer_is_floor(self):
         """When VIX buffer < settings buffer, settings buffer wins."""
         from ibkr_core.features.compliance.screening import check_shariah_compliance
-        # stock that passes at 2% buffer (31% threshold) but fails at 3% buffer
-        # debt = 32%, cash = 5%, impure = 1% — passes at 0% buffer, fails at 2%
+        # AAOIFI 30% base: debt = 29% — passes at 0% buffer (30% thr),
+        # fails at 2% buffer (28% thr; 29% >= 28%).
         result_zero = check_shariah_compliance(
-            "FLOOR_TEST", debt=32, cash=5, revenue=100,
+            "FLOOR_TEST", debt=29, cash=5, revenue=100,
             prohibited_income=1, mkt_cap=100, sector="Technology",
             ratio_buffer=0.0,
         )
         result_two = check_shariah_compliance(
-            "FLOOR_TEST", debt=32, cash=5, revenue=100,
+            "FLOOR_TEST", debt=29, cash=5, revenue=100,
             prohibited_income=1, mkt_cap=100, sector="Technology",
             ratio_buffer=2.0,
         )

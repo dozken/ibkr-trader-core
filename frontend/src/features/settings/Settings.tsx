@@ -447,7 +447,7 @@ const Settings = () => {
             <Field
               label="Ratio Strictness Buffer (%)"
               htmlFor="ratio_buffer"
-              help={<>Tightens <Abbr>AAOIFI</Abbr> thresholds by this amount. At 2%: debt limit becomes 31% instead of 33%.</>}
+              help={<>Tightens <Abbr>AAOIFI</Abbr> thresholds by this amount. At 2%: debt limit becomes 28% instead of 30%.</>}
             >
               <Input id="ratio_buffer" type="number" min={0} max={10} step={0.5} mono value={settings.ratio_buffer} onChange={(e) => set('ratio_buffer', parseFloat(e.target.value))} />
             </Field>

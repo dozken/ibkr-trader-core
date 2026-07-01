@@ -6,7 +6,7 @@ from typing import Optional
 from ibkr_core.core.state import TradeState, TradeStateMachine
 from ibkr_core.features.trading.schemas import Trade, TradeCreate
 from ibkr_core.features.compliance.schemas import ComplianceStatus
-from ibkr_core.features.compliance.screening import check_shariah_compliance
+from ibkr_core.features.compliance.screening import check_shariah_compliance, async_shariah_screen
 from ibkr_core.core.database import SessionLocal
 from ibkr_core.core.models import Account, TradeHistory, AuditLog, TwapExecution
 from ibkr_core.features.settings.service import load_settings as _load_settings, RISK_STOP_TAKE
@@ -374,7 +374,15 @@ class Trader:
                 compliance_status = pre_screened
             elif pre_screened is not None:
                 compliance_status = pre_screened
+            elif trade.side == "BUY":
+                # No pre-screen on a BUY → run the canonical AAOIFI screen (fail-closed).
+                # NEVER trust defaulted compliance_data: zeros + mkt_cap=1 would pass ANY
+                # symbol as COMPLIANT. This is the single money-path gate for un-pre-screened
+                # BUYs; the canonical screen enforces 30% combined-liquidity + certifier tighten.
+                compliance_status = await async_shariah_screen(trade.symbol)
             else:
+                # SELL without pre-screen → divestment is always permitted (never gated on
+                # compliance). Best-effort snapshot for the audit record only.
                 compliance_status = check_shariah_compliance(
                     symbol=trade.symbol,
                     debt=compliance_data.get("debt", 0),
@@ -383,6 +391,7 @@ class Trader:
                     prohibited_income=compliance_data.get("prohibited_income", 0),
                     mkt_cap=compliance_data.get("mkt_cap", 1),
                     sector=compliance_data.get("sector", "Unknown"),
+                    interest_bearing_securities=compliance_data.get("interest_bearing_securities", 0),
                 )
             trade.compliance_snapshot = compliance_status
             

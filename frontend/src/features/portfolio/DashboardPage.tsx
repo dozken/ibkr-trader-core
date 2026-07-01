@@ -177,8 +177,8 @@ const ComplianceDetail: React.FC<{
   colSpan,
   onVerify,
 }) => {
-  const debtPass = result.debt_to_mkt_cap < 0.33
-  const cashPass = result.cash_to_mkt_cap < 0.33
+  const debtPass = result.debt_to_mkt_cap < 0.30
+  const cashPass = result.cash_to_mkt_cap < 0.30
   const impurePass = result.impure_revenue_pct < 0.05
 
   return (
@@ -220,13 +220,13 @@ const ComplianceDetail: React.FC<{
             <RatioBar
               label="Debt / Market Cap"
               value={result.debt_to_mkt_cap}
-              limit={0.33}
+              limit={0.30}
               pass={debtPass}
             />
             <RatioBar
               label="Cash / Market Cap"
               value={result.cash_to_mkt_cap}
-              limit={0.33}
+              limit={0.30}
               pass={cashPass}
             />
             <RatioBar
@@ -239,7 +239,7 @@ const ComplianceDetail: React.FC<{
 
           {/* Thresholds note */}
           <p className="text-xs text-brand-light/70">
-            AAOIFI thresholds: Debt &lt; 33% · Cash &lt; 33% · Impure Revenue &lt; 5% of market cap
+            AAOIFI thresholds: Debt &lt; 30% · Liquidity &lt; 30% · Impure Revenue &lt; 5% of market cap
           </p>
 
           {/* Source badges */}

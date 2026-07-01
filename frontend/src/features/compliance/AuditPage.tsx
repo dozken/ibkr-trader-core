@@ -44,8 +44,8 @@ const AuditRow: React.FC<{ entry: AuditEntry }> = ({ entry: e }) => {
   const [open, setOpen] = useState(false)
   const compliant = e.shariah_status === 'COMPLIANT'
   const m = e.metrics
-  const debt = threshold(m.debt_to_market_cap, 0.33)
-  const cash = threshold(m.cash_to_market_cap, 0.33)
+  const debt = threshold(m.debt_to_market_cap, 0.30)
+  const cash = threshold(m.cash_to_market_cap, 0.30)
   const impure = threshold(m.impure_revenue_ratio, 0.05)
 
   return (

@@ -109,7 +109,7 @@ const PIPELINE: { icon: React.ElementType; title: string; desc: React.ReactNode 
     title: 'Ratios',
     desc: (
       <>
-        <Abbr>AAOIFI</Abbr> financial screening: Debt/MktCap &lt; 33%, Cash/MktCap &lt; 33%, Impure
+        <Abbr>AAOIFI</Abbr> financial screening: Debt/MktCap &lt; 30%, Liquidity/MktCap &lt; 30%, Impure
         Revenue &lt; 5%. Data from Yahoo Finance.
       </>
     ),
@@ -269,8 +269,8 @@ const ScreeningPage = () => {
     screen(s.symbol)
   }
 
-  const debtPass = result ? result.debt_to_mkt_cap < 0.33 : false
-  const cashPass = result ? result.cash_to_mkt_cap < 0.33 : false
+  const debtPass = result ? result.debt_to_mkt_cap < 0.30 : false
+  const cashPass = result ? result.cash_to_mkt_cap < 0.30 : false
   const impurePass = result ? result.impure_revenue_pct < 0.05 : false
 
   return (
@@ -523,13 +523,13 @@ const ScreeningPage = () => {
                 pass={debtPass}
                 label="Debt / Mkt Cap"
                 value={pct(result.debt_to_mkt_cap)}
-                limit="33%"
+                limit="30%"
               />
               <Check
                 pass={cashPass}
                 label="Cash / Mkt Cap"
                 value={pct(result.cash_to_mkt_cap)}
-                limit="33%"
+                limit="30%"
               />
               <Check
                 pass={impurePass}

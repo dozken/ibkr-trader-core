@@ -14,7 +14,6 @@ from ibkr_core.features.compliance.data_fetcher import (
     normalize_ticker,
     GOLD_ETC_ALLOWLIST,
     SHARIAH_ETF_ALLOWLIST,
-    ZOYA_API_KEY,
 )
 from ibkr_core.features.settings.service import load_settings as _load_settings
 
@@ -28,6 +27,13 @@ _MANUAL_VERIFY_TTL_DAYS = int(os.getenv("MANUAL_VERIFY_TTL_DAYS", 90))
 _screen_cache: dict[str, tuple["ComplianceStatus", float]] = {}
 _cache_lock = Lock()
 _CACHE_TTL_SECONDS = 86400  # 24 hours
+
+# ── AAOIFI Shari'ah Standard No. 21 — canonical thresholds (see COMPLIANCE.md §1) ──
+# A symbol fails if any ratio reaches its threshold. The VIX ratio_buffer only tightens
+# these (subtracts pp), never loosens. 30% is AAOIFI; 33% is Dow Jones Islamic / S&P.
+AAOIFI_DEBT_MAX = 0.30       # interest-based debt / market cap
+AAOIFI_LIQUIDITY_MAX = 0.30  # (cash + interest-bearing securities) / market cap  [COMBINED]
+AAOIFI_IMPURE_MAX = 0.05     # prohibited income / total revenue
 
 _DATA_DIR = Path(os.getenv("DATA_DIR", "data"))
 _MANUAL_FILE = _DATA_DIR / "manual_compliance.json"
@@ -143,26 +149,37 @@ def check_shariah_compliance(
     sector: str,
     ratio_buffer: float = 0.0,
     extra_excluded_sectors: list[str] = [],
+    interest_bearing_securities: float = 0.0,
 ) -> ComplianceStatus:
+    """AAOIFI Standard 21 ratio screen (see COMPLIANCE.md §1).
+
+    Liquidity screen B is COMBINED: (cash + interest_bearing_securities) / mkt_cap
+    against a single 30% limit — not two separate gates. `cash_to_mkt_cap` in the
+    returned status therefore carries this combined liquidity ratio.
+    """
     reasons = []
+    ratio_buffer = max(0.0, ratio_buffer)  # a negative buffer must never LOOSEN thresholds
+    if mkt_cap <= 0:
+        # Fail-closed: cannot compute AAOIFI ratios without a positive market cap.
+        reasons.append("Undeterminable: market cap <= 0")
     effective_sectors = _PROHIBITED_SECTORS | set(extra_excluded_sectors)
     for ps in effective_sectors:
         if ps.lower() in sector.lower():
             reasons.append(f"Prohibited sector: {sector}")
             break
 
-    debt_ratio    = debt / mkt_cap
-    cash_ratio    = cash / mkt_cap
-    revenue_ratio = prohibited_income / revenue if revenue > 0 else 0.0
+    debt_ratio      = debt / mkt_cap if mkt_cap > 0 else 0.0
+    liquidity_ratio = (cash + interest_bearing_securities) / mkt_cap if mkt_cap > 0 else 0.0
+    revenue_ratio   = prohibited_income / revenue if revenue > 0 else 0.0
 
-    debt_threshold    = 0.33 - ratio_buffer / 100
-    cash_threshold    = 0.33 - ratio_buffer / 100
-    impure_threshold  = 0.05 - ratio_buffer / 100
+    debt_threshold      = AAOIFI_DEBT_MAX - ratio_buffer / 100
+    liquidity_threshold = AAOIFI_LIQUIDITY_MAX - ratio_buffer / 100
+    impure_threshold    = AAOIFI_IMPURE_MAX - ratio_buffer / 100
 
     if debt_ratio >= debt_threshold:
         reasons.append(f"Debt ratio ({debt_ratio:.2%}) >= {debt_threshold:.0%}")
-    if cash_ratio >= cash_threshold:
-        reasons.append(f"Cash ratio ({cash_ratio:.2%}) >= {cash_threshold:.0%}")
+    if liquidity_ratio >= liquidity_threshold:
+        reasons.append(f"Liquidity ratio ({liquidity_ratio:.2%}) >= {liquidity_threshold:.0%} (cash+interest-bearing)")
     if revenue_ratio >= impure_threshold:
         reasons.append(f"Prohibited income ({revenue_ratio:.2%}) >= {impure_threshold:.0%}")
 
@@ -170,7 +187,7 @@ def check_shariah_compliance(
         symbol=symbol, sector=sector,
         is_compliant=len(reasons) == 0,
         debt_to_mkt_cap=debt_ratio,
-        cash_to_mkt_cap=cash_ratio,
+        cash_to_mkt_cap=liquidity_ratio,
         impure_revenue_pct=revenue_ratio,
         reason="; ".join(reasons) if reasons else None,
     )
@@ -183,6 +200,7 @@ def _live_shariah_screen_uncached(symbol: str, ratio_buffer_override: float | No
         ratio_buffer: float = settings.get("ratio_buffer", 0.0)
         if ratio_buffer_override is not None:
             ratio_buffer = max(ratio_buffer, ratio_buffer_override)
+        ratio_buffer = max(0.0, ratio_buffer)  # a negative buffer must never LOOSEN thresholds
         extra_excluded_sectors: list[str] = settings.get("sector_exclusion", [])
 
         # ── Static allowlists — short-circuit before any network call ─────────────
@@ -310,52 +328,65 @@ def _live_shariah_screen_uncached(symbol: str, ratio_buffer_override: float | No
                 sources_detail=sources_detail,
             )
 
-        # ── AAOIFI ratio screening (our own independent assessment) ───────────────
+        # ── AAOIFI Standard 21 ratio screening — our CANONICAL assessment ─────────
+        # See COMPLIANCE.md §1/§3. Liquidity screen B is COMBINED (cash + int-bearing),
+        # 30% thresholds, and our screen is authoritative (certifier is advisory below).
         mkt_cap  = financial_data["mkt_cap"]
-        debt_r   = financial_data["debt"] / mkt_cap
-        cash_r   = financial_data["cash"] / mkt_cap
+        debt_r   = financial_data["debt"] / mkt_cap if mkt_cap > 0 else 0.0
         rev      = financial_data.get("revenue") or 0
         imp_r    = financial_data["prohibited_income"] / rev if rev > 0 else 0.0
+        cash     = financial_data.get("cash", 0) or 0
+        ibs      = financial_data.get("interest_bearing_securities", 0) or 0
+        liq_r    = (cash + ibs) / mkt_cap if mkt_cap > 0 else 0.0
 
-        # Interest-bearing securities / market cap (AAOIFI Standard 21)
-        ibs = financial_data.get("interest_bearing_securities", 0)
-        ibs_r = ibs / mkt_cap if mkt_cap > 0 and ibs > 0 else 0.0
+        debt_thr = AAOIFI_DEBT_MAX - ratio_buffer / 100
+        liq_thr  = AAOIFI_LIQUIDITY_MAX - ratio_buffer / 100
+        imp_thr  = AAOIFI_IMPURE_MAX - ratio_buffer / 100
 
-        ratio_parts = [f"Debt {debt_r:.1%}", f"Cash {cash_r:.1%}", f"Impure {imp_r:.2%}"]
-        if ibs_r > 0:
-            ratio_parts.append(f"Interest-bearing securities {ibs_r:.1%} of mktcap")
-        ratio_note = " · ".join(ratio_parts)
+        ratio_note = " · ".join([
+            f"Debt {debt_r:.1%}", f"Liquidity {liq_r:.1%} (cash+int-bearing)", f"Impure {imp_r:.2%}",
+        ])
 
         ratio_reasons = []
-        if debt_r >= (0.33 - ratio_buffer / 100):
-            ratio_reasons.append(f"Debt ratio {debt_r:.1%} >= {0.33 - ratio_buffer / 100:.0%}")
-        if cash_r >= (0.33 - ratio_buffer / 100):
-            ratio_reasons.append(f"Cash ratio {cash_r:.1%} >= {0.33 - ratio_buffer / 100:.0%}")
-        if imp_r >= (0.05 - ratio_buffer / 100):
-            ratio_reasons.append(f"Impure revenue {imp_r:.2%} >= {0.05 - ratio_buffer / 100:.0%}")
-        if ibs_r >= 0.33:
-            ratio_reasons.append(f"Interest-bearing securities {ibs_r:.1%} >= 33% of market cap")
+        if mkt_cap <= 0:
+            # Fail-closed: cannot compute AAOIFI ratios without a positive market cap.
+            ratio_reasons.append("Undeterminable: market cap <= 0")
+        if debt_r >= debt_thr:
+            ratio_reasons.append(f"Debt ratio {debt_r:.1%} >= {debt_thr:.0%}")
+        if liq_r >= liq_thr:
+            ratio_reasons.append(f"Liquidity ratio {liq_r:.1%} >= {liq_thr:.0%} (cash+interest-bearing)")
+        if imp_r >= imp_thr:
+            ratio_reasons.append(f"Impure revenue {imp_r:.2%} >= {imp_thr:.0%}")
 
         ratio_verdict = "COMPLIANT" if len(ratio_reasons) == 0 else "NON_COMPLIANT"
         for src in financial_data.get("sources", ["YahooFinance"]):
             sources_detail.append(SourceResult(source=src, verdict=ratio_verdict, note=ratio_note))
 
+        # Certifier (Zoya/Musaffa) is ADVISORY (COMPLIANCE.md §3): our AAOIFI screen is the
+        # canonical verdict, but a certifier may only TIGHTEN it (fail-closed on doubt), never
+        # loosen it. Record corroboration; on conflict log a DISAGREEMENT, and if the certifier
+        # flags non-compliant/doubtful while our ratios pass, block anyway (fail-closed).
         if verdict:
-            zoya_is_live = ZOYA_API_KEY and not ZOYA_API_KEY.startswith("sandbox-")
-            if zoya_is_live:
-                # Live Zoya key — authoritative, trust their verdict
-                is_compliant = verdict["compliant"] and not verdict.get("doubtful")
-                v = "COMPLIANT" if is_compliant else ("DOUBTFUL" if verdict.get("doubtful") else "NON_COMPLIANT")
-                return ComplianceStatus(
-                    symbol=symbol, company_name=company_name, sector=financial_data["sector"],
-                    is_compliant=is_compliant, verdict=v,
-                    debt_to_mkt_cap=debt_r, cash_to_mkt_cap=cash_r, impure_revenue_pct=imp_r,
-                    reason=verdict.get("status") if not is_compliant else None,
-                    data_source="+".join([*verdict["sources"], *financial_data.get("sources", [])]),
-                    exchange=financial_data.get("exchange", "NMS"),
-                    sources_detail=sources_detail,
+            certifier_compliant = verdict["compliant"] and not verdict.get("doubtful")
+            our_compliant = ratio_verdict == "COMPLIANT"
+            if certifier_compliant != our_compliant:
+                srcs = "+".join(verdict.get("sources", [])) or "certifier"
+                logger.warning(
+                    "Shariah DISAGREEMENT %s: certifier(%s)=%s, our AAOIFI screen=%s",
+                    symbol, srcs,
+                    "COMPLIANT" if certifier_compliant else "NON_COMPLIANT", ratio_verdict,
                 )
-            # Sandbox Zoya — advisory only, our AAOIFI ratios decide
+                sources_detail.append(SourceResult(
+                    source="DISAGREEMENT", verdict="REVIEW",
+                    note=(f"Certifier ({srcs}) says "
+                          f"{'COMPLIANT' if certifier_compliant else 'NON_COMPLIANT/DOUBTFUL'}, "
+                          f"our AAOIFI screen says {ratio_verdict}. Our screen is canonical; "
+                          "a non-compliant certifier verdict blocks fail-closed."),
+                ))
+                if our_compliant and not certifier_compliant:
+                    ratio_reasons.append(
+                        f"Certifier ({srcs}) flags non-compliant — blocked fail-closed "
+                        "(our ratios passed; COMPLIANCE.md §3)")
 
         # ── Staleness check ───────────────────────────────────────────────────────
         data_as_of_str = financial_data.get("data_as_of")
@@ -394,7 +425,7 @@ def _live_shariah_screen_uncached(symbol: str, ratio_buffer_override: float | No
             is_compliant=is_compliant,
             verdict="COMPLIANT" if is_compliant else "NON_COMPLIANT",
             debt_to_mkt_cap=debt_r,
-            cash_to_mkt_cap=cash_r,
+            cash_to_mkt_cap=liq_r,
             impure_revenue_pct=imp_r,
             reason=reason_str,
             data_source="+".join(financial_data.get("sources", ["YahooFinance"])),

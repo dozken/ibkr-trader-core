@@ -156,6 +156,38 @@ class TestTrader(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(trade.state, TradeState.DRY_RUN)
         self.mock_worker.place_bracket_order.assert_not_called()
 
+    @patch('ibkr_core.features.trading.trader.async_shariah_screen', new_callable=AsyncMock)
+    @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
+    async def test_unpre_screened_buy_uses_canonical_screen(self, mock_check, mock_async_screen):
+        """A BUY with no pre_screened must run the canonical AAOIFI screen (fail-closed),
+        NOT check_shariah_compliance with defaulted data (which would pass any symbol)."""
+        mock_async_screen.return_value = _COMPLIANT
+        self.mock_worker.get_available_funds.return_value = 10000.0
+        self.mock_worker.get_net_liquidation.return_value = 10000.0
+        with patch('ibkr_core.features.trading.trader._load_settings',
+                   return_value={**_SETTINGS, "dry_run": True}):
+            trade_req = TradeCreate(symbol="AAPL", quantity=5, side="BUY")
+            trade = await self.trader.execute_trade(trade_req)  # no pre_screened
+
+        mock_async_screen.assert_awaited_once_with("AAPL")
+        mock_check.assert_not_called()  # defaulted-data helper must NOT gate the BUY
+        self.assertEqual(trade.state, TradeState.DRY_RUN)  # passed compliance
+
+    @patch('ibkr_core.features.trading.trader.async_shariah_screen', new_callable=AsyncMock)
+    async def test_unpre_screened_buy_blocked_when_screen_non_compliant(self, mock_async_screen):
+        """Canonical screen says NON_COMPLIANT → BUY rejected, no order placed."""
+        mock_async_screen.return_value = ComplianceStatus(
+            symbol="HARAM", sector="Conventional Finance", is_compliant=False,
+            debt_to_mkt_cap=0.5, cash_to_mkt_cap=0.1, impure_revenue_pct=0.9,
+            reason="Prohibited sector",
+        )
+        trade_req = TradeCreate(symbol="HARAM", quantity=5, side="BUY")
+        trade = await self.trader.execute_trade(trade_req)  # no pre_screened
+
+        self.assertEqual(trade.state, TradeState.REJECTED_COMPLIANCE)
+        self.mock_worker.place_bracket_order.assert_not_called()
+        self.mock_worker.place_order.assert_not_called()
+
     @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
     async def test_execute_sell_dry_run_state(self, mock_check):
         """When dry_run=True, SELL should also transition to DRY_RUN."""

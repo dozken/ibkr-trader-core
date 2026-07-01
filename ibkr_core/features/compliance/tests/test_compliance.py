@@ -3,23 +3,74 @@ from ibkr_core.features.compliance.screening import check_shariah_compliance
 
 class TestCompliance(unittest.TestCase):
     def test_aaoifi_debt_ratio_fail(self):
-        # TEST: Stock with > 33% debt should fail
-        # Citing COMPLIANCE.md Section 2
+        # TEST: debt / mkt_cap >= 30% should fail (AAOIFI Std 21; COMPLIANCE.md §1-A)
         result = check_shariah_compliance(
-            "DEBT_HEAVY_CO", debt=40, cash=5, revenue=100, 
+            "DEBT_HEAVY_CO", debt=40, cash=5, revenue=100,
             prohibited_income=1, mkt_cap=100, sector="Technology"
         )
         self.assertFalse(result.is_compliant)
         self.assertIn("Debt ratio", result.reason)
 
     def test_aaoifi_cash_ratio_fail(self):
-        # TEST: (Cash + Interest-bearing securities) / Market Cap < 33%
+        # TEST: (cash + interest-bearing securities) / mkt_cap >= 30% should fail
+        # (combined AAOIFI liquidity screen; COMPLIANCE.md §1-B)
         result = check_shariah_compliance(
-            "CASH_HEAVY_CO", debt=10, cash=35, revenue=100, 
+            "CASH_HEAVY_CO", debt=10, cash=35, revenue=100,
             prohibited_income=1, mkt_cap=100, sector="Technology"
         )
         self.assertFalse(result.is_compliant)
-        self.assertIn("Cash ratio", result.reason)
+        self.assertIn("Liquidity ratio", result.reason)
+
+    def test_aaoifi_liquidity_is_combined_cash_plus_interest_bearing(self):
+        # Cash 20% alone passes; interest-bearing securities 15% alone passes;
+        # but COMBINED 35% >= 30% must FAIL (COMPLIANCE.md §1-B — single combined gate).
+        passes = check_shariah_compliance(
+            "LIQ_CASH_ONLY", debt=10, cash=20, revenue=100,
+            prohibited_income=1, mkt_cap=100, sector="Technology",
+            interest_bearing_securities=0,
+        )
+        self.assertTrue(passes.is_compliant)
+        fails = check_shariah_compliance(
+            "LIQ_COMBINED", debt=10, cash=20, revenue=100,
+            prohibited_income=1, mkt_cap=100, sector="Technology",
+            interest_bearing_securities=15,
+        )
+        self.assertFalse(fails.is_compliant)
+        self.assertIn("Liquidity ratio", fails.reason)
+
+    def test_aaoifi_debt_30pct_boundary_fails(self):
+        # Exactly 30% debt must FAIL (threshold is inclusive: ratio must be < 30%).
+        result = check_shariah_compliance(
+            "BOUNDARY30", debt=30, cash=5, revenue=100,
+            prohibited_income=1, mkt_cap=100, sector="Technology",
+        )
+        self.assertFalse(result.is_compliant)
+        # 29% debt passes.
+        ok = check_shariah_compliance(
+            "BOUNDARY29", debt=29, cash=5, revenue=100,
+            prohibited_income=1, mkt_cap=100, sector="Technology",
+        )
+        self.assertTrue(ok.is_compliant)
+
+    def test_mkt_cap_zero_blocks_fail_closed(self):
+        # Non-positive market cap → undeterminable → BLOCKED (not a silent pass).
+        result = check_shariah_compliance(
+            "NO_MKTCAP", debt=0, cash=0, revenue=100,
+            prohibited_income=0, mkt_cap=0, sector="Technology",
+        )
+        self.assertFalse(result.is_compliant)
+        self.assertIn("market cap", result.reason)
+
+    def test_negative_ratio_buffer_cannot_loosen(self):
+        # A negative buffer must NEVER loosen thresholds. 32% debt fails at AAOIFI 30%
+        # and must still fail even if a negative buffer tries to widen the limit.
+        result = check_shariah_compliance(
+            "NEG_BUFFER", debt=32, cash=5, revenue=100,
+            prohibited_income=1, mkt_cap=100, sector="Technology",
+            ratio_buffer=-10.0,
+        )
+        self.assertFalse(result.is_compliant)
+        self.assertIn("Debt ratio", result.reason)
 
     def test_aaoifi_revenue_ratio_fail(self):
         # TEST: (Prohibited income) / Total Revenue < 5%
