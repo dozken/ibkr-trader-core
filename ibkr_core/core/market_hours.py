@@ -259,6 +259,17 @@ def infer_exchange_from_symbol(symbol: str) -> str:
     return "NMS"
 
 
+def resolve_exchange(symbol: str, exchange: str = "NMS") -> str:
+    """Trading-path exchange resolution. Callers historically default
+    `exchange` to "NMS" (or compliance returns None), which would route a
+    suffixed foreign listing as a US contract AND gate it by US hours.
+    Infer the home exchange from the suffix when the caller's value is the
+    US default/empty; respect any explicit non-US value."""
+    if exchange in (None, "", "NMS"):
+        return infer_exchange_from_symbol(symbol)
+    return exchange
+
+
 def any_market_open(exchange_codes: Optional[list] = None) -> bool:
     """True if any tracked exchange is open. Used to gate global discovery."""
     if exchange_codes is None:

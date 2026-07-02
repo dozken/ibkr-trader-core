@@ -184,7 +184,13 @@ async def _check_pullback_async(symbol: str, worker=None) -> tuple[bool, str]:
             return _compute_pullback(bars[2])
     return await asyncio.to_thread(_check_pullback_entry, symbol)
 
-from ibkr_core.core.market_hours import market_status, is_in_trading_window
+from ibkr_core.core.market_hours import (
+    market_status,
+    is_in_trading_window,
+    is_market_open,
+    infer_exchange_from_symbol,
+    resolve_exchange,
+)
 from ibkr_core.core.health_utils import set_loop_error
 from ibkr_core.core.websocket import ConnectionManager, WSBaseMessage
 from ibkr_core.features.alerts.dispatcher import alert as send_alert
@@ -515,22 +521,38 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
 
             start_off = int(settings.get("trading_start_offset_min", 30))
             end_off = int(settings.get("trading_end_offset_min", 30))
-            if not is_in_trading_window("NMS", start_off, end_off):
-                logger.info("main_loop: outside trading window — skipping cycle.")
+
+            # ── Follow-the-sun gate ──────────────────────────────────────────
+            # Gate per-exchange, not globally on NMS (which froze exits for any
+            # foreign position ~24/6). A cycle runs when ANY exchange relevant
+            # to this account — watchlist names' or held positions' home
+            # exchanges — has an OPEN session; symbol-level work below then
+            # re-checks its own exchange. Exits gate on the raw session
+            # (protective sells deserve the full session); BUY dispatch keeps
+            # the offset liquidity buffer per exchange.
+            loop = asyncio.get_running_loop()
+            positions = await loop.run_in_executor(None, worker.get_positions)
+            relevant_exchanges = {"NMS"}
+            relevant_exchanges |= {
+                infer_exchange_from_symbol(s) for s in settings.get("watchlist", [])
+            }
+            relevant_exchanges |= {
+                infer_exchange_from_symbol(p.get("symbol", "")) for p in positions
+            }
+            open_exchanges = {c for c in relevant_exchanges if is_market_open(c)}
+            if not open_exchanges:
+                logger.info("main_loop: no relevant exchange in session — skipping cycle.")
                 await asyncio.sleep(60)
                 continue
 
             # Skip buying a symbol if it already has a pending BUY order (avoid duplicate entries).
             # Protective SELL orders (take-profit, stop-loss) don't block new BUYs for other symbols.
-            open_orders = await asyncio.get_running_loop().run_in_executor(None, worker.get_open_orders)
+            open_orders = await loop.run_in_executor(None, worker.get_open_orders)
             pending_buy_symbols = {
                 o.get("symbol") for o in open_orders
                 if o.get("action") == "BUY"
                 and o.get("status") in ("PendingSubmit", "Submitted", "PreSubmitted")
             }
-
-            loop = asyncio.get_running_loop()
-            positions = await loop.run_in_executor(None, worker.get_positions)
             max_positions = int(settings.get("max_positions", 15))
             available_cash = await asyncio.to_thread(worker.get_available_funds)
             min_trade = float(settings.get("min_trade_size", 50))
@@ -568,6 +590,10 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                 qty       = float(pos.get("quantity") or 0)
                 mkt_val   = float(pos.get("market_value") or 0)
                 if avg_cost <= 0 or qty <= 0 or symbol in pending_sell_symbols:
+                    continue
+                # Follow-the-sun: only work positions whose home exchange has an
+                # open session — its exits can't fill elsewhere anyway.
+                if not is_market_open(infer_exchange_from_symbol(symbol)):
                     continue
                 cost_basis = avg_cost * qty
                 upnl_pct   = (mkt_val - cost_basis) / cost_basis
@@ -621,7 +647,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                         logger.info("Partial profit trigger %s: %s", symbol, partial_reason)
                         try:
                             cr = live_shariah_screen(symbol)
-                            exchange = cr.exchange or "NMS"
+                            exchange = resolve_exchange(symbol, cr.exchange)
                             if market_status(exchange)["is_open"]:
                                 partial_signal = TradeSignal(
                                     symbol=symbol, action="SELL", confidence=80,
@@ -679,7 +705,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                     logger.info("Exit trigger %s: %s", symbol, exit_reason)
                     try:
                         cr = live_shariah_screen(symbol)
-                        exchange = cr.exchange or "NMS"
+                        exchange = resolve_exchange(symbol, cr.exchange)
                         if market_status(exchange)["is_open"]:
                             exit_signal = TradeSignal(
                                 symbol=symbol, action="SELL", confidence=95,
@@ -728,7 +754,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                     try:
                         from ibkr_core.features.compliance.screening import live_shariah_screen
                         cr = live_shariah_screen(sym)
-                        exchange = cr.exchange or "NMS"
+                        exchange = resolve_exchange(sym, cr.exchange)
                         if market_status(exchange)["is_open"]:
                             trim_signal = TradeSignal(
                                 symbol=sym, action="SELL", confidence=75,
@@ -803,7 +829,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                         if dispatched_buys >= open_slots:
                             logger.info("Top-N cap reached (%d open slots filled) — stopping BUY dispatch.", open_slots)
                             break
-                        exchange = cr.exchange or "NMS"
+                        exchange = resolve_exchange(cr.symbol, cr.exchange)
                         await manager.broadcast(ComplianceResultMessage(payload=ComplianceResultPayload(
                             symbol=cr.symbol,
                             is_compliant=cr.is_compliant,
@@ -818,8 +844,8 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                         if not cr.is_compliant:
                             logger.warning(f"Blocked {cr.symbol}: {cr.reason}")
                             continue
-                        if not market_status(exchange)["is_open"]:
-                            logger.info(f"{cr.symbol} ({exchange}) market closed. Skipping.")
+                        if not is_in_trading_window(exchange, start_off, end_off):
+                            logger.info(f"{cr.symbol} ({exchange}) outside its trading window. Skipping BUY.")
                             continue
                         if cr.symbol in pending_buy_symbols:
                             logger.info(f"{cr.symbol} already has pending BUY order — skipping.")
@@ -855,7 +881,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                             cr = sell_map.get(signal.symbol)
                             if cr is None:
                                 continue
-                            exchange = cr.exchange or "NMS"
+                            exchange = resolve_exchange(signal.symbol, cr.exchange)
                             if not market_status(exchange)["is_open"]:
                                 logger.info(f"SELL {signal.symbol} ({exchange}) skipped — market closed.")
                                 continue
@@ -1398,8 +1424,7 @@ async def position_rerating_loop(worker, manager: ConnectionManager, health: dic
                         logger.info("Re-rating SELL: %s score=%d <= threshold=%d", symbol, score, threshold)
                         from ibkr_core.features.compliance.screening import async_shariah_screen
                         cr = await async_shariah_screen(symbol)
-                        exchange = cr.exchange or "NMS"
-                        from ibkr_core.core.market_hours import market_status
+                        exchange = resolve_exchange(symbol, cr.exchange)
                         if market_status(exchange)["is_open"]:
                             signal = TradeSignal(
                                 symbol=symbol, action="SELL", confidence=80,

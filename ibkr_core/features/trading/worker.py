@@ -18,15 +18,11 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# yfinance appends exchange suffixes (6367.T, 0700.HK) that IBKR doesn't accept.
-# Strip them so IBKR gets the bare ticker (6367, 0700).
-_YFINANCE_SUFFIXES = {".T", ".HK", ".KS", ".KQ", ".NS", ".BO", ".AS", ".PA", ".DE", ".L", ".SI", ".KL"}
-
-def _ibkr_symbol(symbol: str) -> str:
-    for suffix in _YFINANCE_SUFFIXES:
-        if symbol.upper().endswith(suffix.upper()):
-            return symbol[: -len(suffix)]
-    return symbol
+# Canonical (yfinance-suffixed) → IBKR bare symbol. Full suffix table +
+# hyphen class-share handling live in core.symbols (the old local set covered
+# only 12 suffixes, so most foreign contracts failed qualification).
+from ibkr_core.core.market_hours import resolve_exchange as _resolve_exchange
+from ibkr_core.core.symbols import from_ibkr, to_ibkr as _ibkr_symbol
 
 
 class IBKRWorker:
@@ -453,7 +449,7 @@ class IBKRWorker:
         from ib_insync import Stock
         async with self._limiter:
             await self._wait_for_pacing()
-            _, _, ibkr_exchange, currency = get_exchange_config(exchange)
+            _, _, ibkr_exchange, currency = get_exchange_config(_resolve_exchange(symbol, exchange))
             contract = Stock(_ibkr_symbol(symbol), ibkr_exchange, currency)
             await self.ib.qualifyContractsAsync(contract)
             for attempt in range(3):
@@ -490,7 +486,7 @@ class IBKRWorker:
         from ib_insync import Stock
         async with self._limiter:
             await self._wait_for_pacing()
-            _, _, ibkr_exchange, currency = get_exchange_config(exchange)
+            _, _, ibkr_exchange, currency = get_exchange_config(_resolve_exchange(symbol, exchange))
             contract = Stock(_ibkr_symbol(symbol), ibkr_exchange, currency)
             await self.ib.qualifyContractsAsync(contract)
             tickers = await self.ib.reqTickersAsync(contract)
@@ -513,7 +509,7 @@ class IBKRWorker:
         from ib_insync import Stock
         async with self._limiter:
             await self._wait_for_pacing()
-            _, _, ibkr_exchange, currency = get_exchange_config(exchange)
+            _, _, ibkr_exchange, currency = get_exchange_config(_resolve_exchange(symbol, exchange))
             contract = Stock(_ibkr_symbol(symbol), ibkr_exchange, currency)
             await self.ib.qualifyContractsAsync(contract)
             # Fetch 30 days of daily bars to be safe for 20-day avg
@@ -535,7 +531,8 @@ class IBKRWorker:
         from ib_insync import Stock
         async with self._limiter:
             await self._wait_for_pacing()
-            contract = Stock(_ibkr_symbol(symbol), 'SMART', 'USD')
+            _, _, ibkr_exchange, currency = get_exchange_config(_resolve_exchange(symbol))
+            contract = Stock(_ibkr_symbol(symbol), ibkr_exchange, currency)
             qualified = await self.ib.qualifyContractsAsync(contract)
             if not qualified:
                 logger.debug("subscribe_ticker: no contract found for %s — skipping", symbol)
@@ -548,7 +545,7 @@ class IBKRWorker:
 
             def on_pending_tickers(tickers):
                 for t in tickers:
-                    if t.contract.symbol == symbol:
+                    if t.contract.symbol == _ibkr_symbol(symbol):
                         # Fix #13: replace informal NaN idiom with math.isnan
                         last = t.close if math.isnan(t.last) else t.last
                         callback({
@@ -584,23 +581,30 @@ class IBKRWorker:
             if _time.time() - ts < self._POSITIONS_CACHE_TTL:
                 return result
 
+        # Keyed by CANONICAL (yfinance-suffixed) symbol so every downstream
+        # guard (no-short, Qabd possession, exit scan) matches TradeHistory /
+        # SignalLog records for foreign listings — IBKR returns bare local
+        # symbols ("ASML" @AEB), which previously made foreign fills invisible.
         portfolio_map: dict = {}
         for item in self.ib.portfolio():
             if self._match_account(item.account):
-                portfolio_map[item.contract.symbol] = item
+                canon = from_ibkr(item.contract.symbol,
+                                  item.contract.primaryExchange or item.contract.exchange)
+                portfolio_map[canon] = item
 
         raw = []
         for p in self.ib.positions():
             if not self._match_account(p.account):
                 continue
-            raw.append(p)
+            raw.append((from_ibkr(p.contract.symbol,
+                                  p.contract.primaryExchange or p.contract.exchange), p))
 
         need_prices = not portfolio_map and raw
         price_map: dict = {}
         if need_prices:
             try:
                 import yfinance as yf
-                symbols = [p.contract.symbol for p in raw]
+                symbols = [canon for canon, _ in raw]
                 df = yf.download(symbols, period="1d", progress=False, threads=True)
                 if not df.empty:
                     close = df["Close"]
@@ -617,8 +621,7 @@ class IBKRWorker:
                 pass
 
         positions = []
-        for p in raw:
-            sym = p.contract.symbol
+        for sym, p in raw:
             item = portfolio_map.get(sym)
             if item:
                 mkt_val = item.marketValue
@@ -646,7 +649,7 @@ class IBKRWorker:
         from ib_insync import Stock
         pending = []
         for pos in positions:
-            _, _, ibkr_exchange, currency = get_exchange_config("NMS")
+            _, _, ibkr_exchange, currency = get_exchange_config(_resolve_exchange(pos["symbol"]))
             contract = Stock(_ibkr_symbol(pos["symbol"]), ibkr_exchange, currency)
             self.ib.qualifyContracts(contract)
             ticker = self.ib.reqMktData(contract, '456', True, False)
@@ -669,9 +672,17 @@ class IBKRWorker:
     async def place_order(self, trade, exchange: str = "NMS") -> int:
         from ib_insync import Stock, MarketOrder, LimitOrder
         from ibkr_core.features.settings.service import load_settings as _ls
-        _, _, ibkr_exchange, currency = get_exchange_config(exchange)
+        _, _, ibkr_exchange, currency = get_exchange_config(_resolve_exchange(trade.symbol, exchange))
         contract = Stock(_ibkr_symbol(trade.symbol), ibkr_exchange, currency)
-        await self.ib.qualifyContractsAsync(contract)
+        qualified = await self.ib.qualifyContractsAsync(contract)
+        # Fail-closed: an unqualified contract (bad suffix strip, wrong venue,
+        # unknown symbol) used to be submitted anyway and die broker-side with
+        # an opaque error. Refuse it here with an actionable message instead.
+        if not qualified or not getattr(qualified[0], "conId", 0):
+            raise ValueError(
+                f"Contract qualification failed for {trade.symbol} "
+                f"({ibkr_exchange}/{currency}) — refusing to submit order"
+            )
         # Fractional shares supported (account has fractional trading enabled).
         # Round to 4dp to satisfy IBKR's fractional precision limit; if the gateway
         # rejects fractional orders, the cancel handler alerts via Telegram.
@@ -745,9 +756,14 @@ class IBKRWorker:
         Ref: COMPLIANCE.md Section 3 (no leverage), BEST_PRACTICES.md Section 1 (kill-switch).
         """
         from ib_insync import Stock
-        _, _, ibkr_exchange, currency = get_exchange_config(exchange)
+        _, _, ibkr_exchange, currency = get_exchange_config(_resolve_exchange(trade.symbol, exchange))
         contract = Stock(_ibkr_symbol(trade.symbol), ibkr_exchange, currency)
-        await self.ib.qualifyContractsAsync(contract)
+        qualified = await self.ib.qualifyContractsAsync(contract)
+        if not qualified or not getattr(qualified[0], "conId", 0):
+            raise ValueError(
+                f"Contract qualification failed for {trade.symbol} "
+                f"({ibkr_exchange}/{currency}) — refusing to submit bracket"
+            )
 
         # Bracket entry is BUY-only: parent buys, children (stop/TP) are SELL exits
         # of the position the BUY opens. A SELL-side bracket would short on the

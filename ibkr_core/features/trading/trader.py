@@ -461,6 +461,30 @@ class Trader:
 
             trade.signal_price = price
 
+            # ── FX normalization ─────────────────────────────────────────────
+            # AvailableFunds/NetLiquidation are ACCOUNT-BASE currency (USD on
+            # these accounts) while `price` is the CONTRACT currency. Budget
+            # math below must use the USD price or a TRY/JPY-priced name gets
+            # over-sized by the FX factor. Order/limit prices stay local.
+            from ibkr_core.core.market_hours import get_exchange_config, resolve_exchange
+            trade_ccy = get_exchange_config(resolve_exchange(trade.symbol, exchange))[3]
+            usd_price = price
+            if trade_ccy != "USD":
+                from ibkr_core.features.compliance.data_fetcher import _get_fx_rate
+                _fx = _get_fx_rate(trade_ccy, "USD")
+                if not _fx:
+                    logger.error("Trade aborted for %s: no %s→USD FX rate — cannot size safely",
+                                 trade.symbol, trade_ccy)
+                    machine.transition_to(TradeState.IBKR_ERROR)
+                    trade.state = machine.state
+                    trade.error_message = (
+                        f"FX rate {trade_ccy}→USD unavailable — refusing to size a "
+                        f"foreign-currency order blind (fail-closed)."
+                    )
+                    self._persist_trade_history(db, trade)
+                    return trade
+                usd_price = price * _fx
+
             if trade.side == 'BUY':
                 available_funds, net_liq = await asyncio.gather(
                     asyncio.to_thread(self.worker.get_available_funds),
@@ -486,7 +510,7 @@ class Trader:
 
                 if trade.quantity == 0:
                     trade.quantity = _calculate_position_size(
-                        available_funds, net_liq, price, settings,
+                        available_funds, net_liq, usd_price, settings,
                         confidence=trade_req.confidence / 100,
                         symbol=trade.symbol,
                         win_probability=getattr(trade_req, "win_probability", None),
@@ -501,12 +525,12 @@ class Trader:
                 # Shrink-to-fit: if requested qty exceeds available funds (race condition
                 # from earlier in-flight orders draining cash), shrink to what we can afford
                 # instead of rejecting. Leave 2% headroom for fees + slippage.
-                if trade.quantity * price > available_funds:
-                    affordable_qty = (available_funds * 0.98) / price
+                if trade.quantity * usd_price > available_funds:
+                    affordable_qty = (available_funds * 0.98) / usd_price
                     if affordable_qty < _MIN_FRACTIONAL_QTY:
                         logger.info(
                             "REJECT_FUNDS %s: cannot afford even fractional (%.4f@$%.2f vs $%.2f)",
-                            trade.symbol, affordable_qty, price, available_funds,
+                            trade.symbol, affordable_qty, usd_price, available_funds,
                         )
                         machine.transition_to(TradeState.REJECTED_FUNDS)
                         trade.state = machine.state
@@ -514,7 +538,7 @@ class Trader:
                         return trade
                     logger.info(
                         "Shrink %s: %.4f → %.4f (cash cap $%.2f @ $%.2f)",
-                        trade.symbol, trade.quantity, affordable_qty, available_funds, price,
+                        trade.symbol, trade.quantity, affordable_qty, available_funds, usd_price,
                     )
                     trade.quantity = affordable_qty
 
@@ -540,7 +564,7 @@ class Trader:
                         return trade
                     trade.quantity = float(whole)
 
-                if _exceeds_concentration_limit(trade.symbol, trade.quantity, price, net_liq, self.worker, settings):
+                if _exceeds_concentration_limit(trade.symbol, trade.quantity, usd_price, net_liq, self.worker, settings):
                     machine.transition_to(TradeState.REJECTED_FUNDS)
                     trade.state = machine.state
                     self._persist_trade_history(db, trade)
