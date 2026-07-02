@@ -34,10 +34,11 @@ def _make_compliance(symbol="NVDA", compliant=True, exchange="NMS"):
     )
 
 
-def _make_worker():
+def _make_worker(positions=None):
     w = MagicMock()
     w.ib = MagicMock()
     w.ib.isConnected.return_value = True
+    w.get_positions.return_value = positions or []
     return w
 
 
@@ -189,6 +190,77 @@ class TestDiscoveryLoopEnabled(unittest.IsolatedAsyncioTestCase):
                 pass
 
         mock_trader.execute_trade.assert_not_called()
+
+    async def test_loop_skips_scan_when_position_cap_reached(self):
+        """No free slots (positions >= max_positions) → discovery scan is skipped
+        entirely; main_loop's trim must never race freshly-overshot fills."""
+        worker = _make_worker(positions=[{"symbol": "AAPL"}, {"symbol": "MSFT"}])
+        health = {"discovery_loop": {"status": "starting", "last_run": None}}
+        settings = {**_SETTINGS_ENABLED, "max_positions": 2}
+
+        call_count = 0
+
+        async def _fake_sleep(n):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                raise asyncio.CancelledError
+
+        with patch("ibkr_core.features.trading.loops.load_settings", return_value=settings), \
+             patch("ibkr_core.features.trading.loops.discover_halal_buys", new_callable=AsyncMock) as mock_discover, \
+             patch("ibkr_core.features.trading.loops._exceeds_daily_loss_limit", return_value=False), \
+             patch("ibkr_core.core.market_hours.any_market_open", return_value=True), \
+             patch("ibkr_core.features.compliance.vix.get_current_vix", return_value=15.0), \
+             patch("asyncio.sleep", side_effect=_fake_sleep):
+            from ibkr_core.features.trading.loops import discovery_loop
+            manager = MagicMock()
+            manager.broadcast = AsyncMock()
+            try:
+                await discovery_loop(worker, manager, health)
+            except asyncio.CancelledError:
+                pass
+
+        mock_discover.assert_not_called()
+
+    async def test_loop_dispatches_at_most_free_slots(self):
+        """3 signals but only 1 free slot (max_positions=2, 1 held) → exactly
+        one BUY dispatched in the cycle, the rest dropped. (Cancel after the
+        FIRST end-of-cycle sleep: the mocked positions never grow, so every
+        extra cycle would legitimately dispatch one more.)"""
+        worker = _make_worker(positions=[{"symbol": "AAPL"}])
+        health = {"discovery_loop": {"status": "starting", "last_run": None}}
+        settings = {**_SETTINGS_ENABLED, "max_positions": 2}
+        signals = [_make_signal(symbol=s, confidence=82) for s in ("NVDA", "AMD", "QCOM")]
+        compliances = [_make_compliance(symbol=s) for s in ("NVDA", "AMD", "QCOM")]
+
+        async def _fake_sleep(n):
+            raise asyncio.CancelledError
+
+        mock_trader = MagicMock()
+        mock_result = MagicMock()
+        mock_result.state = MagicMock()
+        mock_result.state.value = "SUBMITTED"
+        mock_trader.execute_trade = AsyncMock(return_value=mock_result)
+
+        with patch("ibkr_core.features.trading.loops.load_settings", return_value=settings), \
+             patch("ibkr_core.features.trading.loops.discover_halal_buys", new_callable=AsyncMock, return_value=signals), \
+             patch("ibkr_core.features.trading.loops.screen_many", new_callable=AsyncMock, return_value=compliances), \
+             patch("ibkr_core.features.trading.loops.market_status", return_value={"is_open": True}), \
+             patch("ibkr_core.features.trading.loops.Trader", return_value=mock_trader), \
+             patch("ibkr_core.features.trading.loops.send_alert", new_callable=AsyncMock), \
+             patch("ibkr_core.features.trading.loops._exceeds_daily_loss_limit", return_value=False), \
+             patch("ibkr_core.core.market_hours.any_market_open", return_value=True), \
+             patch("ibkr_core.features.compliance.vix.get_current_vix", return_value=15.0), \
+             patch("asyncio.sleep", side_effect=_fake_sleep):
+            from ibkr_core.features.trading.loops import discovery_loop
+            manager = MagicMock()
+            manager.broadcast = AsyncMock()
+            try:
+                await discovery_loop(worker, manager, health)
+            except asyncio.CancelledError:
+                pass
+
+        assert mock_trader.execute_trade.call_count == 1
 
     async def test_health_updated_after_scan(self):
         """health dict is updated with last_run timestamp after each scan."""

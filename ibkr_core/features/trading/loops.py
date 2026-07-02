@@ -1348,12 +1348,31 @@ async def discovery_loop(worker, manager: ConnectionManager, health: dict, accou
                 await asyncio.sleep(3600)
                 continue
 
+            # Respect the portfolio position cap. main_loop enforces it for
+            # watchlist BUYs; without this mirror check, discovery overshoots
+            # max_positions and the trim loop must unwind the excess — thrashing
+            # against the Qabd/T+2 settlement guard on the fresh fills.
+            max_positions = int(settings.get("max_positions", 15))
+            positions = await asyncio.to_thread(worker.get_positions)
+            slots = max_positions - len(positions)
+            if slots <= 0:
+                logger.info("Discovery Loop: positions %d/%d — no free slots, skipping scan.",
+                            len(positions), max_positions)
+                await asyncio.sleep(3600)
+                continue
+
             logger.info("Discovery Loop: scanning market for halal BUYs (VIX=%.1f)...", vix)
             signals = await discover_halal_buys()
 
             if signals:
                 compliance_map = {c.symbol: c for c in await screen_many([s.symbol for s in signals])}
+                dispatched = 0
                 for signal in signals:
+                    if dispatched >= slots:
+                        logger.info("Discovery Loop: dispatched %d BUYs — position cap "
+                                    "%d reached, dropping %d remaining signals.",
+                                    dispatched, max_positions, len(signals) - dispatched)
+                        break
                     compliance = compliance_map.get(signal.symbol)
                     if not compliance or not compliance.is_compliant:
                         continue
@@ -1364,6 +1383,7 @@ async def discovery_loop(worker, manager: ConnectionManager, health: dict, accou
                         signal, compliance, exchange, trader, manager, settings,
                         source="discovery", account_id=account_id,
                     )
+                    dispatched += 1
 
             health["discovery_loop"]["last_run"] = datetime.now().isoformat()
 
