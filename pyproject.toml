@@ -1,6 +1,6 @@
 [project]
 name = "ibkr-trader-core"
-version = "0.3.21"
+version = "0.3.22"
 description = "Shariah-compliant IBKR trading bot framework with pluggable strategies"
 readme = "README.md"
 license = { text = "MIT" }
