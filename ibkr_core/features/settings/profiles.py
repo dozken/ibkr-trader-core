@@ -68,9 +68,9 @@ class StrategyProfile(BaseModel):
             use_kelly_sizing (bool)    -> sizing_mode ("kelly" | "flat")
 
         Only emits the subset of knobs the backtest engine actually consumes.
-        NOTE: trailing_stop_pct, trading_capital_cap and bracket_exits are part
-        of the live profile but are NOT modeled by the sim, so they are
-        deliberately absent here — param parity does not imply behavioral parity.
+        NOTE: trading_capital_cap and bracket_exits are part of the live
+        profile but are NOT modeled by the sim, so they are deliberately
+        absent here — param parity does not imply behavioral parity.
         """
         return {
             "buy_threshold": float(self.buy_threshold),
@@ -80,6 +80,8 @@ class StrategyProfile(BaseModel):
             "max_positions": self.max_positions,
             "max_position_size_pct": self.max_position_size_pct,
             "sizing_mode": "kelly" if self.use_kelly_sizing else "flat",
+            # Close-based trailing stop, modeled by the sim since 2026-07-02.
+            "trailing_stop_pct": self.trailing_stop_pct if self.use_trailing_stop else None,
         }
 
 
