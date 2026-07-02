@@ -1,55 +1,24 @@
-from typing import Any, Dict, Optional, List, Literal
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter
 
 from ibkr_core.features.settings.service import Settings, load_settings, save_settings
-from pydantic import BaseModel
+from pydantic import create_model
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-
-class PartialSettings(BaseModel):
-    """All-optional mirror of Settings used for PATCH (partial update) requests."""
-
-    min_trade_size: Optional[float] = None
-    max_commission_pct: Optional[float] = None
-    cash_reserve_pct: Optional[float] = None
-    max_position_size_pct: Optional[float] = None
-    max_sector_exposure_pct: Optional[float] = None
-    max_positions: Optional[int] = None
-    target_weights: Optional[Dict[str, float]] = None
-    trading_mode: Optional[Literal["MANUAL", "AUTO"]] = None
-    settlement_strictness: Optional[Literal["CONSTRUCTIVE", "PHYSICAL_T2"]] = None
-    purification_automation: Optional[Literal["MANUAL", "AUTO_CALC"]] = None
-    ratio_buffer: Optional[float] = None
-    risk_profile: Optional[Literal["CONSERVATIVE", "BALANCED", "AGGRESSIVE"]] = None
-    sector_exclusion: Optional[List[str]] = None
-    rebalance_frequency: Optional[Literal["DAILY", "WEEKLY"]] = None
-    critical_auto_sell: Optional[bool] = None
-    alert_channels: Optional[List[str]] = None
-    notify_trade_fills: Optional[bool] = None
-    notify_signals: Optional[bool] = None
-    watchlist: Optional[List[str]] = None
-    stop_loss_pct: Optional[float] = None
-    take_profit_pct: Optional[float] = None
-    trailing_stop_pct: Optional[float] = None
-    bracket_exits: Optional[bool] = None
-    trading_capital_cap: Optional[float] = None
-    auto_execute_threshold: Optional[int] = None
-    signal_min_confidence: Optional[int] = None
-    auto_compliance_check: Optional[bool] = None
-    compliance_check_interval_hours: Optional[int] = None
-    cash_sweep_enabled: Optional[bool] = None
-    cash_sweep_interval_min: Optional[int] = None
-    cash_sweep_fallback_etf: Optional[str] = None
-    cash_sweep_fallback_max_pct: Optional[float] = None
-    use_atr_stops: Optional[bool] = None
-    enable_halal_drip: Optional[bool] = None
-    enable_discovery_auto: Optional[bool] = None
-    discovery_interval_hours: Optional[int] = None
-    dry_run: Optional[bool] = None
-    position_size_pct: Optional[float] = None
-    trading_paused: Optional[bool] = None
+# All-optional mirror of Settings used for PATCH (partial update) requests.
+# Generated from Settings so new fields are PATCHable automatically — a
+# hand-maintained copy silently dropped 33 of 72 fields (PATCH returned 200
+# and did nothing for e.g. buy_threshold, enabled_regions, supervised_weight).
+# Note: exclude_none in the handler means a field cannot be PATCHed *to* null.
+PartialSettings = create_model(
+    "PartialSettings",
+    **{
+        name: (Optional[field.annotation], None)
+        for name, field in Settings.model_fields.items()
+    },
+)
 
 
 @router.get("", response_model=Settings)

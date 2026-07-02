@@ -114,3 +114,22 @@ class TestPatchSettings:
         assert response.status_code == 200
         body = response.json()
         assert expected_fields.issubset(set(body.keys()))
+
+    def test_partial_settings_mirrors_every_settings_field(self):
+        """PartialSettings must cover ALL Settings fields — the hand-maintained
+        mirror drifted to 33 missing fields, making PATCH a silent no-op for them."""
+        from ibkr_core.features.settings.router import PartialSettings
+
+        missing = set(Settings.model_fields) - set(PartialSettings.model_fields)
+        assert not missing, f"PartialSettings missing PATCHable fields: {sorted(missing)}"
+
+    def test_patch_previously_dropped_field_now_applies(self, tmp_path):
+        """enabled_regions was one of the silently-dropped fields — must persist now."""
+        _make_settings_file(str(tmp_path), {})
+
+        with patch("ibkr_core.features.settings.service.SETTINGS_DIR", str(tmp_path)):
+            response = client.patch("/api/settings", json={"enabled_regions": ["US", "JP"]})
+            assert response.status_code == 200
+            assert response.json()["enabled_regions"] == ["US", "JP"]
+            # And it round-trips through a subsequent GET (actually saved).
+            assert client.get("/api/settings").json()["enabled_regions"] == ["US", "JP"]
