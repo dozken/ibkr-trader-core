@@ -77,3 +77,47 @@ def from_ibkr(ibkr_symbol: str, primary_exchange: str = "") -> str:
         )
         return stem
     return f"{stem}.{sfx}"
+
+
+# Exchanges yfinance quotes in MINOR units — divide a yfinance price by this
+# before FX/notional math. LSE = pence, JSE = cents. Keyed by exchange code
+# (market_hours). NOTE: this divisor is for YFINANCE-sourced prices; whether
+# IBKR's own tick/avgCost for these venues is minor- or major-unit is
+# broker/contract-config dependent and MUST be confirmed against a live fill
+# before reusing this on an IBKR-sourced value (see to_usd `source`).
+_MINOR_UNIT_DIVISOR: dict = {"LSE": 100, "JNB": 100}
+
+
+def minor_unit_divisor(symbol: str, exchange: str = "") -> int:
+    """yfinance price divisor for the symbol's home exchange (1 if major-unit)."""
+    from ibkr_core.core.market_hours import resolve_exchange
+    return _MINOR_UNIT_DIVISOR.get(resolve_exchange(symbol, exchange), 1)
+
+
+def to_usd(local_price, symbol: str, exchange: str = "", *, source: str = "yfinance"):
+    """Convert a price in the symbol's quote currency to USD.
+
+    `source="yfinance"` (default) divides by the minor-unit divisor first —
+    correct for yfinance-sourced prices (LSE pence, JSE cents). Pass
+    `source="ibkr"` to SKIP the divisor for a value whose minor-unit basis is
+    the broker's (an IBKR last-price or avgCost) and is NOT yet verified — do
+    the FX conversion only. Either way the FX leg (quote-ccy → USD) is applied.
+
+    Returns None when a required non-USD FX rate is unavailable — callers MUST
+    fail closed (never size or value a position on a blind rate). USD symbols
+    return the price unchanged.
+    """
+    if local_price is None:
+        return None
+    from ibkr_core.core.market_hours import get_exchange_config, resolve_exchange
+    exch = resolve_exchange(symbol, exchange)
+    ccy = get_exchange_config(exch)[3]
+    divisor = _MINOR_UNIT_DIVISOR.get(exch, 1) if source == "yfinance" else 1
+    major = float(local_price) / divisor
+    if ccy == "USD":
+        return major
+    from ibkr_core.features.compliance.data_fetcher import _get_fx_rate
+    fx = _get_fx_rate(ccy, "USD")
+    if not fx:
+        return None
+    return major * fx

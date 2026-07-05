@@ -193,3 +193,54 @@ class TestFxAwareSizing(unittest.IsolatedAsyncioTestCase):
         self.assertIn("FX rate", trade.error_message)
         self.mock_worker.place_order.assert_not_called()
         self.mock_worker.place_bracket_order.assert_not_called()
+
+
+class TestToUsd(unittest.TestCase):
+    """Shared price→USD normalization (symbols.to_usd). yfinance-sourced prices
+    get the minor-unit divisor (LSE pence); source='ibkr' skips it (broker unit
+    unverified) but still applies FX. Missing non-USD rate → None (fail closed).
+    """
+
+    def test_usd_symbol_passthrough_no_fx(self):
+        from ibkr_core.core.symbols import to_usd
+        # No FX lookup should happen for a USD name; patch to explode if called.
+        with patch("ibkr_core.features.compliance.data_fetcher._get_fx_rate",
+                   side_effect=AssertionError("FX must not be called for USD")):
+            self.assertAlmostEqual(to_usd(100.0, "AAPL"), 100.0)
+
+    def test_eur_applies_fx_no_divisor(self):
+        from ibkr_core.core.symbols import to_usd
+        with patch("ibkr_core.features.compliance.data_fetcher._get_fx_rate",
+                   return_value=1.1):
+            self.assertAlmostEqual(to_usd(100.0, "ASML.AS"), 110.0)
+
+    def test_lse_yfinance_divides_pence_then_fx(self):
+        from ibkr_core.core.symbols import to_usd
+        with patch("ibkr_core.features.compliance.data_fetcher._get_fx_rate",
+                   return_value=1.27):
+            # 14456 pence → 144.56 GBP → * 1.27 = 183.59 USD
+            self.assertAlmostEqual(to_usd(14456.0, "AZN.L"), 144.56 * 1.27, places=4)
+
+    def test_lse_ibkr_source_skips_divisor(self):
+        from ibkr_core.core.symbols import to_usd
+        with patch("ibkr_core.features.compliance.data_fetcher._get_fx_rate",
+                   return_value=1.27):
+            # Broker unit unverified → no /100, FX only.
+            self.assertAlmostEqual(to_usd(144.56, "AZN.L", source="ibkr"),
+                                   144.56 * 1.27, places=4)
+
+    def test_missing_fx_returns_none(self):
+        from ibkr_core.core.symbols import to_usd
+        with patch("ibkr_core.features.compliance.data_fetcher._get_fx_rate",
+                   return_value=None):
+            self.assertIsNone(to_usd(100.0, "ASML.AS"))
+
+    def test_none_price_returns_none(self):
+        from ibkr_core.core.symbols import to_usd
+        self.assertIsNone(to_usd(None, "AAPL"))
+
+    def test_minor_unit_divisor_lookup(self):
+        from ibkr_core.core.symbols import minor_unit_divisor
+        self.assertEqual(minor_unit_divisor("AZN.L"), 100)
+        self.assertEqual(minor_unit_divisor("ASML.AS"), 1)
+        self.assertEqual(minor_unit_divisor("AAPL"), 1)
