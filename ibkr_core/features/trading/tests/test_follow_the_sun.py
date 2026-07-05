@@ -221,13 +221,13 @@ class TestToUsd(unittest.TestCase):
             # 14456 pence → 144.56 GBP → * 1.27 = 183.59 USD
             self.assertAlmostEqual(to_usd(14456.0, "AZN.L"), 144.56 * 1.27, places=4)
 
-    def test_lse_ibkr_source_skips_divisor(self):
+    def test_lse_divisor_applies_to_both_feeds(self):
         from ibkr_core.core.symbols import to_usd
         with patch("ibkr_core.features.compliance.data_fetcher._get_fx_rate",
                    return_value=1.27):
-            # Broker unit unverified → no /100, FX only.
-            self.assertAlmostEqual(to_usd(144.56, "AZN.L", source="ibkr"),
-                                   144.56 * 1.27, places=4)
+            # IBKR get_last_price returns pence for LSE too (confirmed AZN.L=14456),
+            # so the divisor applies regardless of feed.
+            self.assertAlmostEqual(to_usd(14456.0, "AZN.L"), 144.56 * 1.27, places=4)
 
     def test_missing_fx_returns_none(self):
         from ibkr_core.core.symbols import to_usd
@@ -244,3 +244,38 @@ class TestToUsd(unittest.TestCase):
         self.assertEqual(minor_unit_divisor("AZN.L"), 100)
         self.assertEqual(minor_unit_divisor("ASML.AS"), 1)
         self.assertEqual(minor_unit_divisor("AAPL"), 1)
+
+
+class TestGetPositionsUsd(unittest.TestCase):
+    """get_positions must report avg_cost/market_value in one currency (USD):
+    IBKR gives avgCost in the contract quote unit (EUR, LSE pence) but
+    marketValue in base USD — mixing them broke foreign exit math."""
+
+    def test_avg_cost_normalized_to_usd(self):
+        w = _mk_worker()
+        w.ib.portfolio.return_value = []          # force the local-price / avgCost path
+        w.ib.positions.return_value = [
+            SimpleNamespace(account="DU1",
+                contract=SimpleNamespace(symbol="ASML", primaryExchange="AEB", exchange=""),
+                position=2.0, avgCost=500.0),                # EUR major
+            SimpleNamespace(account="DU1",
+                contract=SimpleNamespace(symbol="AZN", primaryExchange="LSE", exchange=""),
+                position=10.0, avgCost=14456.0),             # GBP pence
+            SimpleNamespace(account="DU1",
+                contract=SimpleNamespace(symbol="AAPL", primaryExchange="NASDAQ", exchange=""),
+                position=3.0, avgCost=290.0),                # USD
+        ]
+
+        def _fx(frm, to):
+            return {"EUR": 1.1, "GBP": 1.27}.get(frm, 1.0)
+
+        with patch("yfinance.download", side_effect=Exception("offline")), \
+             patch("ibkr_core.features.compliance.data_fetcher._get_fx_rate", side_effect=_fx):
+            positions = w.get_positions()
+
+        by = {p["symbol"]: p for p in positions}
+        self.assertAlmostEqual(by["ASML.AS"]["avg_cost"], 500.0 * 1.1, places=2)
+        self.assertAlmostEqual(by["AZN.L"]["avg_cost"], 144.56 * 1.27, places=2)  # pence/100 then FX
+        self.assertAlmostEqual(by["AAPL"]["avg_cost"], 290.0, places=2)           # USD no-op
+        # else-branch market_value = qty * avg_cost_usd (consistent unit)
+        self.assertAlmostEqual(by["ASML.AS"]["market_value"], 2.0 * 500.0 * 1.1, places=2)

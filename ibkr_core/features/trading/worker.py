@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # hyphen class-share handling live in core.symbols (the old local set covered
 # only 12 suffixes, so most foreign contracts failed qualification).
 from ibkr_core.core.market_hours import resolve_exchange as _resolve_exchange
-from ibkr_core.core.symbols import from_ibkr, to_ibkr as _ibkr_symbol
+from ibkr_core.core.symbols import from_ibkr, to_ibkr as _ibkr_symbol, to_usd
 
 
 class IBKRWorker:
@@ -620,22 +620,34 @@ class IBKRWorker:
             except Exception:
                 pass
 
+        # All amounts reported in ACCOUNT-BASE currency (USD). IBKR gives
+        # marketValue/unrealizedPNL in base ccy but avgCost in the CONTRACT
+        # quote unit (EUR, or LSE pence) — mixing them broke the exit math's
+        # upnl_pct / current_price for any foreign holding. Normalize avgCost
+        # (and any yfinance-local fallback price) to USD so cost basis and
+        # market value share one unit. USD names are a no-op (no FX lookup).
         positions = []
         for sym, p in raw:
+            qty = p.position
+            avg_cost_usd = to_usd(p.avgCost, sym)
+            if avg_cost_usd is None:  # missing FX — keep raw, flag (exit math may be off)
+                logger.warning("get_positions: no FX for %s — avg_cost stays in local ccy", sym)
+                avg_cost_usd = p.avgCost
             item = portfolio_map.get(sym)
             if item:
-                mkt_val = item.marketValue
+                mkt_val = item.marketValue      # already account-base USD
                 pnl = item.unrealizedPNL
-            elif sym in price_map:
-                mkt_val = p.position * price_map[sym]
-                pnl = mkt_val - p.position * p.avgCost
+            elif sym in price_map:              # yfinance close = LOCAL quote unit
+                px_usd = to_usd(price_map[sym], sym)
+                mkt_val = qty * (px_usd if px_usd is not None else price_map[sym])
+                pnl = mkt_val - qty * avg_cost_usd
             else:
-                mkt_val = p.position * p.avgCost
+                mkt_val = qty * avg_cost_usd
                 pnl = 0.0
             positions.append({
                 "symbol": sym,
-                "quantity": p.position,
-                "avg_cost": p.avgCost,
+                "quantity": qty,
+                "avg_cost": avg_cost_usd,
                 "market_value": mkt_val,
                 "unrealized_pnl": pnl,
                 "exchange": p.contract.primaryExchange or p.contract.exchange or "",

@@ -461,29 +461,28 @@ class Trader:
 
             trade.signal_price = price
 
-            # ── FX normalization ─────────────────────────────────────────────
+            # ── FX + minor-unit normalization ────────────────────────────────
             # AvailableFunds/NetLiquidation are ACCOUNT-BASE currency (USD on
-            # these accounts) while `price` is the CONTRACT currency. Budget
-            # math below must use the USD price or a TRY/JPY-priced name gets
-            # over-sized by the FX factor. Order/limit prices stay local.
-            from ibkr_core.core.market_hours import get_exchange_config, resolve_exchange
-            trade_ccy = get_exchange_config(resolve_exchange(trade.symbol, exchange))[3]
-            usd_price = price
-            if trade_ccy != "USD":
-                from ibkr_core.features.compliance.data_fetcher import _get_fx_rate
-                _fx = _get_fx_rate(trade_ccy, "USD")
-                if not _fx:
-                    logger.error("Trade aborted for %s: no %s→USD FX rate — cannot size safely",
-                                 trade.symbol, trade_ccy)
-                    machine.transition_to(TradeState.IBKR_ERROR)
-                    trade.state = machine.state
-                    trade.error_message = (
-                        f"FX rate {trade_ccy}→USD unavailable — refusing to size a "
-                        f"foreign-currency order blind (fail-closed)."
-                    )
-                    self._persist_trade_history(db, trade)
-                    return trade
-                usd_price = price * _fx
+            # these accounts) while `price` is in the CONTRACT quote currency
+            # AND minor units on some venues (LSE pence — confirmed AZN.L=14456
+            # from IBKR, 2026-07-05). Budget math must use the USD MAJOR-unit
+            # price or a foreign name is mis-sized by the FX factor (and ~100x
+            # more on pence venues). Order/limit prices stay local.
+            from ibkr_core.core.symbols import to_usd
+            usd_price = to_usd(price, trade.symbol, exchange)
+            if usd_price is None:
+                from ibkr_core.core.market_hours import get_exchange_config, resolve_exchange
+                trade_ccy = get_exchange_config(resolve_exchange(trade.symbol, exchange))[3]
+                logger.error("Trade aborted for %s: no %s→USD FX rate — cannot size safely",
+                             trade.symbol, trade_ccy)
+                machine.transition_to(TradeState.IBKR_ERROR)
+                trade.state = machine.state
+                trade.error_message = (
+                    f"FX rate {trade_ccy}→USD unavailable — refusing to size a "
+                    f"foreign-currency order blind (fail-closed)."
+                )
+                self._persist_trade_history(db, trade)
+                return trade
 
             if trade.side == 'BUY':
                 available_funds, net_liq = await asyncio.gather(
