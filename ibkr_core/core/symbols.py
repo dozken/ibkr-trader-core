@@ -47,14 +47,31 @@ _US_VENUES = {
     "ISLAND", "PSE", "CBOE", "NYSENAT", "LTSE", "MEMX", "OTC", "PINK",
 }
 
+# Names whose IBKR localSymbol is NOT derivable by the suffix-strip +
+# hyphen→space rule. LSE trailing-dot EPICs keep the dot as part of the
+# ticker (RR.L → IBKR localSymbol "RR."), which the generic rule would drop.
+# Keyed canonical → (ibkr_localSymbol, ibkr_primaryExchange). Verified on the
+# live paper gateway (2026-07-13).
+_LOCAL_OVERRIDE: dict = {
+    "RR.L": ("RR.", "LSE"),
+    "BA.L": ("BA.", "LSE"),
+    "NG.L": ("NG.", "LSE"),
+}
+_OVERRIDE_INVERSE: dict = {(loc, ex): canon for canon, (loc, ex) in _LOCAL_OVERRIDE.items()}
+
 
 def to_ibkr(symbol: str) -> str:
-    """Canonical yfinance symbol → bare IBKR symbol.
+    """Canonical yfinance symbol → IBKR local symbol.
 
     Strips a KNOWN exchange suffix and converts hyphen class shares to
-    IBKR's space form. Unknown suffixes are left intact (fail-safe: the
-    qualify check at order time rejects garbage cleanly).
+    IBKR's space form ("ATCO-A.ST" → "ATCO A"). This value goes into the
+    contract's localSymbol field for foreign listings (see Worker._stock_contract).
+    Explicit overrides handle tickers the generic rule can't (LSE trailing-dot).
+    Unknown suffixes are left intact (fail-safe: the qualify check at order
+    time rejects garbage cleanly).
     """
+    if symbol in _LOCAL_OVERRIDE:
+        return _LOCAL_OVERRIDE[symbol][0]
     stem = symbol
     if "." in symbol:
         head, _, sfx = symbol.rpartition(".")
@@ -64,9 +81,20 @@ def to_ibkr(symbol: str) -> str:
 
 
 def from_ibkr(ibkr_symbol: str, primary_exchange: str = "") -> str:
-    """IBKR (symbol, primaryExchange) → canonical yfinance symbol."""
-    stem = (ibkr_symbol or "").replace(" ", "-")
+    """IBKR (localSymbol, primaryExchange) → canonical yfinance symbol.
+
+    Pass the contract's localSymbol (NOT the internal `symbol` field): IBKR's
+    `symbol` is an internal ticker that diverges from the local ticker for
+    class shares (VOLV.B) and cross-listed names (SAN→SAN1, AMP→AMP2), which
+    would not round-trip. localSymbol is the exchange-local ticker and inverts
+    cleanly (space→hyphen + venue suffix), with explicit overrides for the
+    LSE trailing-dot EPICs.
+    """
     venue = (primary_exchange or "").upper()
+    key = (ibkr_symbol or "", venue)
+    if key in _OVERRIDE_INVERSE:
+        return _OVERRIDE_INVERSE[key]
+    stem = (ibkr_symbol or "").replace(" ", "-")
     if venue in _US_VENUES:
         return stem
     sfx = _IBKR_TO_SUFFIX.get(venue)

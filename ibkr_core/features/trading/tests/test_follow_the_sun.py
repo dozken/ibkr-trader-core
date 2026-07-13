@@ -57,6 +57,38 @@ class TestSymbolIdentity(unittest.TestCase):
             with self.subTest(symbol=canonical):
                 self.assertEqual(from_ibkr(to_ibkr(canonical), venue), canonical)
 
+    def test_to_ibkr_lse_trailing_dot_overrides(self):
+        # LSE EPICs whose ticker includes a trailing dot — the generic
+        # suffix-strip would drop it. Verified on the live gateway 2026-07-13.
+        self.assertEqual(to_ibkr("RR.L"), "RR.")
+        self.assertEqual(to_ibkr("BA.L"), "BA.")
+        self.assertEqual(to_ibkr("NG.L"), "NG.")
+
+    def test_from_ibkr_lse_trailing_dot_inverse(self):
+        self.assertEqual(from_ibkr("RR.", "LSE"), "RR.L")
+        self.assertEqual(from_ibkr("BA.", "LSE"), "BA.L")
+        self.assertEqual(from_ibkr("NG.", "LSE"), "NG.L")
+
+    def test_round_trip_localsymbol_recovered_eu_names(self):
+        # localSymbol ⇄ canonical for the EU names fixed by the localSymbol
+        # contract builder (B1). from_ibkr takes the exchange-LOCAL ticker
+        # (contract.localSymbol), which for these resolves the intended company:
+        # SAN→Sanofi (not Banco Santander), AMP→Amplifon (not Amper).
+        cases = [
+            ("VOLV-B.ST", "SFB"),
+            ("ERIC-B.ST", "SFB"),
+            ("ASSA-B.ST", "SFB"),
+            ("HEXA-B.ST", "SFB"),
+            ("SAN.PA", "SBF"),
+            ("AMP.MI", "BVME"),
+            ("RR.L", "LSE"),
+            ("BA.L", "LSE"),
+            ("NG.L", "LSE"),
+        ]
+        for canonical, venue in cases:
+            with self.subTest(symbol=canonical):
+                self.assertEqual(from_ibkr(to_ibkr(canonical), venue), canonical)
+
 
 class TestResolveExchange(unittest.TestCase):
     def test_suffixed_symbol_with_us_default_infers_home(self):
@@ -102,11 +134,20 @@ class TestCanonicalPositions(unittest.TestCase):
                 contract=SimpleNamespace(symbol="AAPL", primaryExchange="NASDAQ", exchange=""),
                 position=3.0, avgCost=290.0,
             ),
+            # IBKR returns the DOTTED internal symbol for class shares ("VOLV.B")
+            # but the space-form localSymbol; keying off `symbol` would yield the
+            # bogus "VOLV.B.ST" and orphan the position. Must use localSymbol.
+            SimpleNamespace(
+                account="DU1",
+                contract=SimpleNamespace(symbol="VOLV.B", localSymbol="VOLV B",
+                                         primaryExchange="SFB", exchange=""),
+                position=5.0, avgCost=250.0,
+            ),
         ]
         with patch("yfinance.download", side_effect=Exception("offline")):
             positions = w.get_positions()
         symbols = {p["symbol"] for p in positions}
-        self.assertEqual(symbols, {"ASML.AS", "ATCO-A.ST", "AAPL"})
+        self.assertEqual(symbols, {"ASML.AS", "ATCO-A.ST", "AAPL", "VOLV-B.ST"})
 
 
 class TestQualifyFailClosed(unittest.IsolatedAsyncioTestCase):

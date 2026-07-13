@@ -445,12 +445,33 @@ class IBKRWorker:
             warnings.append("MARGIN account detected — Riba risk, verify cash-only settings")
         return {"account_id": account_id, "account_type": account_type, "warnings": warnings}
 
+    def _stock_contract(self, symbol: str, exchange: str = "NMS"):
+        """Build a qualifiable IBKR contract for a canonical (yfinance) symbol.
+
+        US listings use Stock(local, SMART, ccy) — the proven path, where the
+        local ticker equals IBKR's `symbol`. Foreign listings instead put the
+        exchange-local ticker in the `localSymbol` field and route SMART with a
+        `primaryExchange` disambiguator: IBKR's `symbol` field diverges from the
+        local ticker for class shares (VOLV B) and cross-listed names, so using
+        `symbol` silently fails to qualify. This localSymbol builder qualifies EU
+        class shares, resolves ambiguous cross-listings to the intended company
+        (SAN→Sanofi not Banco Santander, AMP→Amplifon not Amper), and handles
+        trailing-dot LSE EPICs (RR.). Verified 77/82 EU names / 0 regressions on
+        the live paper gateway (2026-07-13). An unqualifiable contract still fails
+        closed at the qualify check in place_order/place_bracket_order.
+        """
+        from ib_insync import Stock, Contract
+        _, _, ibkr_exchange, currency = get_exchange_config(_resolve_exchange(symbol, exchange))
+        local = _ibkr_symbol(symbol)
+        if ibkr_exchange == "SMART":
+            return Stock(local, "SMART", currency)
+        return Contract(secType="STK", localSymbol=local, exchange="SMART",
+                        primaryExchange=ibkr_exchange, currency=currency)
+
     async def get_last_price(self, symbol: str, exchange: str = "NMS") -> float:
-        from ib_insync import Stock
         async with self._limiter:
             await self._wait_for_pacing()
-            _, _, ibkr_exchange, currency = get_exchange_config(_resolve_exchange(symbol, exchange))
-            contract = Stock(_ibkr_symbol(symbol), ibkr_exchange, currency)
+            contract = self._stock_contract(symbol, exchange)
             await self.ib.qualifyContractsAsync(contract)
             for attempt in range(3):
                 tickers = await self.ib.reqTickersAsync(contract)
@@ -483,11 +504,9 @@ class IBKRWorker:
         Retrieves bid, ask, and last price for a symbol.
         Used for slippage calculation.
         """
-        from ib_insync import Stock
         async with self._limiter:
             await self._wait_for_pacing()
-            _, _, ibkr_exchange, currency = get_exchange_config(_resolve_exchange(symbol, exchange))
-            contract = Stock(_ibkr_symbol(symbol), ibkr_exchange, currency)
+            contract = self._stock_contract(symbol, exchange)
             await self.ib.qualifyContractsAsync(contract)
             tickers = await self.ib.reqTickersAsync(contract)
             if not tickers:
@@ -506,11 +525,9 @@ class IBKRWorker:
         Retrieves the 20-day average trading volume.
         Used for liquidity awareness.
         """
-        from ib_insync import Stock
         async with self._limiter:
             await self._wait_for_pacing()
-            _, _, ibkr_exchange, currency = get_exchange_config(_resolve_exchange(symbol, exchange))
-            contract = Stock(_ibkr_symbol(symbol), ibkr_exchange, currency)
+            contract = self._stock_contract(symbol, exchange)
             await self.ib.qualifyContractsAsync(contract)
             # Fetch 30 days of daily bars to be safe for 20-day avg
             bars = await self.ib.reqHistoricalDataAsync(
@@ -528,11 +545,9 @@ class IBKRWorker:
         Calls the callback function whenever a new price update arrives.
         Ref: ARCHITECTURE.md - Communication: WebSockets for real-time data streaming.
         """
-        from ib_insync import Stock
         async with self._limiter:
             await self._wait_for_pacing()
-            _, _, ibkr_exchange, currency = get_exchange_config(_resolve_exchange(symbol))
-            contract = Stock(_ibkr_symbol(symbol), ibkr_exchange, currency)
+            contract = self._stock_contract(symbol)
             qualified = await self.ib.qualifyContractsAsync(contract)
             if not qualified:
                 logger.debug("subscribe_ticker: no contract found for %s — skipping", symbol)
@@ -585,10 +600,15 @@ class IBKRWorker:
         # guard (no-short, Qabd possession, exit scan) matches TradeHistory /
         # SignalLog records for foreign listings — IBKR returns bare local
         # symbols ("ASML" @AEB), which previously made foreign fills invisible.
+        # Round-trip via localSymbol (the exchange-local ticker), NOT the
+        # internal `symbol` field: IBKR's `symbol` diverges from the local ticker
+        # for class shares ("VOLV.B") and cross-listed names ("SAN1"/"AMP2"), which
+        # would not map back to the canonical suffixed ticker — silently orphaning
+        # the position from the suffix-keyed guards. localSymbol inverts cleanly.
         portfolio_map: dict = {}
         for item in self.ib.portfolio():
             if self._match_account(item.account):
-                canon = from_ibkr(item.contract.symbol,
+                canon = from_ibkr(getattr(item.contract, "localSymbol", "") or item.contract.symbol,
                                   item.contract.primaryExchange or item.contract.exchange)
                 portfolio_map[canon] = item
 
@@ -596,7 +616,7 @@ class IBKRWorker:
         for p in self.ib.positions():
             if not self._match_account(p.account):
                 continue
-            raw.append((from_ibkr(p.contract.symbol,
+            raw.append((from_ibkr(getattr(p.contract, "localSymbol", "") or p.contract.symbol,
                                   p.contract.primaryExchange or p.contract.exchange), p))
 
         need_prices = not portfolio_map and raw
@@ -658,11 +678,9 @@ class IBKRWorker:
 
     def get_dividends_batch(self, positions: List[Dict]) -> List[Dict]:
         """Batch fetch past-12-month dividends for all positions (tick 456). Single sleep."""
-        from ib_insync import Stock
         pending = []
         for pos in positions:
-            _, _, ibkr_exchange, currency = get_exchange_config(_resolve_exchange(pos["symbol"]))
-            contract = Stock(_ibkr_symbol(pos["symbol"]), ibkr_exchange, currency)
+            contract = self._stock_contract(pos["symbol"])
             self.ib.qualifyContracts(contract)
             ticker = self.ib.reqMktData(contract, '456', True, False)
             pending.append((pos["symbol"], pos["quantity"], contract, ticker))
@@ -682,10 +700,10 @@ class IBKRWorker:
         return results
 
     async def place_order(self, trade, exchange: str = "NMS") -> int:
-        from ib_insync import Stock, MarketOrder, LimitOrder
+        from ib_insync import MarketOrder, LimitOrder
         from ibkr_core.features.settings.service import load_settings as _ls
         _, _, ibkr_exchange, currency = get_exchange_config(_resolve_exchange(trade.symbol, exchange))
-        contract = Stock(_ibkr_symbol(trade.symbol), ibkr_exchange, currency)
+        contract = self._stock_contract(trade.symbol, exchange)
         qualified = await self.ib.qualifyContractsAsync(contract)
         # Fail-closed: an unqualified contract (bad suffix strip, wrong venue,
         # unknown symbol) used to be submitted anyway and die broker-side with
@@ -767,9 +785,8 @@ class IBKRWorker:
         Stop-loss on owned asset is Shariah-permissible: conditional liquidation, no riba.
         Ref: COMPLIANCE.md Section 3 (no leverage), BEST_PRACTICES.md Section 1 (kill-switch).
         """
-        from ib_insync import Stock
         _, _, ibkr_exchange, currency = get_exchange_config(_resolve_exchange(trade.symbol, exchange))
-        contract = Stock(_ibkr_symbol(trade.symbol), ibkr_exchange, currency)
+        contract = self._stock_contract(trade.symbol, exchange)
         qualified = await self.ib.qualifyContractsAsync(contract)
         if not qualified or not getattr(qualified[0], "conId", 0):
             raise ValueError(
