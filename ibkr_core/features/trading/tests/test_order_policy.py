@@ -9,10 +9,13 @@ import unittest
 
 from ibkr_core.features.trading.order_policy import (
     BRACKET_ENTRY_PREMIUM_PCT,
+    COARSE_NONUS_TICK,
     LIVE_PORTS,
     DataState,
     OrderPolicy,
     marketable_limit,
+    quantize_to_increment,
+    select_tick_increment,
     subscription_for_port,
 )
 
@@ -57,6 +60,55 @@ class TestMarketableLimit(unittest.TestCase):
                     marketable_limit(px, "BUY", BRACKET_ENTRY_PREMIUM_PCT),
                     round(px * 1.005, 2),
                 )
+
+
+class TestSelectTickIncrement(unittest.TestCase):
+    # MiFID II style bands: 0.01 below 50, 0.05 in [50,100), 0.1 at/above 100.
+    BANDS = [(0.0, 0.01), (50.0, 0.05), (100.0, 0.1)]
+
+    def test_picks_band_containing_price(self):
+        self.assertEqual(select_tick_increment(10.0, self.BANDS), 0.01)
+        self.assertEqual(select_tick_increment(49.99, self.BANDS), 0.01)
+        self.assertEqual(select_tick_increment(50.0, self.BANDS), 0.05)  # low_edge inclusive
+        self.assertEqual(select_tick_increment(75.0, self.BANDS), 0.05)
+        self.assertEqual(select_tick_increment(100.0, self.BANDS), 0.1)
+        self.assertEqual(select_tick_increment(9999.0, self.BANDS), 0.1)
+
+    def test_unsorted_input_is_handled(self):
+        shuffled = [(100.0, 0.1), (0.0, 0.01), (50.0, 0.05)]
+        self.assertEqual(select_tick_increment(75.0, shuffled), 0.05)
+
+    def test_empty_returns_none(self):
+        self.assertIsNone(select_tick_increment(100.0, []))
+
+    def test_price_below_all_edges_returns_none(self):
+        # No band starts at/below price 5 when the lowest edge is 50.
+        self.assertIsNone(select_tick_increment(5.0, [(50.0, 0.05), (100.0, 0.1)]))
+
+
+class TestQuantizeToIncrement(unittest.TestCase):
+    def test_buy_rounds_up_sell_rounds_down(self):
+        # price 100.12 on a 0.1 tick: BUY -> 100.2, SELL -> 100.1.
+        self.assertAlmostEqual(quantize_to_increment(100.12, "BUY", 0.1), 100.2)
+        self.assertAlmostEqual(quantize_to_increment(100.12, "SELL", 0.1), 100.1)
+
+    def test_five_cent_tick(self):
+        self.assertAlmostEqual(quantize_to_increment(73.33, "BUY", 0.05), 73.35)
+        self.assertAlmostEqual(quantize_to_increment(73.33, "SELL", 0.05), 73.30)
+
+    def test_price_already_on_tick_is_unchanged_both_sides(self):
+        # Float noise (100.1/0.05 == 2001.9999…) must not bump an on-tick price.
+        self.assertAlmostEqual(quantize_to_increment(100.10, "BUY", 0.05), 100.10)
+        self.assertAlmostEqual(quantize_to_increment(100.10, "SELL", 0.05), 100.10)
+        self.assertAlmostEqual(quantize_to_increment(95.0, "BUY", 0.05), 95.0)
+        self.assertAlmostEqual(quantize_to_increment(95.0, "SELL", 0.05), 95.0)
+
+    def test_non_positive_tick_returns_price_unchanged(self):
+        self.assertEqual(quantize_to_increment(100.123, "BUY", 0.0), 100.123)
+        self.assertEqual(quantize_to_increment(100.123, "SELL", None), 100.123)
+
+    def test_coarse_nonus_fallback_tick_value(self):
+        self.assertEqual(COARSE_NONUS_TICK, 0.05)
 
 
 class TestOrderPolicyDecide(unittest.TestCase):

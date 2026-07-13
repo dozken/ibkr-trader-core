@@ -18,6 +18,7 @@ The single-order slippage (limit_order_slippage_pct) and the bracket entry
 premium (BRACKET_ENTRY_PREMIUM_PCT) are kept as *distinct* inputs and are
 deliberately not merged.
 """
+import math
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
@@ -49,9 +50,65 @@ def marketable_limit(price: float, side: str, slippage_pct: float) -> float:
 
     BUY pays up (price * (1 + slip)); SELL gives up (price * (1 - slip)).
     slippage_pct is a percentage value (0.1 == 0.1%). Rounded to 2dp (USD tick).
+
+    NOTE: 2dp is a valid tick only on US SMART (and other 0.01-tick venues). For
+    SIX/Euronext/XETRA large-tick names the caller MUST additionally snap the
+    result to the contract's real market-rule increment (see
+    ``select_tick_increment`` / ``quantize_to_increment`` and
+    IBKRWorker._quantize_to_tick) or IBKR rejects the order with error 110.
     """
     slip = slippage_pct / 100.0
     return round(price * (1 + slip) if side == "BUY" else price * (1 - slip), 2)
+
+
+# Float slack when converting a price to an integer count of ticks: guards
+# against binary-representation noise (e.g. 100.1/0.05 == 2001.9999999999998)
+# rounding a price already ON a tick to the wrong neighbour.
+_TICK_EPS = 1e-9
+
+# Coarse fallback increment for NON-USD venues when the market rule cannot be
+# resolved. A coarser-than-actual tick is still a VALID multiple of the real
+# per-band tick (IBKR error 110 fires only on a FINER-than-tick price), whereas
+# the naive 2dp is FINER than the large-tick EU bands that caused the bug — so
+# snapping to this coarse tick fails SAFE (a valid, if slightly less precise,
+# price) rather than submitting a possibly-invalid one. US SMART keeps 2dp.
+COARSE_NONUS_TICK = 0.05
+
+
+def select_tick_increment(price: float, increments) -> Optional[float]:
+    """Return the tick increment for the price BAND containing ``price``.
+
+    ``increments`` is an iterable of (low_edge, increment) pairs (from an IBKR
+    market rule's PriceIncrements). MiFID II ticks are per price-band: the
+    applicable band is the one with the greatest low_edge <= price (each band
+    extends upward until the next edge). Returns None when no band applies
+    (empty list, or every edge is above price).
+    """
+    tick = None
+    for low_edge, increment in sorted(increments):
+        if price >= low_edge:
+            tick = increment
+        else:
+            break
+    return tick
+
+
+def quantize_to_increment(price: float, side: str, tick: Optional[float]) -> float:
+    """Round ``price`` to a multiple of ``tick`` in the MARKETABLE direction.
+
+    BUY rounds UP (pay up to cross the spread); SELL rounds DOWN (give up to
+    cross). Both keep the order marketable AND land on a valid exchange tick, so
+    IBKR does not reject it with error 110. A non-positive/None tick returns the
+    price unchanged (caller decides the fallback).
+    """
+    if not tick or tick <= 0:
+        return price
+    ratio = price / tick
+    if side == "BUY":
+        n = math.ceil(ratio - _TICK_EPS)
+    else:
+        n = math.floor(ratio + _TICK_EPS)
+    return round(n * tick, 10)
 
 
 @dataclass(frozen=True)

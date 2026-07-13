@@ -598,6 +598,22 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                 cost_basis = avg_cost * qty
                 upnl_pct   = (mkt_val - cost_basis) / cost_basis
                 current_price = mkt_val / qty
+                # H3-consume: get_positions flags whether avg_cost is in a
+                # currency consistent with market_value (USD). On a transient FX
+                # outage for a foreign name the two are mixed-unit, so upnl_pct
+                # (and cost_basis) are fictitious. When not OK we suppress every
+                # upnl-based exit below (fixed floor stop, take-profit, partial
+                # profit, time exit) so a healthy EU position isn't dumped at a
+                # phantom loss. The trailing stop is HWM-vs-current in one unit
+                # (M1: the local quote currency) so it stays FX-consistent and
+                # remains fully active.
+                fx_ok = bool(pos.get("avg_cost_fx_ok", True))
+                if not fx_ok:
+                    logger.warning(
+                        "%s: avg_cost FX-inconsistent with market_value — "
+                        "suppressing upnl-based exits (stop-loss/take-profit/"
+                        "partial/time); trailing stop stays active.", symbol,
+                    )
 
                 # Determine effective stop distance (ATR-based or fixed)
                 if use_atr_stops:
@@ -612,9 +628,23 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                 # Estimate round-trip fee as % of cost basis
                 rt_fee_pct = (_estimate_fee(qty, mkt_val) * 2) / cost_basis if cost_basis > 0 else 0.0
 
-                # Trailing stop: update HWM and check if price fell stop_pct from peak
-                hwm_price = await asyncio.to_thread(_update_hwm, symbol, current_price)
-                trail_drop = (hwm_price - current_price) / hwm_price if hwm_price > 0 else 0.0
+                # Trailing stop: update HWM and check if price fell stop_pct from peak.
+                # M1: sample the trail in the LOCAL quote currency so a pure FX move
+                # (e.g. EUR/USD -9% at flat local price) can't fake an 8% trail drop
+                # and liquidate an EU winner. get_positions surfaces "local_price"
+                # (last trade in the instrument's own currency); fall back to the
+                # USD-derived price for US names or when the field is absent. The HWM
+                # is namespaced per-unit (_local_hwm_key) so a USD history and a local
+                # history for the same symbol never mix.
+                _lp = pos.get("local_price")
+                if _lp is not None and float(_lp) > 0:
+                    trail_price = float(_lp)
+                    hwm_key = _local_hwm_key(symbol)
+                else:
+                    trail_price = current_price
+                    hwm_key = symbol
+                hwm_price = await asyncio.to_thread(_update_hwm, hwm_key, trail_price)
+                trail_drop = (hwm_price - trail_price) / hwm_price if hwm_price > 0 else 0.0
 
                 # ── Aging alert (non-exit, once per week) ─────────────────────
                 try:
@@ -635,7 +665,9 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                     pass
 
                 # ── Partial profit: sell half at first target ──────────────────
-                if (upnl_pct >= partial_pct
+                # Skipped when fx_ok is False — upnl_pct is mixed-unit (H3).
+                if (fx_ok
+                        and upnl_pct >= partial_pct
                         and upnl_pct < take_profit_pct
                         and not _has_partial_sell(symbol)):
                     net_partial = upnl_pct - rt_fee_pct
@@ -674,6 +706,11 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                 if use_trailing and trail_drop >= trailing_stop_pct:
                     stop_label = "ATR-trail" if use_atr_stops else "trail"
                     exit_reason = f"Trailing stop ({stop_label}): -{trail_drop:.1%} from HWM ${hwm_price:.2f}"
+                # H3: FX-inconsistent avg_cost → every remaining branch reads the
+                # fictitious upnl_pct, so suppress them (warned above). The trailing
+                # branch already ran (FX-neutral) and still protects real downside.
+                elif not fx_ok:
+                    pass
                 # Fixed floor stop (always active, from avg cost) — catches straight-down losses
                 # Runs regardless of trailing stop mode — the two are complementary.
                 elif upnl_pct <= -stop_loss_pct:
@@ -718,6 +755,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                                                    account_id=account_id)
                             _clear_partial_sell(symbol)
                             _clear_hwm(symbol)
+                            _clear_hwm(_local_hwm_key(symbol))  # M1: drop the local-currency HWM too
                             # Block re-entry for cooldown period after take-profit
                             if "Take-profit" in exit_reason:
                                 _mark_cooldown_sell(symbol)
@@ -939,7 +977,10 @@ async def _cash_sleeve_buy(worker, trader, manager, settings: dict,
         logger.warning("Cash sleeve: %s NOT compliant (%s). Skipping.", etf, compliance.reason)
         return False
 
-    exchange = compliance.exchange or "NMS"
+    # M2: route through resolve_exchange (not a bare `or "NMS"`) so a foreign
+    # ETF whose compliance record carries a non-US / heterogeneous exchange value
+    # is gated by its own session, not defaulted to US hours.
+    exchange = resolve_exchange(etf, compliance.exchange)
     if not market_status(exchange)["is_open"]:
         logger.info("Cash sleeve: %s (%s) market closed. Skipping.", etf, exchange)
         return False
@@ -1111,6 +1152,13 @@ def save_drip_state(state: dict):
 
 # ── Trailing stop — high-water mark ───────────────────────────────────────
 _HWM_FILE = os.path.join(_DATA_DIR, "hwm.json")
+
+
+def _local_hwm_key(symbol: str) -> str:
+    """HWM key namespace for a local-currency trail (M1). Kept distinct from the
+    bare symbol (USD trail) so a foreign name's local-currency high-water mark
+    never mixes with a USD one across cycles. Symbols never contain '#'."""
+    return f"{symbol}#LOCAL"
 
 
 def _load_hwm() -> dict:

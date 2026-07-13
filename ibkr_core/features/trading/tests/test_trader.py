@@ -685,10 +685,14 @@ class TestPossessionConfirmed(unittest.TestCase):
         self.assertTrue(self.trader._is_possession_confirmed(db, "NXPI"))
 
     def test_held_with_fresh_buy_attempt_not_yet_settled(self):
-        """Held but oldest BUY attempt <2d old → Qabd (T+2) not satisfied → FALSE."""
+        """Held but oldest BUY attempt not yet settled (0 trading days elapsed) →
+        Qabd not satisfied → FALSE. Patch the trading-day counter so the assertion
+        is deterministic regardless of wall-clock/tz/holidays."""
+        from unittest.mock import patch
         self.worker.get_positions.return_value = [{"symbol": "NXPI", "quantity": 250}]
-        db = self._db([None, None, self._buy_row(1)])
-        self.assertFalse(self.trader._is_possession_confirmed(db, "NXPI"))
+        db = self._db([None, None, self._buy_row(0)])
+        with patch("ibkr_core.features.trading.trader._settled_trading_days", return_value=0):
+            self.assertFalse(self.trader._is_possession_confirmed(db, "NXPI"))
 
     def test_held_with_no_buy_record_is_external_acquisition(self):
         """Held in IBKR + zero bot BUY records → external acquisition → TRUE (unchanged)."""
@@ -707,6 +711,91 @@ class TestPossessionConfirmed(unittest.TestCase):
         self.worker.get_positions.return_value = [{"symbol": "NXPI", "quantity": 250}]
         db = self._db([self._buy_row(5, state=TradeState.FILLED)])
         self.assertTrue(self.trader._is_possession_confirmed(db, "NXPI"))
+
+
+class TestSettlementTradingDays(unittest.TestCase):
+    """H2: Qabd guard must count TRADING days STRICTLY AFTER the trade date T on the
+    position's HOME exchange (T+2), never raw calendar days — else a Friday EU fill
+    reads 'settled' on Monday (3 calendar days) while real settlement is Tuesday, and
+    a stop-loss SELL would dispatch on unsettled shares (Rule #2 / COMPLIANCE.md Sec 4).
+    """
+
+    @staticmethod
+    def _freeze(y, m, d, hour=16):
+        """Patch trader.datetime so datetime.now(tz) is a fixed instant (UTC hour)."""
+        import ibkr_core.features.trading.trader as trader_mod
+        from datetime import datetime as _dt, timezone as _tz
+        fixed = _dt(y, m, d, hour, 0, tzinfo=_tz.utc)
+
+        class _Frozen(_dt):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed.astimezone(tz) if tz is not None else fixed.replace(tzinfo=None)
+
+        return patch.object(trader_mod, "datetime", _Frozen)
+
+    @staticmethod
+    def _fill(y, m, d):
+        """A fill instant mid-session (15:00 UTC ≈ 11:00 ET / 16:00 London)."""
+        from datetime import datetime as _dt, timezone as _tz
+        return _dt(y, m, d, 15, 0, tzinfo=_tz.utc)
+
+    def _count(self, fill, symbol):
+        from ibkr_core.features.trading.trader import _settled_trading_days
+        return _settled_trading_days(fill, symbol)
+
+    def test_fill_day_itself_never_counted(self):
+        """Off-by-one guard: same-day and weekend-only ranges yield 0 trading days."""
+        fri = self._fill(2026, 7, 10)  # Friday
+        with self._freeze(2026, 7, 10):  # same Friday
+            self.assertEqual(self._count(fri, "AZN.L"), 0)
+        with self._freeze(2026, 7, 11):  # Saturday
+            self.assertEqual(self._count(fri, "AZN.L"), 0)
+
+    def test_eu_friday_fill_not_settled_monday_settled_tuesday(self):
+        """EU (LSE) Friday fill: Monday = 1 trading day (NOT possessed), Tuesday = 2 (possessed)."""
+        fri = self._fill(2026, 7, 10)  # Friday
+        with self._freeze(2026, 7, 13):  # Monday
+            self.assertEqual(self._count(fri, "AZN.L"), 1)
+        with self._freeze(2026, 7, 14):  # Tuesday
+            self.assertEqual(self._count(fri, "AZN.L"), 2)
+
+    def test_us_midweek_fill_unaffected(self):
+        """US (NMS) mid-week fill with no holidays: calendar==trading days, so a Monday
+        fill is possessed on Wednesday (2 trading days) exactly as before — unaffected."""
+        mon = self._fill(2026, 7, 13)  # Monday
+        with self._freeze(2026, 7, 14):  # Tuesday
+            self.assertEqual(self._count(mon, "AAPL"), 1)
+        with self._freeze(2026, 7, 15):  # Wednesday
+            self.assertEqual(self._count(mon, "AAPL"), 2)
+
+    def test_holiday_between_fill_and_now_extends_wait(self):
+        """A holiday between T and now extends the wait. Thu Jul 2 fill, now Mon Jul 6:
+        NMS closes Fri Jul 3 (Independence Day observed) → only 1 trading day → NOT
+        settled; LSE has no such holiday → 2 trading days → settled. Same dates, the US
+        holiday alone delays possession."""
+        thu = self._fill(2026, 7, 2)  # Thursday
+        with self._freeze(2026, 7, 6):  # Monday
+            self.assertEqual(self._count(thu, "AAPL"), 1)   # Jul 3 holiday skipped
+            self.assertEqual(self._count(thu, "AZN.L"), 2)  # LSE open Jul 3
+
+    def test_possession_guard_uses_trading_days_end_to_end(self):
+        """_is_possession_confirmed (primary FILLED path) honors the T+2 trading-day rule
+        for an EU name: a Friday fill is NOT possessed on Monday, possessed on Tuesday."""
+        worker = MagicMock()
+        worker.get_positions.return_value = [{"symbol": "AZN.L", "quantity": 100}]
+        trader = Trader(worker)
+
+        buy = MagicMock()
+        buy.updated_at = self._fill(2026, 7, 10)  # Friday, tz-aware
+        buy.state = TradeState.FILLED
+        db = MagicMock()
+        db.query.return_value.filter.return_value.order_by.return_value.first.return_value = buy
+
+        with self._freeze(2026, 7, 13):  # Monday → 1 trading day
+            self.assertFalse(trader._is_possession_confirmed(db, "AZN.L"))
+        with self._freeze(2026, 7, 14):  # Tuesday → 2 trading days
+            self.assertTrue(trader._is_possession_confirmed(db, "AZN.L"))
 
 
 class TestExceedsConcentrationLimit(unittest.TestCase):

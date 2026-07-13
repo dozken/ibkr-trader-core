@@ -23,11 +23,59 @@ _IBKR_FEE_PER_SHARE = 0.005
 _IBKR_MIN_FEE = 1.00
 _IBKR_MAX_FEE_PCT = 0.005  # 0.5%
 
+# Qabd (legal possession) settlement window, counted in EXCHANGE TRADING days
+# STRICTLY AFTER the fill's trade date T. US settles T+1; EU / most non-US venues
+# settle T+2. A false "possessed" would dispatch a SELL on shares not yet settled →
+# Rule #2 / COMPLIANCE.md Sec 4 violation + an IBKR good-faith / free-riding flag.
+# Non-US default is the conservative T+2; only the US SMART venue relaxes to T+1
+# (which is the real US settlement — requiring T+2 there would needlessly delay a
+# legitimately-owned Monday exit on a Friday fill). Never loosen below the real
+# venue settlement.
+_SETTLEMENT_TRADING_DAYS = 2
+
+
+def _required_settlement_days(symbol: str) -> int:
+    """Trading-day settlement window for the symbol's home venue: US = T+1, all
+    other venues = T+2 (conservative — Canada/India T+1 fall back to the safe 2)."""
+    from ibkr_core.core.market_hours import get_exchange_config, resolve_exchange
+    ibkr_exchange = get_exchange_config(resolve_exchange(symbol))[2]
+    return 1 if ibkr_exchange == "SMART" else _SETTLEMENT_TRADING_DAYS
+
 
 def _estimate_fee(qty: float, trade_value: float) -> float:
     """Estimate one-way IBKR commission for a US equity trade."""
     fee = max(qty * _IBKR_FEE_PER_SHARE, _IBKR_MIN_FEE)
     return min(fee, trade_value * _IBKR_MAX_FEE_PCT)
+
+
+def _settled_trading_days(fill_time: datetime, symbol: str) -> int:
+    """Count exchange trading days STRICTLY AFTER the fill's trade date T, on the
+    position's HOME exchange (T+N settlement). The fill day itself is never counted,
+    so a Friday fill yields 1 on the following Monday and 2 on Tuesday. Weekends and
+    exchange holidays between T and now extend the wait. Used by the Qabd possession
+    guard — see COMPLIANCE.md Section 4."""
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+    from ibkr_core.core.market_hours import (
+        get_exchange_config,
+        is_trading_day,
+        resolve_exchange,
+    )
+
+    exch = resolve_exchange(symbol)
+    tz = ZoneInfo(get_exchange_config(exch)[0])
+    if fill_time.tzinfo is None:
+        fill_time = fill_time.replace(tzinfo=timezone.utc)
+    trade_date = fill_time.astimezone(tz).date()
+    today = datetime.now(tz).date()
+
+    count = 0
+    day = trade_date + timedelta(days=1)
+    while day <= today:
+        if is_trading_day(exch, day):
+            count += 1
+        day += timedelta(days=1)
+    return count
 
 
 def _get_vix_size_factor() -> float:
@@ -591,7 +639,7 @@ class Trader:
                     return trade
 
                 trade.quantity = suggested_qty
-                est_fee = _estimate_fee(trade.quantity, trade.quantity * price)
+                est_fee = _estimate_fee(trade.quantity, trade.quantity * usd_price)
                 logger.info("BUY %s qty=%.4f est_fee=$%.2f (one-way)", trade.symbol, trade.quantity, est_fee)
 
                 if settings.get("dry_run", False):
@@ -818,8 +866,7 @@ class Trader:
             last_buy_time = last_buy.updated_at
             if last_buy_time.tzinfo is None:
                 last_buy_time = last_buy_time.replace(tzinfo=timezone.utc)
-            days_held = (datetime.now(timezone.utc) - last_buy_time).days
-            return days_held >= 2
+            return _settled_trading_days(last_buy_time, symbol) >= _required_settlement_days(symbol)
 
         # Fallback: fill event may have been missed after reconnect.
         # Confirm via live IBKR position + age of the SUBMITTED record.
@@ -862,25 +909,25 @@ class Trader:
                 acq_time = oldest_buy.created_at or oldest_buy.updated_at
                 if acq_time.tzinfo is None:
                     acq_time = acq_time.replace(tzinfo=timezone.utc)
-                days_held = (datetime.now(timezone.utc) - acq_time).days
-                if days_held >= 2:
+                settled_days = _settled_trading_days(acq_time, symbol)
+                if settled_days >= _required_settlement_days(symbol):
                     logger.info(
-                        "_is_possession_confirmed: %s held in IBKR; oldest BUY attempt %dd old "
-                        "(state=%s) — possession confirmed despite no SUBMITTED/FILLED record",
-                        symbol, days_held, oldest_buy.state,
+                        "_is_possession_confirmed: %s held in IBKR; oldest BUY attempt %d trading-day(s) "
+                        "settled (state=%s) — possession confirmed despite no SUBMITTED/FILLED record",
+                        symbol, settled_days, oldest_buy.state,
                     )
                     return True
                 logger.info(
-                    "_is_possession_confirmed: %s held but oldest BUY attempt only %dd old (<2d) — Qabd not satisfied",
-                    symbol, days_held,
+                    "_is_possession_confirmed: %s held but oldest BUY attempt only %d trading-day(s) "
+                    "settled (<%d) — Qabd not satisfied",
+                    symbol, settled_days, _SETTLEMENT_TRADING_DAYS,
                 )
                 return False
 
             buy_time = oldest_submitted.updated_at
             if buy_time.tzinfo is None:
                 buy_time = buy_time.replace(tzinfo=timezone.utc)
-            days_held = (datetime.now(timezone.utc) - buy_time).days
-            if days_held >= 2:
+            if _settled_trading_days(buy_time, symbol) >= _required_settlement_days(symbol):
                 # Heal the DB record so future checks use the primary path
                 oldest_submitted.state = TradeState.FILLED
                 oldest_submitted.updated_at = datetime.now(timezone.utc)

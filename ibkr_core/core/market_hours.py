@@ -264,10 +264,16 @@ def resolve_exchange(symbol: str, exchange: str = "NMS") -> str:
     `exchange` to "NMS" (or compliance returns None), which would route a
     suffixed foreign listing as a US contract AND gate it by US hours.
     Infer the home exchange from the suffix when the caller's value is the
-    US default/empty; respect any explicit non-US value."""
+    US default/empty; respect any explicit value that is a real config key.
+    A value that is NOT a config key (a raw yfinance suffix like 'L', an IBKR
+    venue string like 'LSE'/'XETRA' already covered as keys where valid, or an
+    FMP exchangeShortName) would otherwise fall through to US DEFAULT hours and
+    mis-gate a foreign exit — re-infer from the symbol suffix instead."""
     if exchange in (None, "", "NMS"):
         return infer_exchange_from_symbol(symbol)
-    return exchange
+    if exchange in EXCHANGE_CONFIG:
+        return exchange
+    return infer_exchange_from_symbol(symbol)
 
 
 def any_market_open(exchange_codes: Optional[list] = None) -> bool:

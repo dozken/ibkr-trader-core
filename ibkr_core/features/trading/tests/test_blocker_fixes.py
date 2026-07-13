@@ -227,14 +227,18 @@ class TestPossessionFallback(unittest.IsolatedAsyncioTestCase):
 
         settled = MagicMock()
         settled.state = TradeState.SUBMITTED
-        settled.updated_at = datetime.now(timezone.utc) - timedelta(days=1)
+        settled.updated_at = datetime.now(timezone.utc)
 
         db = MagicMock()
         db.query.return_value.filter.return_value.order_by.return_value.first.side_effect = [
             None, settled,
         ]
 
-        result = trader._is_possession_confirmed(db, "AAPL")
+        # 0 trading days elapsed → not settled on any venue. Patch the counter so
+        # the assertion is deterministic regardless of wall-clock/tz/holidays.
+        from unittest.mock import patch
+        with patch("ibkr_core.features.trading.trader._settled_trading_days", return_value=0):
+            result = trader._is_possession_confirmed(db, "AAPL")
         self.assertFalse(result)
 
     def test_fallback_blocks_when_position_not_held(self):

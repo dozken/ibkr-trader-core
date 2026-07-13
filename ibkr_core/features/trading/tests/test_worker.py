@@ -281,6 +281,187 @@ class TestPlaceBracketOrder(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(qty_arg, 1.9505)
 
 
+def _inc(low, increment):
+    m = MagicMock(); m.lowEdge = low; m.increment = increment
+    return m
+
+
+class TestQuantizeToTick(unittest.IsolatedAsyncioTestCase):
+    # MiFID II bands: 0.01 below 50, 0.05 in [50,100), 0.1 at/above 100.
+    BANDS = [_inc(0, 0.01), _inc(50, 0.05), _inc(100, 0.1)]
+
+    def _worker_with_rule(self, market_rule_ids="26,26", valid_exchanges="IBIS,SMART"):
+        w = _make_worker()
+        cd = MagicMock()
+        cd.marketRuleIds = market_rule_ids
+        cd.validExchanges = valid_exchanges
+        w.ib.reqContractDetailsAsync = AsyncMock(return_value=[cd])
+        w.ib.reqMarketRuleAsync = AsyncMock(return_value=self.BANDS)
+        return w
+
+    async def test_buy_rounds_up_sell_rounds_down_to_band(self):
+        w = self._worker_with_rule()
+        contract = MagicMock(); contract.primaryExchange = "IBIS"; contract.exchange = "SMART"
+        # price 100.12 -> band starting at 100 has 0.1 tick.
+        self.assertAlmostEqual(await w._quantize_to_tick(contract, 100.12, "BUY"), 100.2)
+        self.assertAlmostEqual(await w._quantize_to_tick(contract, 100.12, "SELL"), 100.1)
+        # Rule id resolved to the primaryExchange's parallel entry (IBIS -> "26").
+        w.ib.reqMarketRuleAsync.assert_awaited_with(26)
+
+    async def test_mid_band_five_cent_tick(self):
+        w = self._worker_with_rule()
+        contract = MagicMock(); contract.primaryExchange = "IBIS"; contract.exchange = "SMART"
+        # 73.33 falls in [50,100) -> 0.05 tick.
+        self.assertAlmostEqual(await w._quantize_to_tick(contract, 73.33, "BUY"), 73.35)
+        self.assertAlmostEqual(await w._quantize_to_tick(contract, 73.33, "SELL"), 73.30)
+
+    async def test_us_fallback_uses_two_decimals_when_rule_missing(self):
+        w = _make_worker()
+        w.ib.reqContractDetailsAsync = AsyncMock(return_value=[])  # no details
+        contract = MagicMock(); contract.currency = "USD"
+        # Both sides fall back to legacy 2dp (US equities tick at 0.01).
+        self.assertAlmostEqual(await w._quantize_to_tick(contract, 100.126, "BUY"), 100.13)
+        self.assertAlmostEqual(await w._quantize_to_tick(contract, 100.124, "SELL"), 100.12)
+
+    async def test_nonus_fallback_uses_coarse_tick_when_rule_missing(self):
+        w = _make_worker()
+        # reqContractDetailsAsync raising is swallowed -> [] -> coarse fallback.
+        w.ib.reqContractDetailsAsync = AsyncMock(side_effect=RuntimeError("no perms"))
+        contract = MagicMock(); contract.currency = "EUR"
+        contract.localSymbol = "ASML"
+        # Coarse 0.05 tick, marketable direction (BUY up, SELL down).
+        self.assertAlmostEqual(await w._quantize_to_tick(contract, 100.12, "BUY"), 100.15)
+        self.assertAlmostEqual(await w._quantize_to_tick(contract, 100.12, "SELL"), 100.10)
+
+    async def test_zero_price_returns_unchanged_without_rule_lookup(self):
+        w = _make_worker()
+        w.ib.reqContractDetailsAsync = AsyncMock()
+        contract = MagicMock()
+        self.assertEqual(await w._quantize_to_tick(contract, 0.0, "BUY"), 0.0)
+        w.ib.reqContractDetailsAsync.assert_not_awaited()
+
+    def test_pick_market_rule_id_prefers_primary_exchange(self):
+        contract = MagicMock(); contract.primaryExchange = "IBIS"; contract.exchange = "SMART"
+        self.assertEqual(
+            IBKRWorker._pick_market_rule_id("11,22", "IBIS,SMART", contract), 11
+        )
+
+    def test_pick_market_rule_id_falls_back_to_first(self):
+        contract = MagicMock(); contract.primaryExchange = "XXX"; contract.exchange = "SMART"
+        self.assertEqual(
+            IBKRWorker._pick_market_rule_id("33,44", "IBIS,SMART", contract), 33
+        )
+
+    def test_pick_market_rule_id_empty_returns_none(self):
+        contract = MagicMock(); contract.primaryExchange = ""; contract.exchange = ""
+        self.assertIsNone(IBKRWorker._pick_market_rule_id("", "", contract))
+
+
+class TestPlaceBracketOrderTickQuantization(unittest.IsolatedAsyncioTestCase):
+    async def test_bracket_prices_snapped_to_market_rule(self):
+        w = _make_worker()
+        w.ib.qualifyContractsAsync = AsyncMock(
+            return_value=[MagicMock(conId=123)]
+        )
+        cd = MagicMock(); cd.marketRuleIds = "26,26"; cd.validExchanges = "IBIS,SMART"
+        w.ib.reqContractDetailsAsync = AsyncMock(return_value=[cd])
+        w.ib.reqMarketRuleAsync = AsyncMock(
+            return_value=[_inc(0, 0.01), _inc(50, 0.05), _inc(100, 0.1)]
+        )
+        w.ib.reqAllOpenOrdersAsync = AsyncMock(return_value=[])
+        from ib_insync import StopOrder
+        parent = MagicMock(); parent.orderId = 7; parent.transmit = False
+        tp = MagicMock(); tp.transmit = False
+        sl = StopOrder("SELL", 10.0, 95.0); sl.transmit = True
+        w.ib.bracketOrder.return_value = [parent, tp, sl]
+
+        trade = MagicMock(); trade.side = "BUY"; trade.quantity = 10; trade.symbol = "ASML.AS"
+        trade.signal_price = 100.0
+
+        with patch("ib_insync.Contract"), patch("ib_insync.Stock"), \
+             patch("ibkr_core.features.trading.worker.get_exchange_config",
+                   return_value=(None, None, "IBIS", "EUR")), \
+             patch("asyncio.sleep"):
+            await w.place_bracket_order(trade, stop_price=95.03, take_profit_price=110.07)
+
+        entry, tp_arg, sl_arg = w.ib.bracketOrder.call_args[0][2:5]
+        # entry = marketable_limit(100, BUY, 0.5%) = 100.5 -> on 0.1 tick.
+        self.assertAlmostEqual(entry, 100.5)
+        # TP/stop are SELL exits -> round DOWN to their band tick.
+        self.assertAlmostEqual(tp_arg, 110.0)   # 110.07 -> 0.1 tick -> 110.0
+        self.assertAlmostEqual(sl_arg, 95.0)    # 95.03 -> 0.05 tick -> 95.0
+
+
+class TestGetPositionsFxFlag(unittest.TestCase):
+    def _pos(self, local, avg_cost, qty=10.0, primary="", exchange="SMART", account="U1"):
+        p = MagicMock()
+        p.account = account
+        p.position = qty
+        p.avgCost = avg_cost
+        p.contract.localSymbol = local
+        p.contract.symbol = local
+        p.contract.primaryExchange = primary
+        p.contract.exchange = exchange
+        return p
+
+    def _item(self, local, mv, pnl, primary="", exchange="SMART", account="U1"):
+        it = MagicMock()
+        it.account = account
+        it.marketValue = mv
+        it.unrealizedPNL = pnl
+        it.contract.localSymbol = local
+        it.contract.symbol = local
+        it.contract.primaryExchange = primary
+        it.contract.exchange = exchange
+        return it
+
+    def setUp(self):
+        # _positions_cache is class-level; clear before AND after each test so a
+        # cached fake result can't leak into other files' get_positions calls.
+        IBKRWorker._positions_cache.clear()
+        self.addCleanup(IBKRWorker._positions_cache.clear)
+
+    def test_us_position_fx_ok_true_eur_missing_fx_false(self):
+        w = _make_worker()
+        w.ib.positions.return_value = [
+            self._pos("AAPL", avg_cost=150.0, primary="NASDAQ"),
+            self._pos("ASML", avg_cost=600.0, primary="AEB", exchange="AEB"),
+        ]
+        w.ib.portfolio.return_value = [
+            self._item("AAPL", mv=1600.0, pnl=100.0, primary="NASDAQ"),
+            self._item("ASML", mv=6500.0, pnl=500.0, primary="AEB", exchange="AEB"),
+        ]
+
+        # to_usd: USD names pass through (never None); EUR ASML has no FX -> None.
+        def fake_to_usd(price, sym, *a, **k):
+            return None if sym == "ASML" else price
+
+        with patch("ibkr_core.features.trading.worker.from_ibkr", side_effect=lambda s, e="": s), \
+             patch("ibkr_core.features.trading.worker.to_usd", side_effect=fake_to_usd):
+            positions = w.get_positions()
+
+        by_sym = {p["symbol"]: p for p in positions}
+        # US position: FX always OK, avg_cost normalized.
+        self.assertTrue(by_sym["AAPL"]["avg_cost_fx_ok"])
+        self.assertAlmostEqual(by_sym["AAPL"]["avg_cost"], 150.0)
+        # EUR position with missing FX: flagged False, position NOT dropped,
+        # avg_cost left in local ccy (raw), so downstream can skip the stop.
+        self.assertFalse(by_sym["ASML"]["avg_cost_fx_ok"])
+        self.assertAlmostEqual(by_sym["ASML"]["avg_cost"], 600.0)
+        self.assertIn("ASML", by_sym)  # kept for no-short / Qabd guards
+
+    def test_default_key_is_true_when_present(self):
+        """Every emitted position carries the boolean explicitly (no missing key)."""
+        w = _make_worker()
+        w.ib.positions.return_value = [self._pos("MSFT", avg_cost=400.0, primary="NASDAQ")]
+        w.ib.portfolio.return_value = [self._item("MSFT", mv=4200.0, pnl=200.0, primary="NASDAQ")]
+        with patch("ibkr_core.features.trading.worker.from_ibkr", side_effect=lambda s, e="": s), \
+             patch("ibkr_core.features.trading.worker.to_usd", side_effect=lambda price, sym, *a, **k: price):
+            positions = w.get_positions()
+        self.assertIn("avg_cost_fx_ok", positions[0])
+        self.assertTrue(positions[0]["avg_cost_fx_ok"])
+
+
 class TestOnOrderStatus(unittest.TestCase):
     @patch("ibkr_core.core.database.SessionLocal")
     def test_filled_status_updates_trade_history(self, MockSession):

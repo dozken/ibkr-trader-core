@@ -8,9 +8,12 @@ from dotenv import load_dotenv
 from ibkr_core.core.market_hours import get_exchange_config
 from ibkr_core.features.trading.order_policy import (
     BRACKET_ENTRY_PREMIUM_PCT,
+    COARSE_NONUS_TICK,
     DataState,
     OrderPolicy,
     marketable_limit,
+    quantize_to_increment,
+    select_tick_increment,
     subscription_for_port,
 )
 
@@ -468,6 +471,93 @@ class IBKRWorker:
         return Contract(secType="STK", localSymbol=local, exchange="SMART",
                         primaryExchange=ibkr_exchange, currency=currency)
 
+    @staticmethod
+    def _pick_market_rule_id(rule_ids: str, valid_exchanges: str, contract) -> Optional[int]:
+        """Pick the market-rule id for the exchange this contract routes to.
+
+        ContractDetails.marketRuleIds is a comma-separated list parallel to
+        validExchanges. Prefer the contract's primaryExchange (foreign SMART
+        contracts carry it), else its exchange, else the first listed rule.
+        """
+        ids = [r.strip() for r in (rule_ids or "").split(",") if r.strip()]
+        if not ids:
+            return None
+        exchanges = [e.strip() for e in (valid_exchanges or "").split(",")]
+        target = getattr(contract, "primaryExchange", "") or getattr(contract, "exchange", "")
+        candidates = []
+        if target and target in exchanges:
+            idx = exchanges.index(target)
+            if idx < len(ids):
+                candidates.append(ids[idx])
+        candidates.append(ids[0])
+        for cand in candidates:
+            try:
+                return int(cand)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    async def _market_rule_increments(self, contract) -> list:
+        """Resolve a contract's (low_edge, increment) tick bands via IBKR.
+
+        Returns [] when contract details or the market rule are unavailable so
+        the caller can fail SAFE to a coarse tick rather than an invalid price.
+        """
+        sym = getattr(contract, "localSymbol", "") or getattr(contract, "symbol", "")
+        try:
+            details = await self.ib.reqContractDetailsAsync(contract)
+            if not details:
+                return []
+            cd = details[0]
+            rule_id = self._pick_market_rule_id(
+                getattr(cd, "marketRuleIds", "") or "",
+                getattr(cd, "validExchanges", "") or "",
+                contract,
+            )
+            if rule_id is None:
+                return []
+            rule = await self.ib.reqMarketRuleAsync(rule_id)
+            if not rule:
+                return []
+            return [(float(pi.lowEdge), float(pi.increment)) for pi in rule]
+        except Exception as e:
+            logger.warning("market-rule lookup failed for %s: %s", sym, e)
+            return []
+
+    async def _quantize_to_tick(self, contract, price: float, side: str) -> float:
+        """Snap a limit price to a VALID exchange tick, marketable direction.
+
+        IBKR rejects (error 110) any limit whose price is not a multiple of the
+        minimum price variation for its price BAND. MiFID II ticks are per
+        price-band AND per venue, so a fixed 2dp/minTick is wrong for
+        SIX/Euronext/XETRA large-tick names: the whole bracket (entry limit +
+        protective stop/TP) is cancelled, leaving an EU position unentered OR a
+        stop-loss SELL repeatedly rejected (position left unprotected).
+
+        Resolve the contract's market rule -> price-increment bands, pick the
+        band containing ``price``, and quantize: BUY rounds UP, SELL rounds DOWN
+        (keeps the order marketable while landing on a valid tick). Falls back to
+        a coarse, definitely-valid increment (never a finer one) when the rule is
+        unavailable — US SMART keeps the existing 2dp; other venues snap to
+        COARSE_NONUS_TICK rather than submit a possibly-invalid price.
+        """
+        if not price or price <= 0:
+            return price
+        increments = await self._market_rule_increments(contract)
+        if increments:
+            tick = select_tick_increment(price, increments)
+            if tick and tick > 0:
+                return quantize_to_increment(price, side, tick)
+        # Market rule unavailable — fail SAFE to a coarse tick, never a finer one.
+        currency = getattr(contract, "currency", "") or ""
+        if currency == "USD":
+            return round(price, 2)  # US equities tick at 0.01 above $1 — unchanged
+        sym = getattr(contract, "localSymbol", "") or getattr(contract, "symbol", "")
+        logger.warning(
+            "quantize: no market rule for %s — coarse %.2f tick fallback", sym, COARSE_NONUS_TICK
+        )
+        return quantize_to_increment(price, side, COARSE_NONUS_TICK)
+
     async def get_last_price(self, symbol: str, exchange: str = "NMS") -> float:
         async with self._limiter:
             await self._wait_for_pacing()
@@ -650,7 +740,16 @@ class IBKRWorker:
         for sym, p in raw:
             qty = p.position
             avg_cost_usd = to_usd(p.avgCost, sym)
-            if avg_cost_usd is None:  # missing FX — keep raw, flag (exit math may be off)
+            # avg_cost_fx_ok flags whether avg_cost is a trustworthy USD figure.
+            # to_usd returns None ONLY when a required non-USD FX rate is missing
+            # (USD names never hit an FX lookup, so they are always True). When
+            # False the avg_cost below stays in LOCAL ccy while market_value is
+            # USD — mixed-unit upnl_pct would fire a spurious ~-8% stop. The
+            # loops.py consumer reads pos.get("avg_cost_fx_ok", True) to skip the
+            # stop rather than dump a healthy EU position on a phantom loss. We
+            # keep the position (do NOT drop it) so no-short/Qabd guards still see it.
+            avg_cost_fx_ok = avg_cost_usd is not None
+            if not avg_cost_fx_ok:  # missing FX — keep raw, flag (exit math may be off)
                 logger.warning("get_positions: no FX for %s — avg_cost stays in local ccy", sym)
                 avg_cost_usd = p.avgCost
             item = portfolio_map.get(sym)
@@ -668,6 +767,7 @@ class IBKRWorker:
                 "symbol": sym,
                 "quantity": qty,
                 "avg_cost": avg_cost_usd,
+                "avg_cost_fx_ok": avg_cost_fx_ok,
                 "market_value": mkt_val,
                 "unrealized_pnl": pnl,
                 "exchange": p.contract.primaryExchange or p.contract.exchange or "",
@@ -759,7 +859,11 @@ class IBKRWorker:
             symbol=trade.symbol,
         )
         if decision.order_type == "LMT":
-            order = LimitOrder(trade.side, quantity, decision.limit_price)
+            # OrderPolicy returns a 2dp marketable limit; snap it to the
+            # contract's real per-band exchange tick (MiFID II) so an EU
+            # entry/protective-exit limit isn't rejected with IBKR error 110.
+            limit_price = await self._quantize_to_tick(contract, decision.limit_price, trade.side)
+            order = LimitOrder(trade.side, quantity, limit_price)
         else:
             order = MarketOrder(trade.side, quantity)
         # Paper IB Gateway forces TIF=DAY from an order preset and silently cancels
@@ -817,13 +921,22 @@ class IBKRWorker:
         # single-order path, but with its own distinct premium (not slippage_pct).
         entry_limit = marketable_limit(signal_price, "BUY", BRACKET_ENTRY_PREMIUM_PCT)
 
+        # Snap entry/TP/stop to the contract's real per-band exchange tick (MiFID
+        # II) so an EU bracket is not cancelled with IBKR error 110 (which would
+        # leave no entry AND an unplaced protective stop). BUY entry rounds up,
+        # SELL exits (TP/stop) round down — marketable AND tick-valid. The TRAIL
+        # child auxPrice (4dp, set below) is already tick-safe and left as-is.
+        entry_limit = await self._quantize_to_tick(contract, entry_limit, "BUY")
+        tp_price = await self._quantize_to_tick(contract, take_profit_price, "SELL")
+        sl_price = await self._quantize_to_tick(contract, stop_price, "SELL")
+
         # Use ib_insync bracketOrder helper — handles OCA group + transmit flags correctly
         bracket = self.ib.bracketOrder(
             trade.side,
             quantity,
             entry_limit,
-            round(take_profit_price, 2),
-            round(stop_price, 2),
+            tp_price,
+            sl_price,
         )
         parent, take_profit, stop_loss = bracket
 

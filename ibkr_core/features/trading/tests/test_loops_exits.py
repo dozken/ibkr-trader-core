@@ -6,6 +6,7 @@ Tests for new exit logic added to main_loop:
 - Re-entry cooldown
 - Pullback entry filter
 """
+import asyncio
 import json
 import os
 import tempfile
@@ -259,6 +260,174 @@ class TestComputeAtrStop(unittest.TestCase):
         loops = _loops_module()
         arr = np.linspace(100, 110, 14)
         self.assertIsNone(loops._compute_atr_stop(arr, arr, arr))
+
+
+class TestLocalHwmKey(unittest.TestCase):
+    """M1: local-currency HWM is namespaced apart from the USD HWM."""
+
+    def test_key_is_distinct_from_symbol(self):
+        loops = _loops_module()
+        self.assertNotEqual(loops._local_hwm_key("AZN.L"), "AZN.L")
+        self.assertTrue(loops._local_hwm_key("AZN.L").startswith("AZN.L"))
+
+    def test_usd_and_local_hwm_do_not_mix(self):
+        loops = _loops_module()
+        tmp = os.path.join(tempfile.mkdtemp(), "hwm.json")
+        loops._HWM_FILE = tmp
+        loops._update_hwm("AZN.L", 200.0)                       # USD trail
+        loops._update_hwm(loops._local_hwm_key("AZN.L"), 100.0)  # local trail
+        hwm = loops._load_hwm()
+        self.assertEqual(hwm["AZN.L"], 200.0)
+        self.assertEqual(hwm[loops._local_hwm_key("AZN.L")], 100.0)
+
+
+class TestCashSleeveResolveExchange(unittest.IsolatedAsyncioTestCase):
+    """M2: cash-sleeve routes the ETF through resolve_exchange, not `or 'NMS'`,
+    so a suffixed foreign ETF (compliance.exchange=None) is gated by its own
+    session (LSE) rather than defaulted to US hours."""
+
+    async def test_foreign_etf_gated_by_home_session_not_us(self):
+        loops = _loops_module()
+        compliance = MagicMock(is_compliant=True, exchange=None)
+        seen = {}
+
+        def _mkt_status(exch):
+            seen["exchange"] = exch
+            return {"is_open": False}  # closed → early return after resolution
+
+        worker = MagicMock()
+        with patch.object(loops, "async_shariah_screen",
+                          new=_AsyncReturn(compliance)), \
+             patch.object(loops, "market_status", side_effect=_mkt_status), \
+             patch("asyncio.to_thread", new=_async_passthrough):
+            settings = {"cash_sweep_fallback_etf": "ISDU.L",
+                        "cash_sweep_fallback_max_pct": 20.0}
+            worker.get_net_liquidation = MagicMock(return_value=10000.0)
+            worker.get_positions = MagicMock(return_value=[])
+            result = await loops._cash_sleeve_buy(
+                worker, MagicMock(), MagicMock(), settings, 500.0, None)
+        self.assertFalse(result)                 # market closed → no dispatch
+        self.assertEqual(seen["exchange"], "LSE")  # resolved from .L suffix, not NMS
+
+
+# ── Helpers for the main_loop exit-path drive tests ────────────────────────
+
+def _AsyncReturn(value):
+    async def _coro(*a, **k):
+        return value
+    return _coro
+
+
+async def _async_passthrough(fn, *a, **k):
+    return fn(*a, **k)
+
+
+class _StopCycle(Exception):
+    pass
+
+
+class TestExitFxGate(unittest.IsolatedAsyncioTestCase):
+    """H3 + M1: main_loop exit path honors avg_cost_fx_ok and trails in local ccy."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    async def _drive(self, loops, positions, settings, hwm_seed=None):
+        """Run exactly one main_loop cycle over `positions` and return the
+        patched _dispatch_signal mock + captured WARNING log lines."""
+        from unittest.mock import AsyncMock
+        import contextlib
+
+        hwm_path = os.path.join(self.tmpdir, "hwm.json")
+        if hwm_seed:
+            with open(hwm_path, "w") as f:
+                json.dump(hwm_seed, f)
+        loops._HWM_FILE = hwm_path
+        loops._PARTIAL_SELLS_FILE = os.path.join(self.tmpdir, "partial.json")
+
+        base_settings = {
+            "watchlist": [], "max_positions": 15, "trading_paused": True,
+            "use_atr_stops": False, "min_trade_size": 50,
+        }
+        base_settings.update(settings)
+
+        worker = MagicMock()
+        worker.ib.isConnected.return_value = True
+        worker.get_positions.return_value = positions
+        worker.get_open_orders.return_value = []
+        worker.get_available_funds.return_value = 0.0
+        manager = MagicMock()
+        manager.broadcast = AsyncMock()
+
+        dispatch = AsyncMock()
+        sleep_mock = AsyncMock(side_effect=asyncio.CancelledError())
+
+        cr = MagicMock(exchange="LSE", is_compliant=True)
+
+        with contextlib.ExitStack() as es:
+            es.enter_context(patch.object(loops, "load_settings", return_value=base_settings))
+            es.enter_context(patch.object(loops, "set_active_account"))
+            es.enter_context(patch.object(loops, "Trader", MagicMock()))
+            es.enter_context(patch.object(loops, "_exceeds_daily_loss_limit", return_value=False))
+            es.enter_context(patch.object(loops, "is_market_open", return_value=True))
+            es.enter_context(patch.object(loops, "market_status", return_value={"is_open": True}))
+            es.enter_context(patch.object(loops, "_position_entry_date", return_value=None))
+            es.enter_context(patch.object(loops, "_dispatch_signal", dispatch))
+            es.enter_context(patch(
+                "ibkr_core.features.compliance.screening.live_shariah_screen",
+                return_value=cr))
+            es.enter_context(patch("asyncio.sleep", sleep_mock))
+            health = {}
+            with self.assertLogs("ibkr_core.features.trading.loops", level="WARNING") as cm:
+                # assertLogs requires >=1 record; emit a sentinel so the no-warning
+                # cases don't raise, then filter it out.
+                loops.logger.warning("test-sentinel")
+                await loops.main_loop(worker, manager, health,
+                                      account_id=None, manage_connection=False)
+        warnings = [ln for ln in cm.output if "test-sentinel" not in ln]
+        return dispatch, warnings
+
+    async def test_fx_inconsistent_suppresses_upnl_stop(self):
+        """avg_cost_fx_ok=False + fictitious -99% upnl → NO exit, WARNING logged."""
+        loops = _loops_module()
+        pos = {"symbol": "AZN.L", "quantity": 10.0, "avg_cost": 14456.0,
+               "market_value": 1500.0, "avg_cost_fx_ok": False, "local_price": 150.0}
+        dispatch, warnings = await self._drive(
+            loops, [pos], {}, hwm_seed={loops._local_hwm_key("AZN.L"): 150.0})
+        self.assertEqual(dispatch.await_count, 0)
+        self.assertTrue(any("suppressing upnl-based exits" in w for w in warnings),
+                        warnings)
+
+    async def test_fx_ok_real_loss_still_stops_out(self):
+        """avg_cost_fx_ok=True + genuine -10% USD loss → fixed stop fires."""
+        loops = _loops_module()
+        pos = {"symbol": "AAPL", "quantity": 10.0, "avg_cost": 100.0,
+               "market_value": 900.0, "avg_cost_fx_ok": True}
+        dispatch, _ = await self._drive(loops, [pos], {})
+        self.assertEqual(dispatch.await_count, 1)
+        # dispatched a SELL
+        self.assertEqual(dispatch.await_args.args[0].action, "SELL")
+
+    async def test_trailing_uses_local_price_no_false_exit(self):
+        """FX swing: USD trail would show -25% but local is -2% → NO liquidation."""
+        loops = _loops_module()
+        pos = {"symbol": "AZN.L", "quantity": 10.0, "avg_cost": 150.0,
+               "market_value": 1500.0, "avg_cost_fx_ok": True, "local_price": 98.0}
+        dispatch, _ = await self._drive(
+            loops, [pos], {},
+            hwm_seed={"AZN.L": 200.0, loops._local_hwm_key("AZN.L"): 100.0})
+        self.assertEqual(dispatch.await_count, 0)
+
+    async def test_trailing_local_drop_does_fire(self):
+        """Local price -10% from local HWM → trailing stop still fires (in local)."""
+        loops = _loops_module()
+        pos = {"symbol": "AZN.L", "quantity": 10.0, "avg_cost": 150.0,
+               "market_value": 1500.0, "avg_cost_fx_ok": True, "local_price": 90.0}
+        dispatch, _ = await self._drive(
+            loops, [pos], {},
+            hwm_seed={"AZN.L": 150.0, loops._local_hwm_key("AZN.L"): 100.0})
+        self.assertEqual(dispatch.await_count, 1)
+        self.assertEqual(dispatch.await_args.args[0].action, "SELL")
 
 
 if __name__ == "__main__":
