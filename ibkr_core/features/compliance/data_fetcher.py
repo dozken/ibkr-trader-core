@@ -432,6 +432,11 @@ def _fetch_fmp_profile(symbol: str) -> Optional[Dict[str, Any]]:
             "mkt_cap":           mkt_cap,
             "sector":            p.get("sector") or p.get("industry") or "Unknown",
             "exchange":          p.get("exchangeShortName", "Unknown"),
+            # FMP profile carries no income statement → impure income undeterminable,
+            # and no machine slug for the business screen.
+            "financials_available": False,
+            "industry_key":      "",
+            "sector_key":        "",
             "sources":           ["FMP"],
         }
     except Exception as e:
@@ -507,6 +512,12 @@ def _fetch_yfinance(symbol: str) -> Optional[Dict[str, Any]]:
         company_name = info.get("longName") or info.get("shortName") or None
         industry = info.get("industry") or "Unknown"
         sector   = info.get("sector") or info.get("industry") or "Unknown"
+        # Machine-readable slugs power the business screen (H4): the human-readable
+        # sector string does NOT reliably substring-match yfinance's compound labels
+        # (e.g. "Alcohol" is absent from "Consumer Defensive / Beverages - Wineries
+        # & Distilleries"). industryKey/sectorKey are stable slugs the screen keys off.
+        industry_key = (info.get("industryKey") or "").strip().lower()
+        sector_key   = (info.get("sectorKey") or "").strip().lower()
         country  = info.get("country") or None
         debt     = float(info.get("totalDebt")    or 0)
         cash     = float(info.get("totalCash")    or 0)
@@ -535,10 +546,17 @@ def _fetch_yfinance(symbol: str) -> Optional[Dict[str, Any]]:
         interest_income = 0.0
         other_non_operating = 0.0
         interest_bearing_securities = 0.0
+        # Determinability flag (M6): the impure-income screen's SOLE source is
+        # ticker.financials, which is often empty for IFRS EU filers. A resulting
+        # prohibited_income==0 is then indistinguishable from a genuine zero, silently
+        # passing the AAOIFI 5% purity gate on MISSING data. Record whether the income
+        # statement was actually present so screening can fail closed on absence.
+        financials_available = False
         try:
             import math as _math
             _fs = ticker.financials
             if _fs is not None and not _fs.empty:
+                financials_available = True
                 _col = _fs.iloc[:, 0]
                 _ii = _col.get("Interest Income Non Operating") or _col.get("Interest Income")
                 if _ii is not None and not (_math.isnan(_ii) if isinstance(_ii, float) else False):
@@ -582,6 +600,9 @@ def _fetch_yfinance(symbol: str) -> Optional[Dict[str, Any]]:
             "data_as_of":       data_as_of,
             "interest_income":  interest_income,
             "interest_bearing_securities": interest_bearing_securities,
+            "financials_available": financials_available,
+            "industry_key":     industry_key,
+            "sector_key":       sector_key,
         }
     except Exception as e:
         logger.error(f"YahooFinance fetch failed for {symbol}: {e}")

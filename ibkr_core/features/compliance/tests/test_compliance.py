@@ -92,7 +92,28 @@ class TestCompliance(unittest.TestCase):
             interest_bearing_securities=0,
         )
         self.assertFalse(result.is_compliant)
-        self.assertIn("balance-sheet data missing", result.reason)
+        self.assertIn("debt data missing", result.reason)
+        self.assertIn("liquidity data missing", result.reason)
+
+    def test_missing_debt_alone_blocks_fail_closed(self):
+        # M5: debt<=0 with cash PRESENT (thin EU coverage: totalDebt=None→0) must
+        # BLOCK — debt==0 must NOT pass the most important AAOIFI gate on missing data.
+        result = check_shariah_compliance(
+            "EU_NO_DEBT", debt=0, cash=5, revenue=100,
+            prohibited_income=0, mkt_cap=100, sector="Technology",
+        )
+        self.assertFalse(result.is_compliant)
+        self.assertIn("debt data missing", result.reason)
+
+    def test_missing_liquidity_alone_blocks_fail_closed(self):
+        # M5 symmetric hole: cash+interest-bearing both 0 with debt present must BLOCK.
+        result = check_shariah_compliance(
+            "EU_NO_CASH", debt=5, cash=0, revenue=100,
+            prohibited_income=0, mkt_cap=100, sector="Technology",
+            interest_bearing_securities=0,
+        )
+        self.assertFalse(result.is_compliant)
+        self.assertIn("liquidity data missing", result.reason)
 
     def test_crisis_vix_buffer_does_not_block_clean_name(self):
         # At VIX>=30 the 5pp buffer would drive the 5% impure threshold to 0, making
@@ -170,6 +191,59 @@ class TestCompliance(unittest.TestCase):
         )
         self.assertFalse(result.is_compliant)
         self.assertIn("Prohibited sector: Weapons", result.reason)
+
+
+class TestBusinessSlugScreen(unittest.TestCase):
+    """H4: business screen keyed off yfinance industryKey/sectorKey slugs, since the
+    human-readable sector string does not reliably substring-match compound labels."""
+
+    def test_alcohol_distiller_slug_blocks(self):
+        # Diageo: sector "Consumer Defensive / Beverages - Wineries & Distilleries"
+        # — "Alcohol" does NOT substring-match, but the slug does.
+        result = check_shariah_compliance(
+            "DGE.L", debt=5, cash=5, revenue=100, prohibited_income=0, mkt_cap=100,
+            sector="Consumer Defensive / Beverages - Wineries & Distilleries",
+            industry_key="beverages-wineries-distilleries", sector_key="consumer-defensive",
+        )
+        self.assertFalse(result.is_compliant)
+        self.assertIn("Prohibited sector (slug)", result.reason)
+
+    def test_casino_slug_blocks(self):
+        result = check_shariah_compliance(
+            "CASINO", debt=5, cash=5, revenue=100, prohibited_income=0, mkt_cap=100,
+            sector="Consumer Cyclical / Resorts & Casinos",
+            industry_key="resorts-casinos", sector_key="consumer-cyclical",
+        )
+        self.assertFalse(result.is_compliant)
+        self.assertIn("Prohibited sector (slug)", result.reason)
+
+    def test_conventional_bank_slug_blocks(self):
+        result = check_shariah_compliance(
+            "BANK", debt=5, cash=5, revenue=100, prohibited_income=0, mkt_cap=100,
+            sector="Financial Services / Banks - Regional",
+            industry_key="banks-regional", sector_key="financial-services",
+        )
+        self.assertFalse(result.is_compliant)
+        self.assertIn("Prohibited sector (slug)", result.reason)
+
+    def test_non_alcoholic_beverage_not_blocked(self):
+        # Coca-Cola: beverages-non-alcoholic must NOT be over-blocked.
+        result = check_shariah_compliance(
+            "KO", debt=5, cash=5, revenue=100, prohibited_income=0, mkt_cap=100,
+            sector="Consumer Defensive / Beverages - Non-Alcoholic",
+            industry_key="beverages-non-alcoholic", sector_key="consumer-defensive",
+        )
+        self.assertTrue(result.is_compliant)
+
+    def test_islamic_bank_ticker_exempt(self):
+        # Al Rajhi is a bank slug but an intentionally-seeded Islamic bank → exempt.
+        result = check_shariah_compliance(
+            "1120.SR", debt=5, cash=5, revenue=100, prohibited_income=0, mkt_cap=100,
+            sector="Financial Services / Banks - Regional",
+            industry_key="banks-regional", sector_key="financial-services",
+        )
+        self.assertTrue(result.is_compliant)
+
 
 if __name__ == '__main__':
     unittest.main()

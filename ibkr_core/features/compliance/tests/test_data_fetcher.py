@@ -94,6 +94,26 @@ class TestFetchFinancialData(unittest.TestCase):
         self.assertIn("data_as_of", result)
 
     @patch("yfinance.Ticker")
+    def test_industry_and_sector_slugs_plumbed(self, MockTicker):
+        # H4/M6: yfinance industryKey/sectorKey slugs + financials_available flag
+        # must be carried on the fundamentals dict.
+        MockTicker.return_value.info = self._mock_info({
+            "industryKey": "Beverages-Wineries-Distilleries",  # mixed case → lowered
+            "sectorKey": "consumer-defensive",
+        })
+        result = fetch_financial_data("DGE.L")
+        self.assertEqual(result["industry_key"], "beverages-wineries-distilleries")
+        self.assertEqual(result["sector_key"], "consumer-defensive")
+        self.assertIn("financials_available", result)
+
+    @patch("yfinance.Ticker")
+    def test_missing_slugs_default_empty(self, MockTicker):
+        MockTicker.return_value.info = self._mock_info()
+        result = fetch_financial_data("AAPL")
+        self.assertEqual(result["industry_key"], "")
+        self.assertEqual(result["sector_key"], "")
+
+    @patch("yfinance.Ticker")
     def test_no_market_cap_returns_none(self, MockTicker):
         MockTicker.return_value.info = self._mock_info({"marketCap": None})
         result = fetch_financial_data("AAPL")

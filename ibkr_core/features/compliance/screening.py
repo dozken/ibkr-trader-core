@@ -16,6 +16,7 @@ from ibkr_core.features.compliance.data_fetcher import (
     SHARIAH_ETF_ALLOWLIST,
 )
 from ibkr_core.features.settings.service import load_settings as _load_settings
+from ibkr_core.core.market_hours import infer_exchange_from_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +139,56 @@ _PROHIBITED_SECTORS = {
     "Entertainment", "Interest-bearing",
 }
 
+# ── Prohibited business slugs (H4) ────────────────────────────────────────────
+# The human-readable sector string does NOT reliably substring-match yfinance's
+# compound labels ("Alcohol" ∉ "Consumer Defensive / Beverages - Wineries &
+# Distilleries"; "Gambling" ∉ "Resorts & Casinos"; "Conventional Finance" ∉
+# "Banks - Regional"). We therefore key the business screen off yfinance's stable
+# machine slugs (industryKey/sectorKey). Non-alcoholic beverages
+# ("beverages-non-alcoholic", Coca-Cola/Pepsi) are intentionally NOT listed.
+_PROHIBITED_INDUSTRY_SLUGS = frozenset({
+    # Alcohol
+    "beverages-wineries-distilleries", "beverages-brewers",
+    # Gambling
+    "gambling", "resorts-casinos",
+    # Tobacco
+    "tobacco",
+    # Conventional (riba-based) finance — non-bank
+    "capital-markets", "credit-services", "mortgage-finance",
+    "financial-conglomerates",
+})
+# Any industryKey under these prefixes is conventional interest-based finance
+# (banks-regional/banks-diversified/…; insurance-life/insurance-property-casualty/…).
+_PROHIBITED_SLUG_PREFIXES = ("banks-", "insurance-")
+
+# Tickers intentionally seeded as Shariah-native institutions (fully Islamic banks)
+# that would otherwise trip the banks-* slug block. They still undergo the full
+# AAOIFI ratio screen — only the business-slug exclusion is waived for them.
+_SECTOR_SLUG_EXEMPT_TICKERS = frozenset({
+    "1120.SR",  # Al Rajhi Bank — world's largest Islamic bank
+    "1180.SR",  # Alinma Bank — Shariah-compliant by charter
+})
+
+
+def _sector_haystack(sector: str) -> str:
+    """Lower-cased sector text for human substring matching, with the "non-alcoholic"
+    token stripped so the "Alcohol" keyword doesn't false-match "Beverages -
+    Non-Alcoholic" (Coca-Cola/Pepsi). A genuine "Alcohol"/"Alcoholic" label still matches."""
+    return sector.lower().replace("non-alcoholic", "").replace("nonalcoholic", "")
+
+
+def _industry_slug_prohibited(industry_key: str | None, sector_key: str | None) -> bool:
+    """True if a yfinance industryKey/sectorKey slug denotes a prohibited business."""
+    for key in (industry_key, sector_key):
+        if not key:
+            continue
+        k = key.strip().lower()
+        if k in _PROHIBITED_INDUSTRY_SLUGS:
+            return True
+        if any(k.startswith(p) for p in _PROHIBITED_SLUG_PREFIXES):
+            return True
+    return False
+
 
 def check_shariah_compliance(
     symbol: str,
@@ -150,6 +201,8 @@ def check_shariah_compliance(
     ratio_buffer: float = 0.0,
     extra_excluded_sectors: list[str] = [],
     interest_bearing_securities: float = 0.0,
+    industry_key: str = "",
+    sector_key: str = "",
 ) -> ComplianceStatus:
     """AAOIFI Standard 21 ratio screen (see COMPLIANCE.md §1).
 
@@ -165,13 +218,26 @@ def check_shariah_compliance(
         reasons.append("Undeterminable: market cap <= 0")
     if revenue <= 0:
         reasons.append("Undeterminable: revenue data missing (cannot screen impure income)")
-    if debt <= 0 and cash <= 0 and interest_bearing_securities <= 0:
-        reasons.append("Undeterminable: balance-sheet data missing (debt+cash+interest-bearing all 0)")
+    # Fail-closed on undeterminable balance sheet (M5). yfinance frequently returns
+    # totalDebt=None→0 for thin EU coverage while cash is present, so requiring ALL of
+    # debt/cash/ibs to be 0 lets debt==0 pass the most important AAOIFI gate on MISSING
+    # data. Fail closed on debt<=0 alone, and close the symmetric liquidity hole.
+    # Genuinely debt-free firms are whitelisted via the manual_verify path.
+    if debt <= 0:
+        reasons.append("Undeterminable: debt data missing (totalDebt<=0 — cannot verify AAOIFI debt screen)")
+    if cash <= 0 and interest_bearing_securities <= 0:
+        reasons.append("Undeterminable: liquidity data missing (cash+interest-bearing all 0)")
     effective_sectors = _PROHIBITED_SECTORS | set(extra_excluded_sectors)
+    _sector_hay = _sector_haystack(sector)
     for ps in effective_sectors:
-        if ps.lower() in sector.lower():
+        if ps.lower() in _sector_hay:
             reasons.append(f"Prohibited sector: {sector}")
             break
+    # Business screen via yfinance machine slugs (H4) — the human substring loop
+    # above misses compound labels. Islamic-native institutions are exempted.
+    if symbol.strip().upper() not in _SECTOR_SLUG_EXEMPT_TICKERS and \
+            _industry_slug_prohibited(industry_key, sector_key):
+        reasons.append(f"Prohibited sector (slug): {industry_key or sector_key}")
 
     debt_ratio      = debt / mkt_cap if mkt_cap > 0 else 0.0
     liquidity_ratio = (cash + interest_bearing_securities) / mkt_cap if mkt_cap > 0 else 0.0
@@ -224,7 +290,7 @@ def _live_shariah_screen_uncached(symbol: str, ratio_buffer_override: float | No
                 is_compliant=True, verdict="COMPLIANT",
                 debt_to_mkt_cap=0.0, cash_to_mkt_cap=0.0, impure_revenue_pct=0.0,
                 reason=None, data_source="Allowlist",
-                exchange=normalized.split(".", 1)[1] if "." in normalized else "Unknown",
+                exchange=infer_exchange_from_symbol(normalized),
                 sources_detail=sources_detail,
             )
         if normalized in SHARIAH_ETF_ALLOWLIST or sym_upper in SHARIAH_ETF_ALLOWLIST:
@@ -238,7 +304,7 @@ def _live_shariah_screen_uncached(symbol: str, ratio_buffer_override: float | No
                 is_compliant=True, verdict="COMPLIANT",
                 debt_to_mkt_cap=0.0, cash_to_mkt_cap=0.0, impure_revenue_pct=0.0,
                 reason=None, data_source="Allowlist",
-                exchange=normalized.split(".", 1)[1] if "." in normalized else "NMS",
+                exchange=infer_exchange_from_symbol(normalized),
                 sources_detail=sources_detail,
             )
 
@@ -368,14 +434,32 @@ def _live_shariah_screen_uncached(symbol: str, ratio_buffer_override: float | No
             ratio_reasons.append("Undeterminable: market cap <= 0")
         if rev <= 0:
             ratio_reasons.append("Undeterminable: revenue data missing (cannot screen impure income)")
-        if debt <= 0 and cash <= 0 and ibs <= 0:
-            ratio_reasons.append("Undeterminable: balance-sheet data missing (debt+cash+interest-bearing all 0)")
+        # Fail-closed on undeterminable balance sheet (M5): yfinance often returns
+        # totalDebt=None→0 for thin EU coverage while cash is present, so requiring ALL
+        # of debt/cash/ibs to be 0 let debt==0 silently pass the most important AAOIFI
+        # gate on MISSING data. Fail closed on debt<=0 alone + the symmetric liquidity
+        # hole. Genuinely debt-free names are whitelisted via manual_verify (upstream).
+        if debt <= 0:
+            ratio_reasons.append("Undeterminable: debt data missing (totalDebt<=0 — cannot verify AAOIFI debt screen)")
+        if cash <= 0 and ibs <= 0:
+            ratio_reasons.append("Undeterminable: liquidity data missing (cash+interest-bearing all 0)")
         if debt_r >= debt_thr:
             ratio_reasons.append(f"Debt ratio {debt_r:.1%} >= {debt_thr:.0%}")
         if liq_r >= liq_thr:
             ratio_reasons.append(f"Liquidity ratio {liq_r:.1%} >= {liq_thr:.0%} (cash+interest-bearing)")
         if imp_r >= imp_thr:
             ratio_reasons.append(f"Impure revenue {imp_r:.2%} >= {imp_thr:.0%}")
+        elif not financial_data.get("financials_available", True):
+            # imp_r==0 here came from ABSENT income statements (common for IFRS EU
+            # filers), not a genuine zero — the AAOIFI 5% purity screen is
+            # undeterminable (M6). Fail closed UNLESS a certifier corroborates
+            # COMPLIANT (manual_verify is handled upstream). This does not
+            # blanket-block: certifier-covered names still pass.
+            certifier_ok = bool(verdict and verdict.get("compliant") and not verdict.get("doubtful"))
+            if not certifier_ok:
+                ratio_reasons.append(
+                    "Undeterminable: impure-income statements absent "
+                    "(no certifier corroboration — cannot verify AAOIFI 5% purity screen)")
 
         ratio_verdict = "COMPLIANT" if len(ratio_reasons) == 0 else "NON_COMPLIANT"
         for src in financial_data.get("sources", ["YahooFinance"]):
@@ -427,10 +511,21 @@ def _live_shariah_screen_uncached(symbol: str, ratio_buffer_override: float | No
         # ── Sector + ratio screening ─────────────────────────────────────────────
         effective_sectors = _PROHIBITED_SECTORS | set(extra_excluded_sectors)
         sector_str = financial_data["sector"]
+        _sector_hay = _sector_haystack(sector_str)
         for ps in effective_sectors:
-            if ps.lower() in sector_str.lower():
+            if ps.lower() in _sector_hay:
                 ratio_reasons.insert(0, f"Prohibited sector: {sector_str}")
                 break
+        # Business screen via yfinance machine slugs (H4) — the human substring loop
+        # above misses compound labels ("Alcohol" ∉ "…/Beverages - Wineries &
+        # Distilleries", "Conventional Finance" ∉ "Banks - Regional"). Islamic-native
+        # institutions (Al Rajhi/Alinma) are exempted so intentional seeds still pass.
+        is_slug_exempt = (normalized in _SECTOR_SLUG_EXEMPT_TICKERS
+                          or sym_upper in _SECTOR_SLUG_EXEMPT_TICKERS)
+        if not is_slug_exempt and _industry_slug_prohibited(
+                financial_data.get("industry_key"), financial_data.get("sector_key")):
+            slug = financial_data.get("industry_key") or financial_data.get("sector_key")
+            ratio_reasons.insert(0, f"Prohibited sector (slug): {slug}")
 
         is_compliant = len(ratio_reasons) == 0
         reason_str = "; ".join(ratio_reasons) if ratio_reasons else None

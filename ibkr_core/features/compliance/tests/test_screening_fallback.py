@@ -246,5 +246,143 @@ class TestScreeningFallbackAllFail(unittest.TestCase):
         self.assertIn("Zoya", result.data_source)
 
 
+class TestAllowlistExchangeResolution(unittest.TestCase):
+    """L3: allowlist branches must resolve a real exchange code via
+    infer_exchange_from_symbol, not echo the yfinance suffix ('L' → US/USD default)."""
+
+    def _settings(self):
+        return patch("ibkr_core.features.compliance.screening._load_settings",
+                     return_value={"ratio_buffer": 0.0, "sector_exclusion": []})
+
+    def test_gold_etc_lse_resolves_to_exchange_code(self):
+        with self._settings():
+            result = _live_shariah_screen_uncached("SGLN.L")  # GOLD_ETC_ALLOWLIST
+        self.assertTrue(result.is_compliant)
+        self.assertEqual(result.exchange, "LSE")
+
+    def test_gold_etc_us_no_suffix_resolves_nms(self):
+        with self._settings():
+            result = _live_shariah_screen_uncached("RMAU")  # GOLD_ETC_ALLOWLIST, US
+        self.assertEqual(result.exchange, "NMS")
+
+    def test_shariah_etf_lse_resolves_to_exchange_code(self):
+        with self._settings():
+            result = _live_shariah_screen_uncached("ISDU.L")  # SHARIAH_ETF_ALLOWLIST
+        self.assertTrue(result.is_compliant)
+        self.assertEqual(result.exchange, "LSE")
+
+    def test_shariah_etf_us_no_suffix_resolves_nms(self):
+        with self._settings():
+            result = _live_shariah_screen_uncached("SPUS")  # SHARIAH_ETF_ALLOWLIST, US
+        self.assertEqual(result.exchange, "NMS")
+
+
+class TestBusinessSlugScreenLive(unittest.TestCase):
+    """H4: live screen blocks via yfinance industryKey/sectorKey slugs even when the
+    human-readable sector string never substring-matches the prohibited keyword."""
+
+    def _run(self, symbol, data):
+        with patch("ibkr_core.features.compliance.screening.fetch_shariah_verdict",
+                   return_value=None), \
+             patch("ibkr_core.features.compliance.screening.fetch_financial_data",
+                   return_value=data), \
+             patch("ibkr_core.features.compliance.screening._load_settings",
+                   return_value={"ratio_buffer": 0.0, "sector_exclusion": []}):
+            return _live_shariah_screen_uncached(symbol)
+
+    def test_diageo_alcohol_slug_blocks(self):
+        # Clean ratios (5% debt) — Diageo would screen COMPLIANT on ratios alone;
+        # the alcohol slug must block it (a buyback dropping debt must not free it).
+        data = _financial_data(
+            symbol="DGE.L", debt=1_000_000, cash=500_000, revenue=10_000_000,
+            mkt_cap=20_000_000,
+            sector="Consumer Defensive / Beverages - Wineries & Distilleries",
+        )
+        data["industry_key"] = "beverages-wineries-distilleries"
+        data["sector_key"] = "consumer-defensive"
+        result = self._run("DGE.L", data)
+        self.assertFalse(result.is_compliant)
+        self.assertEqual(result.verdict, "NON_COMPLIANT")
+        self.assertIn("Prohibited sector (slug)", result.reason)
+
+    def test_casino_slug_blocks(self):
+        data = _financial_data(symbol="LVS", debt=1_000_000, cash=500_000,
+                               sector="Consumer Cyclical / Resorts & Casinos")
+        data["industry_key"] = "resorts-casinos"
+        result = self._run("LVS", data)
+        self.assertFalse(result.is_compliant)
+        self.assertIn("Prohibited sector (slug)", result.reason)
+
+    def test_conventional_bank_slug_blocks(self):
+        data = _financial_data(symbol="JPM", debt=1_000_000, cash=500_000,
+                               sector="Financial Services / Banks - Diversified")
+        data["industry_key"] = "banks-diversified"
+        result = self._run("JPM", data)
+        self.assertFalse(result.is_compliant)
+        self.assertIn("Prohibited sector (slug)", result.reason)
+
+    def test_coca_cola_non_alcoholic_passes(self):
+        data = _financial_data(symbol="KO", debt=1_000_000, cash=500_000,
+                               sector="Consumer Defensive / Beverages - Non-Alcoholic")
+        data["industry_key"] = "beverages-non-alcoholic"
+        result = self._run("KO", data)
+        self.assertTrue(result.is_compliant)
+
+    def test_al_rajhi_islamic_bank_exempt_passes(self):
+        # Bank slug but intentionally-seeded Islamic bank → exempt from the slug block;
+        # clean ratios → COMPLIANT.
+        data = _financial_data(symbol="1120.SR", debt=1_000_000, cash=500_000,
+                               sector="Financial Services / Banks - Regional")
+        data["industry_key"] = "banks-regional"
+        result = self._run("1120.SR", data)
+        self.assertTrue(result.is_compliant)
+
+
+class TestImpureIncomeUndeterminable(unittest.TestCase):
+    """M6: prohibited_income==0 from ABSENT income statements must not silently pass
+    the AAOIFI 5% purity screen."""
+
+    def test_absent_financials_no_certifier_blocks(self):
+        data = _financial_data(symbol="EU.PA", debt=1_000_000, cash=500_000,
+                               prohibited_income=0.0)
+        data["financials_available"] = False
+        with patch("ibkr_core.features.compliance.screening.fetch_shariah_verdict",
+                   return_value=None), \
+             patch("ibkr_core.features.compliance.screening.fetch_financial_data",
+                   return_value=data), \
+             patch("ibkr_core.features.compliance.screening._load_settings",
+                   return_value={"ratio_buffer": 0.0, "sector_exclusion": []}):
+            result = _live_shariah_screen_uncached("EU.PA")
+        self.assertFalse(result.is_compliant)
+        self.assertIn("impure-income statements absent", result.reason)
+
+    def test_absent_financials_with_compliant_certifier_passes(self):
+        data = _financial_data(symbol="EU.PA", debt=1_000_000, cash=500_000,
+                               prohibited_income=0.0)
+        data["financials_available"] = False
+        with patch("ibkr_core.features.compliance.screening.fetch_shariah_verdict",
+                   return_value=_zoya_verdict(compliant=True)), \
+             patch("ibkr_core.features.compliance.screening.fetch_financial_data",
+                   return_value=data), \
+             patch("ibkr_core.features.compliance.screening._load_settings",
+                   return_value={"ratio_buffer": 0.0, "sector_exclusion": []}):
+            result = _live_shariah_screen_uncached("EU.PA")
+        self.assertTrue(result.is_compliant)
+
+    def test_present_financials_genuine_zero_passes(self):
+        # financials present + genuine 0 impure → passes (no false block).
+        data = _financial_data(symbol="AAPL", debt=1_000_000, cash=500_000,
+                               prohibited_income=0.0)
+        data["financials_available"] = True
+        with patch("ibkr_core.features.compliance.screening.fetch_shariah_verdict",
+                   return_value=None), \
+             patch("ibkr_core.features.compliance.screening.fetch_financial_data",
+                   return_value=data), \
+             patch("ibkr_core.features.compliance.screening._load_settings",
+                   return_value={"ratio_buffer": 0.0, "sector_exclusion": []}):
+            result = _live_shariah_screen_uncached("AAPL")
+        self.assertTrue(result.is_compliant)
+
+
 if __name__ == "__main__":
     unittest.main()
