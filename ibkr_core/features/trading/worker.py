@@ -752,17 +752,32 @@ class IBKRWorker:
             if not avg_cost_fx_ok:  # missing FX — keep raw, flag (exit math may be off)
                 logger.warning("get_positions: no FX for %s — avg_cost stays in local ccy", sym)
                 avg_cost_usd = p.avgCost
+            # local_price = per-share price in the CONTRACT's own quote currency
+            # (IBKR marketPrice is local, not base-USD; yfinance close is local).
+            # loops.py samples the trailing stop in this unit so a pure FX move
+            # can't fake a trail drop (M1). None when unavailable → loops falls
+            # back to the USD current_price. LSE pence vs GBP is fine here: the
+            # trail is a HWM-vs-current RATIO, so a consistent unit cancels out.
             item = portfolio_map.get(sym)
             if item:
                 mkt_val = item.marketValue      # already account-base USD
                 pnl = item.unrealizedPNL
+                local_price = item.marketPrice
             elif sym in price_map:              # yfinance close = LOCAL quote unit
                 px_usd = to_usd(price_map[sym], sym)
                 mkt_val = qty * (px_usd if px_usd is not None else price_map[sym])
                 pnl = mkt_val - qty * avg_cost_usd
+                local_price = price_map[sym]
             else:
                 mkt_val = qty * avg_cost_usd
                 pnl = 0.0
+                local_price = None
+            if local_price is not None and (
+                not isinstance(local_price, (int, float))
+                or local_price <= 0
+                or math.isnan(local_price)
+            ):
+                local_price = None  # 0/NaN/garbage → let loops use USD fallback
             positions.append({
                 "symbol": sym,
                 "quantity": qty,
@@ -770,6 +785,7 @@ class IBKRWorker:
                 "avg_cost_fx_ok": avg_cost_fx_ok,
                 "market_value": mkt_val,
                 "unrealized_pnl": pnl,
+                "local_price": local_price,
                 "exchange": p.contract.primaryExchange or p.contract.exchange or "",
             })
 

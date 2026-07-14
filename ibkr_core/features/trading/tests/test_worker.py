@@ -404,11 +404,12 @@ class TestGetPositionsFxFlag(unittest.TestCase):
         p.contract.exchange = exchange
         return p
 
-    def _item(self, local, mv, pnl, primary="", exchange="SMART", account="U1"):
+    def _item(self, local, mv, pnl, primary="", exchange="SMART", account="U1", market_price=0.0):
         it = MagicMock()
         it.account = account
         it.marketValue = mv
         it.unrealizedPNL = pnl
+        it.marketPrice = market_price  # per-share, LOCAL quote ccy
         it.contract.localSymbol = local
         it.contract.symbol = local
         it.contract.primaryExchange = primary
@@ -460,6 +461,25 @@ class TestGetPositionsFxFlag(unittest.TestCase):
             positions = w.get_positions()
         self.assertIn("avg_cost_fx_ok", positions[0])
         self.assertTrue(positions[0]["avg_cost_fx_ok"])
+
+    def test_local_price_emitted_from_market_price_and_nan_guarded(self):
+        """M1: get_positions surfaces the LOCAL per-share price for FX-neutral
+        trailing; a valid marketPrice passes through, a 0/NaN one becomes None."""
+        w = _make_worker()
+        w.ib.positions.return_value = [
+            self._pos("ASML", avg_cost=600.0, primary="AEB", exchange="AEB"),
+            self._pos("SAP", avg_cost=100.0, primary="IBIS", exchange="IBIS"),
+        ]
+        w.ib.portfolio.return_value = [
+            self._item("ASML", mv=6500.0, pnl=500.0, primary="AEB", exchange="AEB", market_price=650.0),
+            self._item("SAP", mv=1000.0, pnl=0.0, primary="IBIS", exchange="IBIS", market_price=float("nan")),
+        ]
+        with patch("ibkr_core.features.trading.worker.from_ibkr", side_effect=lambda s, e="": s), \
+             patch("ibkr_core.features.trading.worker.to_usd", side_effect=lambda price, sym, *a, **k: price):
+            positions = w.get_positions()
+        by_sym = {p["symbol"]: p for p in positions}
+        self.assertAlmostEqual(by_sym["ASML"]["local_price"], 650.0)   # local, not USD
+        self.assertIsNone(by_sym["SAP"]["local_price"])                # NaN guarded → None
 
 
 class TestOnOrderStatus(unittest.TestCase):
