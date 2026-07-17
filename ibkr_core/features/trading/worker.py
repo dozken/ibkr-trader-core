@@ -836,16 +836,24 @@ class IBKRWorker:
         IBKRWorker._positions_cache[cache_key] = (positions, _time.time())
         return positions
 
-    def get_dividends_batch(self, positions: List[Dict]) -> List[Dict]:
-        """Batch fetch past-12-month dividends for all positions (tick 456). Single sleep."""
+    async def get_dividends_batch(self, positions: List[Dict]) -> List[Dict]:
+        """Batch fetch past-12-month dividends for all positions (tick 456). Single sleep.
+
+        Async because it issues live ib_insync requests (qualify) that must run on
+        the connection's event loop. reqMktData/cancelMktData are non-blocking sends
+        (they queue a wire message and return immediately — no ib._run), so they stay
+        synchronous; only the blocking qualify + the settle-wait need awaiting. Must be
+        awaited directly on the event loop — never via asyncio.to_thread (a worker
+        thread has no event loop → ib._run raises "no current event loop in thread").
+        """
         pending = []
         for pos in positions:
             contract = self._stock_contract(pos["symbol"])
-            self.ib.qualifyContracts(contract)
+            await self.ib.qualifyContractsAsync(contract)
             ticker = self.ib.reqMktData(contract, '456', True, False)
             pending.append((pos["symbol"], pos["quantity"], contract, ticker))
 
-        self.ib.sleep(2)  # single wait for all ticks
+        await asyncio.sleep(2)  # single wait for all ticks
 
         results = []
         for symbol, quantity, contract, ticker in pending:

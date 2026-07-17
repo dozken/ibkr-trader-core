@@ -163,16 +163,32 @@ GOLD_ETC_ALLOWLIST: frozenset = frozenset({
 })
 
 
+# IBKR/US venue codes that carry NO yahoo suffix — the canonical symbol is the
+# BARE ticker. Mirrors core.symbols._US_VENUES for the compliance normaliser so a
+# "BIIB:NASDAQ" screen key can never become the bogus "BIIB.NASDAQ" (yfinance
+# 404s: "possibly delisted; no price data found"). Includes yahoo's own US
+# exchange short-codes (NMS/NGM/NCM/NYQ) for defence-in-depth.
+_US_VENUES = {
+    "", "SMART", "NASDAQ", "NYSE", "ARCA", "AMEX", "BATS", "IEX",
+    "ISLAND", "PSE", "CBOE", "NYSENAT", "LTSE", "MEMX", "OTC", "PINK",
+    "NMS", "NGM", "NCM", "NYQ",
+}
+
+
 def normalize_ticker(symbol: str) -> str:
     symbol = symbol.strip().upper()
     for sep in (":", "/"):
         if sep in symbol:
             left, right = [p.strip() for p in symbol.split(sep, 1)]
             # Handle both TICKER:EXCHANGE and EXCHANGE:TICKER
-            if left in _EXCHANGE_SUFFIX:
+            if left in _EXCHANGE_SUFFIX or left in _US_VENUES:
                 exchange, ticker = left, right
             else:
                 ticker, exchange = left, right
+            # US venues (SMART/NASDAQ/NYSE/ARCA/AMEX/...) have NO yahoo suffix —
+            # the canonical symbol is the BARE ticker. Never build "BIIB.NASDAQ".
+            if exchange in _US_VENUES:
+                return ticker
             suffix = _EXCHANGE_SUFFIX.get(exchange)
             if suffix:
                 return f"{ticker}.{suffix}"

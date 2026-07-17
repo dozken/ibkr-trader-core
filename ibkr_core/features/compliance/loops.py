@@ -102,8 +102,14 @@ async def compliance_audit_loop(worker, manager: ConnectionManager, health: dict
             for pos in positions:
                 symbol = str(pos["symbol"])
                 qty = int(pos["quantity"])
-                exch = str(pos.get("exchange") or "")
-                screen_key = f"{symbol}:{exch}" if exch else symbol
+                # pos["symbol"] is ALREADY the canonical yfinance symbol:
+                # worker.get_positions() runs it through symbols.from_ibkr, so US
+                # venues (NASDAQ/NYSE/SMART/...) collapse to the bare ticker and
+                # foreign names carry their yahoo suffix (ASML.AS / AZN.L). Do NOT
+                # re-append the raw IBKR primaryExchange: "BIIB" + "NASDAQ" ->
+                # "BIIB:NASDAQ" -> normalize_ticker -> "BIIB.NASDAQ", a bogus
+                # symbol yfinance 404s on ("possibly delisted; no price data").
+                # Screen the canonical symbol directly.
 
                 ca_alerts = await asyncio.to_thread(check_corporate_actions, symbol)
                 for ca in ca_alerts:
@@ -116,7 +122,7 @@ async def compliance_audit_loop(worker, manager: ConnectionManager, health: dict
                     )
 
                 compliance_status = await loop.run_in_executor(
-                    None, live_shariah_screen, screen_key, vix_buffer
+                    None, live_shariah_screen, symbol, vix_buffer
                 )
                 await asyncio.to_thread(persist_compliance, symbol, compliance_status)
 

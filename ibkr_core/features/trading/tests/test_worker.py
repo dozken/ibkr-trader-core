@@ -177,6 +177,58 @@ class TestUnsubscribeTicker(unittest.TestCase):
         self.assertIn("MSFT", w._ticker_callbacks)
 
 
+class TestGetDividendsBatch(unittest.IsolatedAsyncioTestCase):
+    """get_dividends_batch is async and runs on the connection event loop.
+
+    Regression for the ThreadPoolExecutor "no current event loop" crash: it must
+    qualify contracts via the ASYNC API (qualifyContractsAsync) and settle via
+    asyncio.sleep — never the blocking self.ib.qualifyContracts / self.ib.sleep,
+    which call ib._run() and blow up off the loop thread. reqMktData/cancelMktData
+    stay synchronous (non-blocking sends).
+    """
+
+    async def test_uses_async_qualify_and_not_blocking_apis(self):
+        w = _make_worker()
+        w.ib.qualifyContractsAsync = AsyncMock()
+        ticker = MagicMock()
+        ticker.dividends.past12Months = 4.0
+        w.ib.reqMktData = MagicMock(return_value=ticker)
+        w.ib.cancelMktData = MagicMock()
+
+        positions = [{"symbol": "AAPL", "quantity": 10}]
+        with patch("ib_insync.Stock"), \
+             patch("asyncio.sleep", new=AsyncMock()) as sleep_mock:
+            results = await w.get_dividends_batch(positions)
+
+        # Async qualify used; blocking sync twins NEVER called (they need ib._run).
+        w.ib.qualifyContractsAsync.assert_awaited_once()
+        w.ib.qualifyContracts.assert_not_called()
+        w.ib.sleep.assert_not_called()
+        sleep_mock.assert_awaited_once_with(2)
+        # Non-blocking sends still issued.
+        w.ib.reqMktData.assert_called_once()
+        w.ib.cancelMktData.assert_called_once()
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["symbol"], "AAPL")
+        self.assertAlmostEqual(results[0]["past12_per_share"], 4.0)
+        self.assertAlmostEqual(results[0]["total_received"], 40.0)
+
+    async def test_none_dividends_yield_none_total(self):
+        w = _make_worker()
+        w.ib.qualifyContractsAsync = AsyncMock()
+        ticker = MagicMock()
+        ticker.dividends = None
+        w.ib.reqMktData = MagicMock(return_value=ticker)
+        w.ib.cancelMktData = MagicMock()
+
+        positions = [{"symbol": "MSFT", "quantity": 5}]
+        with patch("ib_insync.Stock"), patch("asyncio.sleep", new=AsyncMock()):
+            results = await w.get_dividends_batch(positions)
+
+        self.assertIsNone(results[0]["past12_per_share"])
+        self.assertIsNone(results[0]["total_received"])
+
+
 class TestPlaceOrder(unittest.IsolatedAsyncioTestCase):
     async def test_place_order_preserves_fractional_quantity(self):
         """place_order preserves fractional quantity (fractional trading enabled),

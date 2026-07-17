@@ -262,14 +262,14 @@ class DividendData(BaseModel):
 
 
 @router.get("/dividends", response_model=List[DividendData])
-def get_dividends(request: Request) -> List[DividendData]:
+async def get_dividends(request: Request) -> List[DividendData]:
     """Past-12-month dividends for all positions via IBKR tick 456."""
     worker = getattr(request.app.state, "worker", None)
     if not worker or not worker.ib.isConnected():
         return []
     try:
         positions = worker.get_positions()
-        return [DividendData(**r) for r in worker.get_dividends_batch(positions)]
+        return [DividendData(**r) for r in await worker.get_dividends_batch(positions)]
     except Exception:
         return []
 
@@ -669,8 +669,8 @@ class PurificationRecordRequest(BaseModel):
 
 
 @router.get("/purification/pending", response_model=List[PurificationPending])
-def get_pending_purification(request: Request, db: Session = Depends(get_db),
-                             account_id: Optional[int] = None) -> List[PurificationPending]:
+async def get_pending_purification(request: Request, db: Session = Depends(get_db),
+                                   account_id: Optional[int] = None) -> List[PurificationPending]:
     """
     Returns pending Tazkiyah (purification) amounts per held position.
     Computed as: past-12m dividends × impure_revenue_pct − already recorded donations.
@@ -686,7 +686,7 @@ def get_pending_purification(request: Request, db: Session = Depends(get_db),
     symbols = [p["symbol"] for p in positions]
 
     try:
-        dividends_raw = worker.get_dividends_batch(positions)
+        dividends_raw = await worker.get_dividends_batch(positions)
         dividends_map = {d["symbol"]: (d["total_received"] or 0.0) for d in dividends_raw}
     except Exception:
         dividends_map = {}

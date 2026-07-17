@@ -34,6 +34,61 @@ def _make_worker(positions, connected=True):
     return worker
 
 
+class TestComplianceAuditLoopSymbolConstruction(unittest.IsolatedAsyncioTestCase):
+    """Regression (BUG 2): the audit loop must screen the canonical bare symbol,
+    never symbol + ":" + raw IBKR exchange."""
+
+    async def test_us_position_screened_with_bare_symbol(self):
+        import contextlib
+        from ibkr_core.features.compliance import loops as loop_mod
+
+        positions = [{
+            "symbol": "BIIB", "quantity": 10, "exchange": "NASDAQ",
+            "avg_cost": 250.0, "market_value": 2600.0, "unrealized_pnl": 100.0,
+        }]
+        worker = _make_worker(positions)
+
+        screen_calls = []
+
+        def _record_screen(sym, *a, **k):
+            screen_calls.append(sym)
+            return _COMPLIANT_STATUS
+
+        manager = MagicMock()
+        manager.broadcast = AsyncMock()
+        health = {"compliance_audit_loop": {}}
+        settings = {
+            "compliance_check_interval_hours": 24,
+            "auto_compliance_check": True,
+            "critical_auto_sell": False,
+            "alert_channels": [],
+        }
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(loop_mod, "live_shariah_screen", side_effect=_record_screen))
+            stack.enter_context(patch.object(loop_mod, "get_current_vix", return_value=15.0))
+            stack.enter_context(patch.object(loop_mod, "check_corporate_actions", return_value=[]))
+            stack.enter_context(patch.object(loop_mod, "persist_compliance", MagicMock()))
+            stack.enter_context(patch.object(loop_mod, "load_settings", return_value=settings))
+            stack.enter_context(patch.object(loop_mod, "send_alert", AsyncMock()))
+            stack.enter_context(patch.object(loop_mod, "Trader", MagicMock()))
+            stack.enter_context(patch.object(loop_mod, "PORTFOLIO_COMPLIANCE_PCT", MagicMock()))
+
+            task = asyncio.create_task(
+                loop_mod.compliance_audit_loop(worker, manager, health)
+            )
+            for _ in range(200):
+                if screen_calls:
+                    break
+                await asyncio.sleep(0.01)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+        # Must be the bare canonical ticker, NOT "BIIB:NASDAQ".
+        self.assertEqual(screen_calls, ["BIIB"])
+
+
 class TestComplianceAuditLoopLogic(unittest.IsolatedAsyncioTestCase):
     """
     Tests audit loop kill-switch logic in isolation.

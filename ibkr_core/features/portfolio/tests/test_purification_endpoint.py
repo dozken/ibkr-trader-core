@@ -10,7 +10,7 @@ Covers:
 - Already-purified amount deducted correctly in HTTP response
 """
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 
 from ibkr_core.features.portfolio.router import get_pending_purification
 
@@ -31,7 +31,7 @@ def _make_worker(connected: bool, positions=None, dividends=None):
     worker = MagicMock()
     worker.ib.isConnected.return_value = connected
     worker.get_positions.return_value = positions or []
-    worker.get_dividends_batch.return_value = dividends or []
+    worker.get_dividends_batch = AsyncMock(return_value=dividends or [])
     return worker
 
 
@@ -81,38 +81,38 @@ def _make_db(compliance_rows=None, purification_rows=None):
 # Tests
 # ---------------------------------------------------------------------------
 
-class TestPurificationEndpointNoConnection(unittest.TestCase):
+class TestPurificationEndpointNoConnection(unittest.IsolatedAsyncioTestCase):
 
-    def test_returns_empty_when_worker_missing(self):
+    async def test_returns_empty_when_worker_missing(self):
         req = _make_request(worker=None)
-        result = get_pending_purification(request=req, db=MagicMock())
+        result = await get_pending_purification(request=req, db=MagicMock())
         self.assertEqual(result, [])
 
-    def test_returns_empty_when_ibkr_disconnected(self):
+    async def test_returns_empty_when_ibkr_disconnected(self):
         worker = _make_worker(connected=False)
         req = _make_request(worker=worker)
-        result = get_pending_purification(request=req, db=MagicMock())
+        result = await get_pending_purification(request=req, db=MagicMock())
         self.assertEqual(result, [])
 
-    def test_returns_empty_when_no_positions(self):
+    async def test_returns_empty_when_no_positions(self):
         worker = _make_worker(connected=True, positions=[])
         req = _make_request(worker=worker)
-        result = get_pending_purification(request=req, db=MagicMock())
+        result = await get_pending_purification(request=req, db=MagicMock())
         self.assertEqual(result, [])
 
 
-class TestPurificationEndpointFields(unittest.TestCase):
+class TestPurificationEndpointFields(unittest.IsolatedAsyncioTestCase):
 
-    def _run(self, positions, dividends, compliance_rows, purification_rows=None):
+    async def _run(self, positions, dividends, compliance_rows, purification_rows=None):
         worker = _make_worker(connected=True, positions=positions, dividends=dividends)
         req = _make_request(worker=worker)
         db = _make_db(
             compliance_rows=compliance_rows,
             purification_rows=purification_rows or [],
         )
-        return get_pending_purification(request=req, db=db)
+        return await get_pending_purification(request=req, db=db)
 
-    def test_basic_pending_calculation(self):
+    async def test_basic_pending_calculation(self):
         # AAPL: div=100, impure=5% → pending=5.0
         positions = [{"symbol": "AAPL", "quantity": 10, "avg_cost": 100.0,
                       "market_value": 1000.0, "unrealized_pnl": 0.0}]
@@ -120,7 +120,7 @@ class TestPurificationEndpointFields(unittest.TestCase):
                       "past12_per_share": 1.0, "quantity": 10}]
         compliance = [_make_compliance_row("AAPL", 0.05)]
 
-        result = self._run(positions, dividends, compliance)
+        result = await self._run(positions, dividends, compliance)
 
         self.assertEqual(len(result), 1)
         row = result[0]
@@ -131,7 +131,7 @@ class TestPurificationEndpointFields(unittest.TestCase):
         self.assertAlmostEqual(row.impure_pct, 0.05)
         self.assertAlmostEqual(row.dividend_total, 100.0)
 
-    def test_already_purified_deducted(self):
+    async def test_already_purified_deducted(self):
         positions = [{"symbol": "AAPL", "quantity": 10, "avg_cost": 100.0,
                       "market_value": 1000.0, "unrealized_pnl": 0.0}]
         dividends = [{"symbol": "AAPL", "total_received": 100.0,
@@ -139,41 +139,41 @@ class TestPurificationEndpointFields(unittest.TestCase):
         compliance = [_make_compliance_row("AAPL", 0.05)]
         purified = [_make_purification_row("AAPL", 3.0)]
 
-        result = self._run(positions, dividends, compliance, purified)
+        result = await self._run(positions, dividends, compliance, purified)
 
         row = result[0]
         self.assertAlmostEqual(row.already_purified, 3.0)
         self.assertAlmostEqual(row.pending, 2.0)
 
-    def test_zero_impure_pct_no_pending(self):
+    async def test_zero_impure_pct_no_pending(self):
         positions = [{"symbol": "MSFT", "quantity": 5, "avg_cost": 300.0,
                       "market_value": 1500.0, "unrealized_pnl": 0.0}]
         dividends = [{"symbol": "MSFT", "total_received": 200.0,
                       "past12_per_share": 4.0, "quantity": 5}]
         compliance = [_make_compliance_row("MSFT", 0.0)]
 
-        result = self._run(positions, dividends, compliance)
+        result = await self._run(positions, dividends, compliance)
 
         row = result[0]
         self.assertAlmostEqual(row.pending, 0.0)
         self.assertAlmostEqual(row.purification_needed, 0.0)
 
-    def test_dividend_fetch_exception_returns_zero_pending(self):
+    async def test_dividend_fetch_exception_returns_zero_pending(self):
         positions = [{"symbol": "AAPL", "quantity": 10, "avg_cost": 100.0,
                       "market_value": 1000.0, "unrealized_pnl": 0.0}]
         worker = _make_worker(connected=True, positions=positions)
-        worker.get_dividends_batch.side_effect = Exception("IBKR timeout")
+        worker.get_dividends_batch = AsyncMock(side_effect=Exception("IBKR timeout"))
         req = _make_request(worker=worker)
         compliance = [_make_compliance_row("AAPL", 0.05)]
         db = _make_db(compliance_rows=compliance)
 
-        result = get_pending_purification(request=req, db=db)
+        result = await get_pending_purification(request=req, db=db)
 
         # dividends_map is {} after exception → pending = 0
         self.assertEqual(len(result), 1)
         self.assertAlmostEqual(result[0].pending, 0.0)
 
-    def test_multiple_positions_returned(self):
+    async def test_multiple_positions_returned(self):
         positions = [
             {"symbol": "AAPL", "quantity": 10, "avg_cost": 100.0,
              "market_value": 1000.0, "unrealized_pnl": 0.0},
@@ -189,7 +189,7 @@ class TestPurificationEndpointFields(unittest.TestCase):
             _make_compliance_row("MSFT", 0.02),   # 50 * 0.02 = 1
         ]
 
-        result = self._run(positions, dividends, compliance)
+        result = await self._run(positions, dividends, compliance)
 
         self.assertEqual(len(result), 2)
         sym_map = {r.symbol: r for r in result}

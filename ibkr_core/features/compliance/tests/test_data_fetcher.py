@@ -34,6 +34,26 @@ class TestNormalizeTicker(unittest.TestCase):
     def test_already_dotted_passthrough(self):
         self.assertEqual(normalize_ticker("7203.T"), "7203.T")
 
+    def test_us_venue_colon_returns_bare_ticker(self):
+        # Regression (BUG 2): a US venue must NEVER be appended as a suffix —
+        # "BIIB:NASDAQ" -> "BIIB.NASDAQ" was a bogus symbol yfinance 404'd on.
+        self.assertEqual(normalize_ticker("BIIB:NASDAQ"), "BIIB")
+        self.assertEqual(normalize_ticker("KLAC:NASDAQ"), "KLAC")
+        self.assertEqual(normalize_ticker("TXN:NYSE"), "TXN")
+        self.assertEqual(normalize_ticker("F:SMART"), "F")
+        self.assertEqual(normalize_ticker("SPY:ARCA"), "SPY")
+        self.assertEqual(normalize_ticker("AAPL:AMEX"), "AAPL")
+
+    def test_us_venue_exchange_first_form(self):
+        # EXCHANGE:TICKER ordering must also collapse to the bare ticker.
+        self.assertEqual(normalize_ticker("NASDAQ:BIIB"), "BIIB")
+        self.assertEqual(normalize_ticker("NYSE:TXN"), "TXN")
+
+    def test_foreign_colon_still_suffixed(self):
+        # Guard the foreign path against regression from the US-venue fix.
+        self.assertEqual(normalize_ticker("ASML:AMS"), "ASML.AS")
+        self.assertEqual(normalize_ticker("AZN:LSE"), "AZN.L")
+
 
 class TestIsShariahETF(unittest.TestCase):
     def test_allowlist_ticker_certified(self):

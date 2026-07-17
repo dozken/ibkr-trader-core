@@ -1303,7 +1303,7 @@ async def halal_drip_loop(worker, manager: ConnectionManager, health: dict, acco
                 await asyncio.sleep(sleep_s)
                 continue
 
-            dividends = await asyncio.to_thread(worker.get_dividends_batch, positions)
+            dividends = await worker.get_dividends_batch(positions)
             min_trade = float(settings.get("min_trade_size", 100))
             channels = settings.get("alert_channels", [])
             drip_state = load_drip_state()
