@@ -1412,6 +1412,14 @@ async def discovery_loop(worker, manager: ConnectionManager, health: dict, accou
             logger.info("Discovery Loop: scanning market for halal BUYs (VIX=%.1f)...", vix)
             signals = await discover_halal_buys()
 
+            # Discovery opens NEW positions only. Existing holdings are managed by
+            # the exit and re-rating loops — topping one up here would (a) reset the
+            # Qabd/T+2 settlement clock on the WHOLE position via a fresh lot, so a
+            # protective SELL then bounces the possession guard for 2 days, and
+            # (b) pile more into a name the exit loop is actively trying to sell
+            # (momentum-buy vs stale-thesis-exit can both fire on the same symbol).
+            held_symbols = {p.get("symbol") for p in positions}
+
             if signals:
                 compliance_map = {c.symbol: c for c in await screen_many([s.symbol for s in signals])}
                 dispatched = 0
@@ -1421,6 +1429,10 @@ async def discovery_loop(worker, manager: ConnectionManager, health: dict, accou
                                     "%d reached, dropping %d remaining signals.",
                                     dispatched, max_positions, len(signals) - dispatched)
                         break
+                    if signal.symbol in held_symbols:
+                        logger.debug("Discovery Loop: skip %s — already held (exit/rerate loops own it)",
+                                     signal.symbol)
+                        continue
                     compliance = compliance_map.get(signal.symbol)
                     if not compliance or not compliance.is_compliant:
                         continue

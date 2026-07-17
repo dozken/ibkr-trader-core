@@ -123,6 +123,46 @@ class TestDiscoveryLoopEnabled(unittest.IsolatedAsyncioTestCase):
 
         mock_trader.execute_trade.assert_called()
 
+    async def test_loop_skips_already_held_symbol(self):
+        """Discovery opens NEW positions only — a compliant, above-threshold,
+        market-open signal for a symbol already held is NOT re-bought (avoids
+        Qabd re-lock + piling into a name the exit loop may be selling)."""
+        worker = _make_worker(positions=[{"symbol": "NVDA", "quantity": 10.0}])
+        health = {"discovery_loop": {"status": "starting", "last_run": None}}
+        signal = _make_signal(symbol="NVDA", confidence=82)   # already held
+        compliance = _make_compliance(symbol="NVDA")
+
+        call_count = 0
+
+        async def _fake_sleep(n):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 3:
+                raise asyncio.CancelledError
+
+        mock_trader = MagicMock()
+        mock_trader.execute_trade = AsyncMock()
+
+        with patch("ibkr_core.features.trading.loops.load_settings", return_value=_SETTINGS_ENABLED), \
+             patch("ibkr_core.features.trading.loops.discover_halal_buys", new_callable=AsyncMock, return_value=[signal]), \
+             patch("ibkr_core.features.trading.loops.screen_many", new_callable=AsyncMock, return_value=[compliance]), \
+             patch("ibkr_core.features.trading.loops.market_status", return_value={"is_open": True}), \
+             patch("ibkr_core.features.trading.loops.Trader", return_value=mock_trader), \
+             patch("ibkr_core.features.trading.loops.send_alert", new_callable=AsyncMock), \
+             patch("ibkr_core.features.trading.loops._exceeds_daily_loss_limit", return_value=False), \
+             patch("ibkr_core.core.market_hours.any_market_open", return_value=True), \
+             patch("ibkr_core.features.compliance.vix.get_current_vix", return_value=15.0), \
+             patch("asyncio.sleep", side_effect=_fake_sleep):
+            from ibkr_core.features.trading.loops import discovery_loop
+            manager = MagicMock()
+            manager.broadcast = AsyncMock()
+            try:
+                await discovery_loop(worker, manager, health)
+            except asyncio.CancelledError:
+                pass
+
+        mock_trader.execute_trade.assert_not_called()
+
     async def test_loop_skips_when_market_closed(self):
         """Loop does not dispatch when market is closed."""
         worker = _make_worker()
