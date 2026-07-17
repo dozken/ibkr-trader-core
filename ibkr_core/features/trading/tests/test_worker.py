@@ -29,6 +29,50 @@ def _make_worker():
     return w
 
 
+class TestStockContractField(unittest.TestCase):
+    """_stock_contract picks symbol-field (Asia numeric) vs localSymbol (EU).
+
+    ib_insync is stubbed with MagicMock (root conftest), so we assert on the
+    constructor call args rather than the built object's attributes.
+    """
+
+    def _build(self, symbol):
+        w = _make_worker()
+        with patch("ib_insync.Stock") as stock, patch("ib_insync.Contract") as contract:
+            w._stock_contract(symbol)
+        return stock, contract
+
+    def test_asia_symbol_field_venue_uses_symbol_not_localsymbol(self):
+        stock, contract = self._build("7203.T")   # Toyota, TSEJ
+        contract.assert_not_called()               # NOT the failing localSymbol path
+        args, kwargs = stock.call_args
+        self.assertEqual(args[0], "7203")          # plain code in the symbol field
+        self.assertEqual(kwargs.get("primaryExchange"), "TSEJ")
+        self.assertEqual(args[2], "JPY")
+
+    def test_hk_strips_leading_zero_in_symbol(self):
+        stock, contract = self._build("0700.HK")   # Tencent, SEHK
+        contract.assert_not_called()
+        args, kwargs = stock.call_args
+        self.assertEqual(args[0], "700")
+        self.assertEqual(kwargs.get("primaryExchange"), "SEHK")
+
+    def test_eu_class_share_stays_on_localsymbol(self):
+        stock, contract = self._build("VOLV-B.ST")  # class share needs localSymbol
+        stock.assert_not_called()
+        _, kwargs = contract.call_args
+        self.assertEqual(kwargs.get("localSymbol"), "VOLV B")
+        self.assertEqual(kwargs.get("primaryExchange"), "SFB")
+
+    def test_us_stays_smart_stock(self):
+        stock, contract = self._build("AAPL")
+        contract.assert_not_called()
+        args, kwargs = stock.call_args
+        self.assertEqual(args[0], "AAPL")
+        self.assertEqual(args[1], "SMART")
+        self.assertIsNone(kwargs.get("primaryExchange"))  # US: no venue disambiguator
+
+
 class TestGetAvailableFunds(unittest.TestCase):
     def test_returns_available_funds_tag(self):
         w = _make_worker()

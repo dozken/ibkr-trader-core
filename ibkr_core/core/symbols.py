@@ -59,6 +59,20 @@ _LOCAL_OVERRIDE: dict = {
 }
 _OVERRIDE_INVERSE: dict = {(loc, ex): canon for canon, (loc, ex) in _LOCAL_OVERRIDE.items()}
 
+# IBKR venues (contract.primaryExchange) where the qualifiable identity is the
+# `symbol` field, NOT localSymbol. Numeric-ticker Asia markets put a SUFFIXED
+# value in localSymbol ("7203.T") so a bare-localSymbol contract fails Error 200,
+# while the plain code lives in `symbol` ("7203"). EU stays on the localSymbol
+# path — its class shares (VOLV B) need it. Verified on the live paper gateway
+# (2026-07-17): TSEJ/SEHK/SGX/ASX/NSE all qualify via the symbol field.
+# Perms-gated venues (KSE/TSEM/SEHKNTL/SEHKSZSE/MSE/BURSA/SET/IDX) return
+# "destination Invalid"/"no security definition" on this account — untradable and
+# their exact shape is unverified, so they are NOT wired here; add on perms+probe.
+_SYMBOL_FIELD_VENUES = {"TSEJ", "SEHK", "SGX", "ASX", "NSE"}
+# Venues whose IBKR code drops leading zeros (HK 0700 → 700). Canonical yfinance
+# keeps the 4-digit pad, so to_ibkr strips and from_ibkr re-pads.
+_HK_VENUES = {"SEHK"}
+
 
 def to_ibkr(symbol: str) -> str:
     """Canonical yfinance symbol → IBKR local symbol.
@@ -66,18 +80,28 @@ def to_ibkr(symbol: str) -> str:
     Strips a KNOWN exchange suffix and converts hyphen class shares to
     IBKR's space form ("ATCO-A.ST" → "ATCO A"). This value goes into the
     contract's localSymbol field for foreign listings (see Worker._stock_contract).
-    Explicit overrides handle tickers the generic rule can't (LSE trailing-dot).
-    Unknown suffixes are left intact (fail-safe: the qualify check at order
-    time rejects garbage cleanly).
+    Explicit overrides handle tickers the generic rule can't (LSE trailing-dot);
+    HK numeric codes drop their leading zeros ("0700.HK" → "700"). Unknown
+    suffixes are left intact (fail-safe: the qualify check at order time rejects
+    garbage cleanly).
     """
     if symbol in _LOCAL_OVERRIDE:
         return _LOCAL_OVERRIDE[symbol][0]
     stem = symbol
+    sfx = ""
     if "." in symbol:
         head, _, sfx = symbol.rpartition(".")
         if sfx.upper() in _SUFFIX_TO_EXCHANGE:
             stem = head
-    return stem.replace("-", " ")
+    stem = stem.replace("-", " ")
+    if sfx.upper() == "HK" and stem.isdigit():
+        stem = stem.lstrip("0") or stem
+    return stem
+
+
+def uses_symbol_field(ibkr_exchange: str) -> bool:
+    """True if this IBKR venue qualifies via the `symbol` field, not localSymbol."""
+    return (ibkr_exchange or "").upper() in _SYMBOL_FIELD_VENUES
 
 
 def from_ibkr(ibkr_symbol: str, primary_exchange: str = "") -> str:
@@ -104,6 +128,13 @@ def from_ibkr(ibkr_symbol: str, primary_exchange: str = "") -> str:
             primary_exchange, ibkr_symbol,
         )
         return stem
+    # localSymbol for numeric Asia venues already carries the suffix ("7203.T");
+    # strip it so we don't double-append (→ "7203.T.T").
+    if stem.upper().endswith("." + sfx.upper()):
+        stem = stem[: -(len(sfx) + 1)]
+    # HK drops leading zeros in IBKR; canonical yfinance re-pads to 4 digits.
+    if venue in _HK_VENUES and stem.isdigit():
+        stem = stem.zfill(4)
     return f"{stem}.{sfx}"
 
 

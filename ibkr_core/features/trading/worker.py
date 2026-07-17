@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # hyphen class-share handling live in core.symbols (the old local set covered
 # only 12 suffixes, so most foreign contracts failed qualification).
 from ibkr_core.core.market_hours import resolve_exchange as _resolve_exchange
-from ibkr_core.core.symbols import from_ibkr, to_ibkr as _ibkr_symbol, to_usd
+from ibkr_core.core.symbols import from_ibkr, to_ibkr as _ibkr_symbol, to_usd, uses_symbol_field
 
 
 def _ibkr_amount_to_usd(amount, currency: str):
@@ -493,6 +493,11 @@ class IBKRWorker:
         local = _ibkr_symbol(symbol)
         if ibkr_exchange == "SMART":
             return Stock(local, "SMART", currency)
+        if uses_symbol_field(ibkr_exchange):
+            # Numeric-ticker Asia venues (Japan/HK/…): the plain code goes in the
+            # `symbol` field; a bare localSymbol fails Error 200 (IBKR's localSymbol
+            # is suffixed "7203.T"). to_ibkr already stripped HK leading zeros.
+            return Stock(local, "SMART", currency, primaryExchange=ibkr_exchange)
         return Contract(secType="STK", localSymbol=local, exchange="SMART",
                         primaryExchange=ibkr_exchange, currency=currency)
 

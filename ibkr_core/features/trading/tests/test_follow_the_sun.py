@@ -89,6 +89,45 @@ class TestSymbolIdentity(unittest.TestCase):
             with self.subTest(symbol=canonical):
                 self.assertEqual(from_ibkr(to_ibkr(canonical), venue), canonical)
 
+    def test_hk_drops_and_repads_leading_zeros(self):
+        # IBKR's HK code drops leading zeros (0700.HK → 700); canonical yfinance
+        # keeps the 4-digit pad. to_ibkr strips, from_ibkr re-pads. Verified live
+        # (Tencent conId=152791428, 2026-07-17).
+        self.assertEqual(to_ibkr("0700.HK"), "700")
+        self.assertEqual(to_ibkr("9988.HK"), "9988")   # already 4-digit, untouched
+        self.assertEqual(from_ibkr("700", "SEHK"), "0700.HK")
+        self.assertEqual(from_ibkr("9988", "SEHK"), "9988.HK")
+
+    def test_from_ibkr_strips_suffixed_localsymbol(self):
+        # Numeric-ticker Asia venues report a SUFFIXED localSymbol ("7203.T");
+        # from_ibkr must not double-append (→ "7203.T.T"). Verified live (Toyota).
+        self.assertEqual(from_ibkr("7203.T", "TSEJ"), "7203.T")
+        self.assertEqual(from_ibkr("7203", "TSEJ"), "7203.T")
+
+    def test_round_trip_asia_symbol_field_venues(self):
+        # The 5 venues confirmed tradable + round-tripping on the live paper
+        # gateway (2026-07-17) via the `symbol`-field contract path.
+        cases = [
+            ("7203.T", "TSEJ"),
+            ("6758.T", "TSEJ"),
+            ("0700.HK", "SEHK"),
+            ("9988.HK", "SEHK"),
+            ("C6L.SI", "SGX"),
+            ("BHP.AX", "ASX"),
+            ("TCS.NS", "NSE"),
+        ]
+        for canonical, venue in cases:
+            with self.subTest(symbol=canonical):
+                self.assertEqual(from_ibkr(to_ibkr(canonical), venue), canonical)
+
+    def test_uses_symbol_field_venue_gating(self):
+        from ibkr_core.core.symbols import uses_symbol_field
+        for v in ("TSEJ", "SEHK", "SGX", "ASX", "NSE", "tsej"):
+            self.assertTrue(uses_symbol_field(v))
+        # EU + US stay on the localSymbol/Stock path; perms-gated Asia not wired.
+        for v in ("AEB", "SFB", "LSE", "SMART", "KSE", "MSE", "", "IBIS"):
+            self.assertFalse(uses_symbol_field(v))
+
 
 class TestResolveExchange(unittest.TestCase):
     def test_suffixed_symbol_with_us_default_infers_home(self):
