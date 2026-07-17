@@ -288,26 +288,29 @@ class TestToUsd(unittest.TestCase):
 
 
 class TestGetPositionsUsd(unittest.TestCase):
-    """get_positions must report avg_cost/market_value in one currency (USD):
-    IBKR gives avgCost in the contract quote unit (EUR, LSE pence) but
-    marketValue in base USD — mixing them broke foreign exit math."""
+    """get_positions must report avg_cost/market_value in one currency (USD).
+    IBKR's portfolio/position fields (avgCost, marketPrice, marketValue,
+    unrealizedPNL) are ALL in the contract's LOCAL MAJOR currency — NOT
+    account-base USD, and NOT LSE pence (pence is a separate market-data feed
+    convention used by order sizing). Convert every field by the contract
+    currency FX leg, no minor-unit divisor."""
 
     def test_avg_cost_normalized_to_usd(self):
         w = _mk_worker()
         w.ib.portfolio.return_value = []          # force the local-price / avgCost path
         w.ib.positions.return_value = [
             SimpleNamespace(account="DU1",
-                contract=SimpleNamespace(symbol="ASML", primaryExchange="AEB", exchange=""),
+                contract=SimpleNamespace(symbol="ASML", primaryExchange="AEB", exchange="", currency="EUR"),
                 position=2.0, avgCost=500.0),                # EUR major
             SimpleNamespace(account="DU1",
-                contract=SimpleNamespace(symbol="AZN", primaryExchange="LSE", exchange=""),
-                position=10.0, avgCost=14456.0),             # GBP pence
+                contract=SimpleNamespace(symbol="AZN", primaryExchange="LSE", exchange="", currency="GBP"),
+                position=10.0, avgCost=105.0),               # GBP MAJOR (pounds, not pence)
             SimpleNamespace(account="DU1",
-                contract=SimpleNamespace(symbol="AAPL", primaryExchange="NASDAQ", exchange=""),
+                contract=SimpleNamespace(symbol="AAPL", primaryExchange="NASDAQ", exchange="", currency="USD"),
                 position=3.0, avgCost=290.0),                # USD
         ]
 
-        def _fx(frm, to):
+        def _fx(frm, to="USD"):
             return {"EUR": 1.1, "GBP": 1.27}.get(frm, 1.0)
 
         with patch("yfinance.download", side_effect=Exception("offline")), \
@@ -316,7 +319,7 @@ class TestGetPositionsUsd(unittest.TestCase):
 
         by = {p["symbol"]: p for p in positions}
         self.assertAlmostEqual(by["ASML.AS"]["avg_cost"], 500.0 * 1.1, places=2)
-        self.assertAlmostEqual(by["AZN.L"]["avg_cost"], 144.56 * 1.27, places=2)  # pence/100 then FX
+        self.assertAlmostEqual(by["AZN.L"]["avg_cost"], 105.0 * 1.27, places=2)   # GBP major, NO /100
         self.assertAlmostEqual(by["AAPL"]["avg_cost"], 290.0, places=2)           # USD no-op
         # else-branch market_value = qty * avg_cost_usd (consistent unit)
         self.assertAlmostEqual(by["ASML.AS"]["market_value"], 2.0 * 500.0 * 1.1, places=2)

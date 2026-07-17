@@ -392,8 +392,18 @@ class TestPlaceBracketOrderTickQuantization(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(sl_arg, 95.0)    # 95.03 -> 0.05 tick -> 95.0
 
 
+# FX map for the fake _get_fx_rate: covers the currencies under test; any
+# currency absent here returns None (simulating a missing rate → fail-closed).
+_FAKE_FX = {"EUR": 1.10, "SEK": 0.10, "GBP": 1.25, "CHF": 1.20}
+
+
+def _fake_get_fx_rate(frm, to="USD", *a, **k):
+    return _FAKE_FX.get(frm)
+
+
 class TestGetPositionsFxFlag(unittest.TestCase):
-    def _pos(self, local, avg_cost, qty=10.0, primary="", exchange="SMART", account="U1"):
+    def _pos(self, local, avg_cost, qty=10.0, primary="", exchange="SMART",
+             account="U1", currency="USD"):
         p = MagicMock()
         p.account = account
         p.position = qty
@@ -402,9 +412,11 @@ class TestGetPositionsFxFlag(unittest.TestCase):
         p.contract.symbol = local
         p.contract.primaryExchange = primary
         p.contract.exchange = exchange
+        p.contract.currency = currency
         return p
 
-    def _item(self, local, mv, pnl, primary="", exchange="SMART", account="U1", market_price=0.0):
+    def _item(self, local, mv, pnl, primary="", exchange="SMART", account="U1",
+              market_price=0.0, currency="USD"):
         it = MagicMock()
         it.account = account
         it.marketValue = mv
@@ -414,6 +426,7 @@ class TestGetPositionsFxFlag(unittest.TestCase):
         it.contract.symbol = local
         it.contract.primaryExchange = primary
         it.contract.exchange = exchange
+        it.contract.currency = currency
         return it
 
     def setUp(self):
@@ -422,62 +435,109 @@ class TestGetPositionsFxFlag(unittest.TestCase):
         IBKRWorker._positions_cache.clear()
         self.addCleanup(IBKRWorker._positions_cache.clear)
 
-    def test_us_position_fx_ok_true_eur_missing_fx_false(self):
+    def _run(self, w):
+        # Patch the FX source that _ibkr_amount_to_usd imports (data_fetcher)
+        # plus from_ibkr (identity) so canonical == localSymbol in tests.
+        with patch("ibkr_core.features.trading.worker.from_ibkr", side_effect=lambda s, e="": s), \
+             patch("ibkr_core.features.compliance.data_fetcher._get_fx_rate",
+                   side_effect=_fake_get_fx_rate):
+            return {p["symbol"]: p for p in w.get_positions()}
+
+    def test_us_passthrough_eur_converted(self):
+        """USD is a no-op; EUR avg_cost AND market_value both FX-converted."""
         w = _make_worker()
         w.ib.positions.return_value = [
-            self._pos("AAPL", avg_cost=150.0, primary="NASDAQ"),
-            self._pos("ASML", avg_cost=600.0, primary="AEB", exchange="AEB"),
+            self._pos("AAPL", avg_cost=150.0, primary="NASDAQ", currency="USD"),
+            self._pos("ASML", avg_cost=600.0, primary="AEB", exchange="AEB", currency="EUR"),
         ]
         w.ib.portfolio.return_value = [
-            self._item("AAPL", mv=1600.0, pnl=100.0, primary="NASDAQ"),
-            self._item("ASML", mv=6500.0, pnl=500.0, primary="AEB", exchange="AEB"),
+            self._item("AAPL", mv=1600.0, pnl=100.0, primary="NASDAQ", currency="USD"),
+            self._item("ASML", mv=6500.0, pnl=500.0, primary="AEB", exchange="AEB", currency="EUR"),
         ]
-
-        # to_usd: USD names pass through (never None); EUR ASML has no FX -> None.
-        def fake_to_usd(price, sym, *a, **k):
-            return None if sym == "ASML" else price
-
-        with patch("ibkr_core.features.trading.worker.from_ibkr", side_effect=lambda s, e="": s), \
-             patch("ibkr_core.features.trading.worker.to_usd", side_effect=fake_to_usd):
-            positions = w.get_positions()
-
-        by_sym = {p["symbol"]: p for p in positions}
-        # US position: FX always OK, avg_cost normalized.
+        by_sym = self._run(w)
         self.assertTrue(by_sym["AAPL"]["avg_cost_fx_ok"])
         self.assertAlmostEqual(by_sym["AAPL"]["avg_cost"], 150.0)
-        # EUR position with missing FX: flagged False, position NOT dropped,
-        # avg_cost left in local ccy (raw), so downstream can skip the stop.
-        self.assertFalse(by_sym["ASML"]["avg_cost_fx_ok"])
-        self.assertAlmostEqual(by_sym["ASML"]["avg_cost"], 600.0)
-        self.assertIn("ASML", by_sym)  # kept for no-short / Qabd guards
+        self.assertAlmostEqual(by_sym["AAPL"]["market_value"], 1600.0)
+        # EUR: avg_cost 600*1.1, market_value 6500*1.1 — both in USD, one unit.
+        self.assertTrue(by_sym["ASML"]["avg_cost_fx_ok"])
+        self.assertAlmostEqual(by_sym["ASML"]["avg_cost"], 660.0)
+        self.assertAlmostEqual(by_sym["ASML"]["market_value"], 7150.0)
+
+    def test_sek_market_value_not_trusted_as_base_usd(self):
+        """Regression: a Stockholm (SEK) marketValue must be FX-converted, not
+        passed through as if it were already account-base USD (the bug that read
+        a $3.7k position as ~$37k and poisoned cap accounting)."""
+        w = _make_worker()
+        w.ib.positions.return_value = [
+            self._pos("SAND", avg_cost=342.0, qty=114.0, primary="SFB", exchange="SFB", currency="SEK"),
+        ]
+        w.ib.portfolio.return_value = [
+            self._item("SAND", mv=39000.0, pnl=-200.0, primary="SFB", exchange="SFB",
+                       market_price=342.0, currency="SEK"),
+        ]
+        p = self._run(w)["SAND"]
+        self.assertTrue(p["avg_cost_fx_ok"])
+        self.assertAlmostEqual(p["avg_cost"], 34.2)          # 342 * 0.10
+        self.assertAlmostEqual(p["market_value"], 3900.0)    # 39000 * 0.10, NOT 39000
+        self.assertAlmostEqual(p["unrealized_pnl"], -20.0)   # -200 * 0.10
+        self.assertAlmostEqual(p["local_price"], 342.0)      # local, for trailing
+
+    def test_gbp_no_pence_divisor_on_portfolio(self):
+        """Regression: IBKR portfolio quotes LSE in GBP MAJOR (not pence), so no
+        /100 divisor — avg_cost must be ~price*fx, not price/100*fx (the bug that
+        read BHP.L cost basis 74x too small)."""
+        w = _make_worker()
+        w.ib.positions.return_value = [
+            self._pos("BHP", avg_cost=29.60, qty=100.0, primary="LSE", exchange="LSE", currency="GBP"),
+        ]
+        w.ib.portfolio.return_value = [
+            self._item("BHP", mv=2949.0, pnl=-12.0, primary="LSE", exchange="LSE",
+                       market_price=29.49, currency="GBP"),
+        ]
+        p = self._run(w)["BHP"]
+        self.assertAlmostEqual(p["avg_cost"], 37.0)          # 29.60 * 1.25, NOT 0.37
+        self.assertAlmostEqual(p["market_value"], 3686.25)   # 2949 * 1.25
+
+    def test_missing_fx_flags_false_and_keeps_local(self):
+        """No rate for the currency → avg_cost_fx_ok False, position kept, and
+        market_value falls back to raw local (avg_cost also raw → consistent
+        unit; loops.py suppresses upnl exits on the False flag)."""
+        w = _make_worker()
+        # JPY absent from _FAKE_FX → _get_fx_rate returns None.
+        w.ib.positions.return_value = [
+            self._pos("7203", avg_cost=2500.0, qty=100.0, primary="TSEJ", exchange="TSEJ", currency="JPY"),
+        ]
+        w.ib.portfolio.return_value = [
+            self._item("7203", mv=260000.0, pnl=0.0, primary="TSEJ", exchange="TSEJ", currency="JPY"),
+        ]
+        p = self._run(w)["7203"]
+        self.assertFalse(p["avg_cost_fx_ok"])
+        self.assertAlmostEqual(p["avg_cost"], 2500.0)        # raw local
+        self.assertAlmostEqual(p["market_value"], 260000.0)  # raw local fallback
+        self.assertIn("7203", self._run(w))                  # kept for guards
 
     def test_default_key_is_true_when_present(self):
         """Every emitted position carries the boolean explicitly (no missing key)."""
         w = _make_worker()
         w.ib.positions.return_value = [self._pos("MSFT", avg_cost=400.0, primary="NASDAQ")]
         w.ib.portfolio.return_value = [self._item("MSFT", mv=4200.0, pnl=200.0, primary="NASDAQ")]
-        with patch("ibkr_core.features.trading.worker.from_ibkr", side_effect=lambda s, e="": s), \
-             patch("ibkr_core.features.trading.worker.to_usd", side_effect=lambda price, sym, *a, **k: price):
-            positions = w.get_positions()
-        self.assertIn("avg_cost_fx_ok", positions[0])
-        self.assertTrue(positions[0]["avg_cost_fx_ok"])
+        positions_by = self._run(w)
+        self.assertIn("avg_cost_fx_ok", positions_by["MSFT"])
+        self.assertTrue(positions_by["MSFT"]["avg_cost_fx_ok"])
 
     def test_local_price_emitted_from_market_price_and_nan_guarded(self):
         """M1: get_positions surfaces the LOCAL per-share price for FX-neutral
         trailing; a valid marketPrice passes through, a 0/NaN one becomes None."""
         w = _make_worker()
         w.ib.positions.return_value = [
-            self._pos("ASML", avg_cost=600.0, primary="AEB", exchange="AEB"),
-            self._pos("SAP", avg_cost=100.0, primary="IBIS", exchange="IBIS"),
+            self._pos("ASML", avg_cost=600.0, primary="AEB", exchange="AEB", currency="EUR"),
+            self._pos("SAP", avg_cost=100.0, primary="IBIS", exchange="IBIS", currency="EUR"),
         ]
         w.ib.portfolio.return_value = [
-            self._item("ASML", mv=6500.0, pnl=500.0, primary="AEB", exchange="AEB", market_price=650.0),
-            self._item("SAP", mv=1000.0, pnl=0.0, primary="IBIS", exchange="IBIS", market_price=float("nan")),
+            self._item("ASML", mv=6500.0, pnl=500.0, primary="AEB", exchange="AEB", market_price=650.0, currency="EUR"),
+            self._item("SAP", mv=1000.0, pnl=0.0, primary="IBIS", exchange="IBIS", market_price=float("nan"), currency="EUR"),
         ]
-        with patch("ibkr_core.features.trading.worker.from_ibkr", side_effect=lambda s, e="": s), \
-             patch("ibkr_core.features.trading.worker.to_usd", side_effect=lambda price, sym, *a, **k: price):
-            positions = w.get_positions()
-        by_sym = {p["symbol"]: p for p in positions}
+        by_sym = self._run(w)
         self.assertAlmostEqual(by_sym["ASML"]["local_price"], 650.0)   # local, not USD
         self.assertIsNone(by_sym["SAP"]["local_price"])                # NaN guarded → None
 

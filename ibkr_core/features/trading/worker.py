@@ -28,6 +28,31 @@ from ibkr_core.core.market_hours import resolve_exchange as _resolve_exchange
 from ibkr_core.core.symbols import from_ibkr, to_ibkr as _ibkr_symbol, to_usd
 
 
+def _ibkr_amount_to_usd(amount, currency: str):
+    """Convert an IBKR portfolio amount to USD via the FX leg ONLY.
+
+    IBKR's portfolio/position fields — averageCost, marketPrice, marketValue,
+    unrealizedPNL — are ALL reported in the contract's LOCAL currency, in MAJOR
+    units, consistently per position (verified live 2026-07-17 on the paper
+    gateway: BHP.L averageCost=29.61 GBP — pounds, NOT pence; ALFA.ST
+    marketValue=32973.92 SEK = 59 * 558.88). This is unlike yfinance, which
+    quotes LSE in pence — so `symbols.to_usd` (which applies a minor-unit
+    divisor keyed on exchange) is CORRECT for the yfinance feed but WRONG for
+    IBKR data. This helper takes the contract currency directly and applies no
+    divisor. Returns None when a required non-USD FX rate is missing — callers
+    MUST fail closed (never size or value a position on a blind rate).
+    """
+    if amount is None:
+        return None
+    if not currency or currency == "USD":
+        return amount
+    from ibkr_core.features.compliance.data_fetcher import _get_fx_rate
+    fx = _get_fx_rate(currency, "USD")
+    if not fx:
+        return None
+    return amount * fx
+
+
 class IBKRWorker:
     def __init__(self, host=None, port=None, client_id=1, ibkr_account_id=None, readonly=False,
                  account_id=None):
@@ -730,38 +755,52 @@ class IBKRWorker:
             except Exception:
                 pass
 
-        # All amounts reported in ACCOUNT-BASE currency (USD). IBKR gives
-        # marketValue/unrealizedPNL in base ccy but avgCost in the CONTRACT
-        # quote unit (EUR, or LSE pence) — mixing them broke the exit math's
-        # upnl_pct / current_price for any foreign holding. Normalize avgCost
-        # (and any yfinance-local fallback price) to USD so cost basis and
-        # market value share one unit. USD names are a no-op (no FX lookup).
+        # IBKR reports averageCost / marketPrice / marketValue / unrealizedPNL
+        # ALL in the contract's LOCAL currency, in MAJOR units, consistently per
+        # position — NOT account-base USD, and NOT LSE pence (verified live
+        # 2026-07-17 on the paper gateway: BHP.L avgCost=29.61 GBP, ALFA.ST
+        # marketValue=32973.92 SEK = 59*558.88). Convert every field via the
+        # currency FX leg (_ibkr_amount_to_usd, no minor-unit divisor) so cost
+        # basis, market value and PnL share one unit (USD). Trusting marketValue
+        # as base-USD (its old behaviour) left SEK/CHF/EUR/GBP holdings in local
+        # ccy — a Stockholm position read ~10x inflated, poisoning cap accounting
+        # and every upnl-based exit. The yfinance fallback price stays on
+        # symbols.to_usd, which DOES apply the pence divisor (correct for that
+        # feed, which quotes LSE in pence).
         positions = []
         for sym, p in raw:
             qty = p.position
-            avg_cost_usd = to_usd(p.avgCost, sym)
+            ccy = getattr(p.contract, "currency", "") or "USD"
+            avg_cost_usd = _ibkr_amount_to_usd(p.avgCost, ccy)
             # avg_cost_fx_ok flags whether avg_cost is a trustworthy USD figure.
-            # to_usd returns None ONLY when a required non-USD FX rate is missing
-            # (USD names never hit an FX lookup, so they are always True). When
-            # False the avg_cost below stays in LOCAL ccy while market_value is
-            # USD — mixed-unit upnl_pct would fire a spurious ~-8% stop. The
+            # _ibkr_amount_to_usd returns None ONLY when a required non-USD FX
+            # rate is missing (USD names never hit an FX lookup, so they are
+            # always True). When False both avg_cost AND market_value below stay
+            # in LOCAL ccy (consistent unit, but on an unverified rate), and the
             # loops.py consumer reads pos.get("avg_cost_fx_ok", True) to skip the
-            # stop rather than dump a healthy EU position on a phantom loss. We
-            # keep the position (do NOT drop it) so no-short/Qabd guards still see it.
+            # upnl-based exits rather than act on a blind rate. We keep the
+            # position (do NOT drop it) so no-short/Qabd guards still see it.
             avg_cost_fx_ok = avg_cost_usd is not None
-            if not avg_cost_fx_ok:  # missing FX — keep raw, flag (exit math may be off)
-                logger.warning("get_positions: no FX for %s — avg_cost stays in local ccy", sym)
+            if not avg_cost_fx_ok:  # missing FX — keep raw, flag (exit math off)
+                logger.warning("get_positions: no FX (%s) for %s — avg_cost stays local", ccy, sym)
                 avg_cost_usd = p.avgCost
             # local_price = per-share price in the CONTRACT's own quote currency
-            # (IBKR marketPrice is local, not base-USD; yfinance close is local).
-            # loops.py samples the trailing stop in this unit so a pure FX move
-            # can't fake a trail drop (M1). None when unavailable → loops falls
-            # back to the USD current_price. LSE pence vs GBP is fine here: the
-            # trail is a HWM-vs-current RATIO, so a consistent unit cancels out.
+            # (IBKR marketPrice is local major). loops.py samples the trailing
+            # stop in this unit so a pure FX move can't fake a trail drop (M1).
             item = portfolio_map.get(sym)
             if item:
-                mkt_val = item.marketValue      # already account-base USD
-                pnl = item.unrealizedPNL
+                iccy = getattr(item.contract, "currency", "") or ccy
+                mv_usd = _ibkr_amount_to_usd(item.marketValue, iccy)
+                pnl_usd = _ibkr_amount_to_usd(item.unrealizedPNL, iccy)
+                if mv_usd is not None:
+                    mkt_val = mv_usd
+                    pnl = pnl_usd if pnl_usd is not None else (mkt_val - qty * avg_cost_usd)
+                else:
+                    # FX gap — fall back to raw local (avg_cost_fx_ok already
+                    # False, so upnl exits are suppressed upstream); keep the
+                    # position visible for guards.
+                    mkt_val = item.marketValue
+                    pnl = item.unrealizedPNL
                 local_price = item.marketPrice
             elif sym in price_map:              # yfinance close = LOCAL quote unit
                 px_usd = to_usd(price_map[sym], sym)
