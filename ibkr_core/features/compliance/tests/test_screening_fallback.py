@@ -151,52 +151,66 @@ class TestScreeningCertifierDoubtful(unittest.TestCase):
 
 
 class TestScreeningFallbackRatioOnly(unittest.TestCase):
-    """Both Zoya and Musaffa fail (return None) → pure AAOIFI ratio screening."""
+    """Both Zoya and Musaffa fail (return None) → pure AAOIFI ratio screening.
+
+    Uses a synthetic ticker (RATIOTEST) and patches _check_manual_verification →
+    None so the ratio path is what's exercised. A real symbol like NVDA carries a
+    persisted 'Manual (Zoya App)' verification that short-circuits before ratios,
+    which silently voided the assertions."""
+
+    def _no_manual(self):
+        return patch(
+            "ibkr_core.features.compliance.screening._check_manual_verification",
+            return_value=None,
+        )
 
     def test_compliant_ratios_pass(self):
         # debt=5%, cash=5%, impure=0% — all well under AAOIFI limits
-        data = _financial_data(debt=1_000_000, cash=1_000_000,
+        data = _financial_data(symbol="RATIOTEST", debt=1_000_000, cash=1_000_000,
                                revenue=10_000_000, mkt_cap=20_000_000,
                                prohibited_income=0.0)
-        with patch("ibkr_core.features.compliance.screening.fetch_shariah_verdict",
+        with self._no_manual(), \
+             patch("ibkr_core.features.compliance.screening.fetch_shariah_verdict",
                    return_value=None), \
              patch("ibkr_core.features.compliance.screening.fetch_financial_data",
                    return_value=data), \
              patch("ibkr_core.features.compliance.screening._load_settings",
                    return_value={"ratio_buffer": 0.0, "sector_exclusion": []}):
-            result = _live_shariah_screen_uncached("NVDA")
+            result = _live_shariah_screen_uncached("RATIOTEST")
 
         self.assertTrue(result.is_compliant)
         self.assertEqual(result.verdict, "COMPLIANT")
 
     def test_high_debt_ratio_blocked(self):
         # debt = 80% of mkt_cap → fails AAOIFI 30% limit
-        data = _financial_data(debt=16_000_000, cash=500_000,
+        data = _financial_data(symbol="RATIOTEST", debt=16_000_000, cash=500_000,
                                revenue=10_000_000, mkt_cap=20_000_000,
                                prohibited_income=0.0)
-        with patch("ibkr_core.features.compliance.screening.fetch_shariah_verdict",
+        with self._no_manual(), \
+             patch("ibkr_core.features.compliance.screening.fetch_shariah_verdict",
                    return_value=None), \
              patch("ibkr_core.features.compliance.screening.fetch_financial_data",
                    return_value=data), \
              patch("ibkr_core.features.compliance.screening._load_settings",
                    return_value={"ratio_buffer": 0.0, "sector_exclusion": []}):
-            result = _live_shariah_screen_uncached("NVDA")
+            result = _live_shariah_screen_uncached("RATIOTEST")
 
         self.assertFalse(result.is_compliant)
         self.assertEqual(result.verdict, "NON_COMPLIANT")
 
     def test_high_impure_revenue_blocked(self):
         # impure = 10% > 5% AAOIFI limit
-        data = _financial_data(debt=1_000_000, cash=500_000,
+        data = _financial_data(symbol="RATIOTEST", debt=1_000_000, cash=500_000,
                                revenue=10_000_000, mkt_cap=20_000_000,
                                prohibited_income=1_000_000)  # 10% impure
-        with patch("ibkr_core.features.compliance.screening.fetch_shariah_verdict",
+        with self._no_manual(), \
+             patch("ibkr_core.features.compliance.screening.fetch_shariah_verdict",
                    return_value=None), \
              patch("ibkr_core.features.compliance.screening.fetch_financial_data",
                    return_value=data), \
              patch("ibkr_core.features.compliance.screening._load_settings",
                    return_value={"ratio_buffer": 0.0, "sector_exclusion": []}):
-            result = _live_shariah_screen_uncached("NVDA")
+            result = _live_shariah_screen_uncached("RATIOTEST")
 
         self.assertFalse(result.is_compliant)
         self.assertGreater(result.impure_revenue_pct, 0.05)

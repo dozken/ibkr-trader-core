@@ -798,6 +798,64 @@ class TestSettlementTradingDays(unittest.TestCase):
             self.assertTrue(trader._is_possession_confirmed(db, "AZN.L"))
 
 
+class TestSettledSellableQty(unittest.TestCase):
+    """Lot-level Qabd: _settled_sellable_qty exposes only the SETTLED share count so
+    a fresh unsettled add can't trap the already-settled portion behind the exit."""
+
+    def setUp(self):
+        self.trader = Trader(MagicMock())
+
+    def _buy(self, qty, settled):
+        """A FILLED BUY row tagged settled/unsettled via updated_at year (the
+        patched _settled_trading_days keys off it)."""
+        from datetime import timezone as _tz
+        row = MagicMock()
+        row.quantity = qty
+        row.state = TradeState.FILLED
+        row.updated_at = datetime(2020 if settled else 2026, 1, 1, tzinfo=_tz.utc)
+        return row
+
+    def _db(self, rows):
+        db = MagicMock()
+        db.query.return_value.filter.return_value.all.return_value = rows
+        return db
+
+    def _patch_days(self):
+        # AAPL req = 1 (US). Settled rows (year 2020) → 5 >= 1; unsettled (2026) → 0.
+        return patch(
+            "ibkr_core.features.trading.trader._settled_trading_days",
+            side_effect=lambda t, s: 5 if t.year == 2020 else 0,
+        )
+
+    def test_all_lots_settled_returns_full_held(self):
+        db = self._db([self._buy(100, settled=True), self._buy(50, settled=True)])
+        with self._patch_days():
+            self.assertEqual(self.trader._settled_sellable_qty(db, "AAPL", 150), 150)
+
+    def test_mixed_holds_back_unsettled_lot(self):
+        """100 settled + 10 fresh add → held 110, sellable 100 (the stuck-stop fix)."""
+        db = self._db([self._buy(100, settled=True), self._buy(10, settled=False)])
+        with self._patch_days():
+            self.assertEqual(self.trader._settled_sellable_qty(db, "AAPL", 110), 100)
+
+    def test_all_lots_unsettled_returns_zero(self):
+        db = self._db([self._buy(30, settled=False)])
+        with self._patch_days():
+            self.assertEqual(self.trader._settled_sellable_qty(db, "AAPL", 30), 0)
+
+    def test_no_filled_rows_defers_to_held(self):
+        """No FILLED ledger → return held_qty, let the coarse possession fallback decide."""
+        db = self._db([])
+        with self._patch_days():
+            self.assertEqual(self.trader._settled_sellable_qty(db, "AAPL", 42), 42)
+
+    def test_unsettled_exceeding_held_clamps_to_zero(self):
+        """Defensive: DB-vs-IBKR desync (ledger qty > live held) never yields negative."""
+        db = self._db([self._buy(500, settled=False)])
+        with self._patch_days():
+            self.assertEqual(self.trader._settled_sellable_qty(db, "AAPL", 100), 0)
+
+
 class TestExceedsConcentrationLimit(unittest.TestCase):
     """Unit tests for the _exceeds_concentration_limit helper."""
 

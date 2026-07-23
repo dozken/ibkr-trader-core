@@ -743,6 +743,33 @@ class Trader:
                     )
                     trade.quantity = held_qty
 
+                # Lot-level Qabd: only the SETTLED portion may be sold. A fresh add
+                # leaves a small unsettled lot on top; clamp the sale to the settled
+                # shares instead of blocking the whole exit. Coarse possession is
+                # already confirmed above (≥1 lot settled), so sellable_qty ≥ 0.
+                sellable_qty = self._settled_sellable_qty(db, trade.symbol, held_qty)
+                if sellable_qty <= 0:
+                    logger.info(
+                        "Settlement guard (lot-level Qabd): SELL %s blocked — held %.4f "
+                        "but 0 settled (all lots within T+N window)",
+                        trade.symbol, held_qty,
+                    )
+                    machine.transition_to(TradeState.REJECTED_COMPLIANCE)
+                    trade.state = machine.state
+                    trade.error_message = (
+                        f"Settlement guard (Qabd/T+2): held {held_qty:g} but none settled "
+                        "yet — all lots inside the settlement window."
+                    )
+                    self._persist_trade_history(db, trade)
+                    return trade
+                if trade.quantity > sellable_qty:
+                    logger.info(
+                        "Lot-level Qabd: clamping SELL %s from %.4f to settled %.4f "
+                        "(unsettled recent lot held back)",
+                        trade.symbol, trade.quantity, sellable_qty,
+                    )
+                    trade.quantity = sellable_qty
+
                 if settings.get("dry_run", False):
                     logger.info(f"[DRY RUN] SELL {trade.quantity} {trade.symbol} @ ~{price:.2f}")
                     machine.transition_to(TradeState.DRY_RUN)
@@ -837,6 +864,52 @@ class Trader:
         db.refresh(trade_db)
         trade_schema.id = trade_db.id
 
+    def _settled_sellable_qty(self, db, symbol: str, held_qty: float) -> float:
+        """Lot-level Qabd: how many of the held shares have SETTLED and may be sold.
+
+        Total held = settled lots + unsettled lots. Unsettled lots are the recent
+        BUY fills still inside the T+N window; those shares cannot be sold (no
+        legal possession yet). Everything else held is sellable. Returns
+        held_qty - (sum of unsettled BUY-fill quantities), clamped to [0, held_qty].
+
+        This lets a stop/trail exit the settled portion of a position even when a
+        fresh add left a small unsettled lot on top — instead of blocking the whole
+        sale (the old all-or-nothing possession gate). If the DB has no FILLED BUY
+        rows (missed fills / external acquisition), returns held_qty and defers to
+        the _is_possession_confirmed fallback for the coarse allow/deny.
+        """
+        settled_states = (
+            TradeState.FILLED,
+            TradeState.PENDING_SETTLEMENT,
+            TradeState.SETTLED,
+        )
+        buys = (
+            db.query(TradeHistory)
+            .filter(
+                TradeHistory.symbol == symbol,
+                TradeHistory.state.in_(settled_states),
+                TradeHistory.side == "BUY",
+            )
+            .all()
+        )
+        if not buys:
+            # No fill-quantity ledger to reason about lot-by-lot; the coarse
+            # possession gate already vouched for the holding.
+            return held_qty
+
+        req = _required_settlement_days(symbol)
+        unsettled = 0.0
+        for b in buys:
+            t = b.updated_at
+            if t is None:
+                continue
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=timezone.utc)
+            if _settled_trading_days(t, symbol) < req:
+                unsettled += float(b.quantity or 0)
+        unsettled = min(unsettled, held_qty)
+        return max(0.0, held_qty - unsettled)
+
     def _is_possession_confirmed(self, db, symbol: str) -> bool:
         """
         Verifies legal possession (Qabd) before allowing a sale.
@@ -851,22 +924,28 @@ class Trader:
             TradeState.PENDING_SETTLEMENT,
             TradeState.SETTLED,
         )
-        last_buy = (
+        # Possession is a coarse gate: True if ANY lot has settled. Use the
+        # OLDEST buy fill (its trade date has had the most time to settle) — an
+        # earlier last-buy-only check re-locked the WHOLE position whenever a
+        # fresh small add landed, trapping already-settled shares. Lot-level
+        # quantity (how MANY shares are sellable) is enforced separately by
+        # _settled_sellable_qty in the SELL dispatch path.
+        oldest_buy = (
             db.query(TradeHistory)
             .filter(
                 TradeHistory.symbol == symbol,
                 TradeHistory.state.in_(settled_states),
                 TradeHistory.side == "BUY",
             )
-            .order_by(TradeHistory.updated_at.desc())
+            .order_by(TradeHistory.updated_at.asc())
             .first()
         )
 
-        if last_buy:
-            last_buy_time = last_buy.updated_at
-            if last_buy_time.tzinfo is None:
-                last_buy_time = last_buy_time.replace(tzinfo=timezone.utc)
-            return _settled_trading_days(last_buy_time, symbol) >= _required_settlement_days(symbol)
+        if oldest_buy:
+            oldest_buy_time = oldest_buy.updated_at
+            if oldest_buy_time.tzinfo is None:
+                oldest_buy_time = oldest_buy_time.replace(tzinfo=timezone.utc)
+            return _settled_trading_days(oldest_buy_time, symbol) >= _required_settlement_days(symbol)
 
         # Fallback: fill event may have been missed after reconnect.
         # Confirm via live IBKR position + age of the SUBMITTED record.
