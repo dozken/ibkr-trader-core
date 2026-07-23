@@ -6,6 +6,7 @@ the Docker socket mounted (see docker-compose). No-ops gracefully when the
 socket or containers are unavailable.
 """
 import logging
+import os
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -17,23 +18,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/gateway", tags=["gateway"])
 
 DOCKER_SOCK = "/var/run/docker.sock"
+# Hardened deploys front the Docker socket with a whitelisted socket-proxy
+# (Tecnativa) so the backend never mounts the raw root-equivalent socket. Set
+# DOCKER_PROXY_URL=http://docker-socket-proxy:2375 to route the gateway
+# start/stop/restart calls through it (TCP); unset = direct unix socket (dev).
+DOCKER_PROXY_URL = os.getenv("DOCKER_PROXY_URL", "").strip()
 GATEWAY_CONTAINERS = {
     "paper": "ibkr-gateway-paper",
     "live": "ibkr-gateway-live",
 }
 
 
-def _docker_get(path: str) -> dict:
+def _docker_client() -> httpx.Client:
+    """A client bound to either the socket-proxy (TCP) or the raw unix socket."""
+    if DOCKER_PROXY_URL:
+        return httpx.Client(base_url=DOCKER_PROXY_URL)
     transport = httpx.HTTPTransport(uds=DOCKER_SOCK)
-    with httpx.Client(transport=transport, base_url="http://docker") as c:
+    return httpx.Client(transport=transport, base_url="http://docker")
+
+
+def _docker_get(path: str) -> dict:
+    with _docker_client() as c:
         r = c.get(path, timeout=10)
         r.raise_for_status()
         return r.json()
 
 
 def _docker_post(path: str) -> int:
-    transport = httpx.HTTPTransport(uds=DOCKER_SOCK)
-    with httpx.Client(transport=transport, base_url="http://docker") as c:
+    with _docker_client() as c:
         r = c.post(path, timeout=30)
         return r.status_code
 
