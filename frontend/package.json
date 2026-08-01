@@ -18,13 +18,13 @@
   },
   "dependencies": {
     "@aegov/design-system": "^3.0.7",
-    "@base-ui/react": "^1.4.1",
-    "@fontsource-variable/geist": "^5.2.8",
+    "@base-ui/react": "^1.6.0",
+    "@fontsource-variable/geist": "^5.3.0",
     "@tailwindcss/forms": "^0.5.11",
     "@tailwindcss/postcss": "^4.3.0",
     "@tailwindcss/typography": "^0.5.19",
-    "@tanstack/react-query": "^5.100.5",
-    "@tanstack/react-router": "^1.168.24",
+    "@tanstack/react-query": "^5.101.4",
+    "@tanstack/react-router": "^1.170.18",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.284.0",
@@ -32,14 +32,14 @@
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.6.0",
     "recharts": "^2.9.0",
-    "shadcn": "^4.5.0",
+    "shadcn": "^4.16.0",
     "tailwind-merge": "^1.14.0",
     "tw-animate-css": "^1.4.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.13",
-    "@playwright/test": "^1.60.0",
+    "@biomejs/biome": "^2.5.6",
+    "@playwright/test": "^1.62.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^18.2.15",
@@ -53,6 +53,6 @@
     "tailwindcss": "^4",
     "typescript": "latest",
     "vite": "^4.4.5",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.10"
   }
 }
