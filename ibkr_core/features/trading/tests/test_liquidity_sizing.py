@@ -28,6 +28,7 @@ class TestLiquiditySizing(unittest.IsolatedAsyncioTestCase):
         self.mock_worker.get_last_price = AsyncMock(return_value=150.0)
         self.mock_worker.get_available_funds.return_value = 10000.0
         self.mock_worker.get_net_liquidation.return_value = 10000.0
+        self.mock_worker.get_total_cash.return_value = 10000.0  # cash account: == available funds
         self.mock_worker.get_positions.return_value = []
         self.mock_worker.place_bracket_order = AsyncMock(return_value=42)
         self.mock_worker.place_order = AsyncMock(return_value=42)

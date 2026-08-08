@@ -399,11 +399,31 @@ class IBKRWorker:
 
     def get_available_funds(self) -> float:
         """
-        Retrieves the available cash balance from the account.
+        IBKR AvailableFunds — NetLiquidation minus the initial margin requirement.
+
+        This is BUYING POWER, not cash: on a margin-enabled account it exceeds
+        the settled cash balance (measured on paper DUN514226 2026-08-08:
+        AvailableFunds 1,068,625 vs TotalCashValue 998,592). Anything that must
+        not borrow has to bound this by `get_total_cash()`.
         Ref: COMPLIANCE.md - Zero Leverage/Margin.
         """
         for v in self.ib.accountValues():
             if v.tag == 'AvailableFunds' and self._match_account(v.account):
+                val = float(v.value)
+                return 0.0 if math.isnan(val) else val
+        return 0.0
+
+    def get_total_cash(self) -> float:
+        """
+        IBKR TotalCashValue — settled cash actually held, in account-base currency.
+
+        Unlike AvailableFunds this carries no margin component, so it is the
+        honest number for both portfolio valuation and any no-leverage budget.
+        Returns 0.0 when the tag is absent (readonly accounts report no values),
+        which callers must treat as "unknown", never as "no cash".
+        """
+        for v in self.ib.accountValues():
+            if v.tag == 'TotalCashValue' and self._match_account(v.account):
                 val = float(v.value)
                 return 0.0 if math.isnan(val) else val
         return 0.0

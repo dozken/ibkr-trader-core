@@ -93,6 +93,26 @@ class TestGetAvailableFunds(unittest.TestCase):
         self.assertEqual(w.get_available_funds(), 0.0)
 
 
+class TestGetTotalCash(unittest.TestCase):
+    def test_returns_total_cash_value_tag(self):
+        w = _make_worker()
+        v = MagicMock(); v.tag = "TotalCashValue"; v.value = "998592.36"
+        w.ib.accountValues.return_value = [v]
+        self.assertAlmostEqual(w.get_total_cash(), 998592.36)
+
+    def test_ignores_available_funds_tag(self):
+        """AvailableFunds carries a margin component — not settled cash."""
+        w = _make_worker()
+        af = MagicMock(); af.tag = "AvailableFunds"; af.value = "1068625.91"
+        w.ib.accountValues.return_value = [af]
+        self.assertEqual(w.get_total_cash(), 0.0)
+
+    def test_returns_zero_when_tag_missing(self):
+        w = _make_worker()
+        w.ib.accountValues.return_value = []
+        self.assertEqual(w.get_total_cash(), 0.0)
+
+
 class TestGetLastPrice(unittest.IsolatedAsyncioTestCase):
     async def test_returns_last_price_when_valid(self):
         w = _make_worker()

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.24] - 2026-08-08
+
+### Fixed
+- **BUY sizing could spend margin (Rule #1).** Position sizing used IBKR `AvailableFunds`, which is NetLiquidation minus the margin requirement — on a margin-enabled account that exceeds settled cash (measured 1,068,625 vs 998,592), so a BUY could be funded with borrowed money. The budget is now bounded by `TotalCashValue`. On a cash account the two are equal, making this a no-op there. A `trading_capital_cap` below the cash balance already masked this; accounts running without a cap were exposed.
+- **`/api/portfolio/summary` overstated NAV by the margin cushion.** `total_value` added `AvailableFunds` to position market value, double-counting margin capacity and inflating the dashboard's portfolio total by $70,033 (+6.4%) on the paper account. Now uses settled cash, matching the `NetLiquidation` figure that `portfolio_snapshots` has been recording all along. `cash_available` likewise reports cash rather than buying power.
+
+### Added
+- `IBKRWorker.get_total_cash()` — IBKR `TotalCashValue` in account-base currency, the no-margin counterpart to `get_available_funds()`.
+
 ## [0.2.0] - 2026-05-21
 
 ### Changed (BREAKING)

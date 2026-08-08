@@ -764,13 +764,18 @@ def get_portfolio_summary(request: Request, db: Session = Depends(get_db),
     worker_port = worker.port if worker else int(os.environ.get("IBKR_PORT", "7497"))
     account_type: Literal["PAPER", "LIVE"] = "LIVE" if worker_port in _LIVE_PORTS else "PAPER"
     connected = False
-    available_funds = 0.0
+    total_cash = 0.0
     positions: list = []
 
     try:
         if worker and worker.ib.isConnected():
             connected = True
-            available_funds = float(worker.get_available_funds())
+            # Settled cash, NOT AvailableFunds: the latter is NetLiquidation minus
+            # margin requirement, so adding it to position value double-counts the
+            # margin cushion and overstates NAV (measured +$70,033 on DUN514226,
+            # 2026-08-08). It would also report borrowing capacity as if it were
+            # the user's money, which a no-margin account must never do.
+            total_cash = float(worker.get_total_cash())
             positions = worker.get_positions()
     except Exception:
         pass
@@ -782,7 +787,7 @@ def get_portfolio_summary(request: Request, db: Session = Depends(get_db),
     total_market_value = sum(float(p.get("market_value", 0)) for p in positions)
     total_cost_basis = sum(float(p.get("avg_cost", 0)) * float(p.get("quantity", 0)) for p in positions)
     total_unrealized = sum(float(p.get("unrealized_pnl", 0)) for p in positions)
-    total_value = total_market_value + available_funds
+    total_value = total_market_value + total_cash
     return_pct = (total_unrealized / total_cost_basis * 100) if total_cost_basis > 0 else 0.0
 
     # True total return — money in (all BUY fills) vs money now (open market value
@@ -871,7 +876,7 @@ def get_portfolio_summary(request: Request, db: Session = Depends(get_db),
         account_type=account_type,
         total_value=round(total_value, 2),
         cost_basis=round(total_cost_basis, 2),
-        cash_available=round(available_funds, 2),
+        cash_available=round(total_cash, 2),
         unrealized_pnl=round(total_unrealized, 2),
         return_pct=round(return_pct, 2),
         total_invested=round(total_buys, 2),

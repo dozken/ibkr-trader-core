@@ -231,6 +231,7 @@ class TestFxAwareSizing(unittest.IsolatedAsyncioTestCase):
         self.mock_worker = MagicMock()
         self.mock_worker.get_available_funds.return_value = 10_000.0
         self.mock_worker.get_net_liquidation.return_value = 10_000.0
+        self.mock_worker.get_total_cash.return_value = 10_000.0  # cash account: == available funds
         self.mock_worker.get_positions.return_value = []
         self.mock_worker.get_market_data = AsyncMock(
             return_value={"bid": 99.9, "ask": 100.1, "last": 100.0, "volume": 1_000_000})

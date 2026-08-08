@@ -122,6 +122,9 @@ class TestTrader(unittest.IsolatedAsyncioTestCase):
         self.mock_worker.get_last_price = AsyncMock(return_value=150.0)
         self.mock_worker.place_bracket_order = AsyncMock(return_value=42)
         self.mock_worker.place_order = AsyncMock(return_value=42)
+        # Deliberately non-binding: BUY sizing clamps available_funds by settled
+        # cash (no-leverage rule). Tests that care set their own value.
+        self.mock_worker.get_total_cash.return_value = 10_000_000.0
         self.trader = Trader(self.mock_worker)
         self.patcher_db = patch('ibkr_core.features.trading.trader.SessionLocal')
         self.mock_session_local = self.patcher_db.start()
@@ -360,6 +363,61 @@ class TestTrader(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(trade.state, TradeState.REJECTED_FUNDS)
         self.mock_worker.place_bracket_order.assert_not_called()
+
+    @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
+    async def test_buy_budget_clamped_to_settled_cash(self, mock_check):
+        """Rule #1: never size a BUY off margin buying power.
+
+        Regression: sizing used AvailableFunds (NetLiquidation minus margin
+        requirement), which on a margin-enabled account exceeds settled cash —
+        measured 1,068,625 vs 998,592 on paper DUN514226. Sizing off it buys
+        with borrowed money. Budget must be bounded by TotalCashValue.
+        """
+        mock_check.return_value = _COMPLIANT
+        self.mock_worker.get_net_liquidation.return_value = 1_000_000.0
+        self.mock_worker.get_available_funds.return_value = 900_000.0  # margin-inflated
+        self.mock_worker.get_total_cash.return_value = 5_000.0         # real cash
+        self.mock_worker.get_positions.return_value = []
+        self.mock_worker.get_last_price = AsyncMock(return_value=100.0)
+        self.mock_worker.place_bracket_order.return_value = 103
+
+        loose = {**_SETTINGS, "max_position_size_pct": 100.0, "cash_reserve_pct": 0.0,
+                 "max_sector_exposure_pct": 100.0, "min_sector_count": 1}
+        with patch('ibkr_core.features.trading.trader._load_settings', return_value=loose):
+            trade_req = TradeCreate(symbol="AAPL", quantity=0, side="BUY")
+            trade = await self.trader.execute_trade(trade_req, sector="Technology",
+                                              debt=10, cash=10, revenue=100,
+                                              prohibited_income=1, mkt_cap=1000)
+
+        self.assertEqual(trade.state, TradeState.SUBMITTED)
+        # Bounded by the $5k cash, not the $900k buying power.
+        self.assertLessEqual(trade.quantity * 100.0, 5_000.0)
+
+    @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
+    async def test_buy_budget_unaffected_when_cash_tag_missing(self, mock_check):
+        """total_cash == 0 means the tag was absent, not a zero balance.
+
+        Readonly accounts report no accountValues; treating that as "no cash"
+        would block every BUY instead of leaving the budget alone.
+        """
+        mock_check.return_value = _COMPLIANT
+        self.mock_worker.get_net_liquidation.return_value = 10_000.0
+        self.mock_worker.get_available_funds.return_value = 10_000.0
+        self.mock_worker.get_total_cash.return_value = 0.0  # tag absent
+        self.mock_worker.get_positions.return_value = []
+        self.mock_worker.get_last_price = AsyncMock(return_value=100.0)
+        self.mock_worker.place_bracket_order.return_value = 104
+
+        loose = {**_SETTINGS, "max_position_size_pct": 100.0, "cash_reserve_pct": 0.0,
+                 "max_sector_exposure_pct": 100.0, "min_sector_count": 1}
+        with patch('ibkr_core.features.trading.trader._load_settings', return_value=loose):
+            trade_req = TradeCreate(symbol="AAPL", quantity=0, side="BUY")
+            trade = await self.trader.execute_trade(trade_req, sector="Technology",
+                                              debt=10, cash=10, revenue=100,
+                                              prohibited_income=1, mkt_cap=1000)
+
+        self.assertEqual(trade.state, TradeState.SUBMITTED)
+        self.assertGreater(trade.quantity, 0.0)
 
     @patch('ibkr_core.features.trading.trader.check_shariah_compliance')
     async def test_capital_cap_budget_uses_position_value_not_funds_gap(self, mock_check):
@@ -897,6 +955,9 @@ class TestConcentrationRiskGuard(unittest.IsolatedAsyncioTestCase):
         self.mock_worker.get_last_price = AsyncMock(return_value=150.0)
         self.mock_worker.place_bracket_order = AsyncMock(return_value=42)
         self.mock_worker.place_order = AsyncMock(return_value=42)
+        # Deliberately non-binding: BUY sizing clamps available_funds by settled
+        # cash (no-leverage rule). Tests that care set their own value.
+        self.mock_worker.get_total_cash.return_value = 10_000_000.0
         self.trader = Trader(self.mock_worker)
         self.patcher_db = patch('ibkr_core.features.trading.trader.SessionLocal')
         self.mock_session_local = self.patcher_db.start()

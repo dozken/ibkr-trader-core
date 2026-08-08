@@ -33,6 +33,7 @@ class TestTWAPExecution(unittest.IsolatedAsyncioTestCase):
         self.worker.get_last_price = AsyncMock(return_value=100.0)
         self.worker.get_available_funds.return_value = 50000.0
         self.worker.get_net_liquidation.return_value = 50000.0
+        self.worker.get_total_cash.return_value = 50000.0  # cash account: == available funds
         self.worker.get_positions.return_value = []
         self.worker.get_market_data = AsyncMock(
             return_value={"bid": 99.9, "ask": 100.1, "last": 100.0}

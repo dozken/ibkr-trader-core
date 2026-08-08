@@ -533,10 +533,21 @@ class Trader:
                 return trade
 
             if trade.side == 'BUY':
-                available_funds, net_liq = await asyncio.gather(
+                available_funds, net_liq, total_cash = await asyncio.gather(
                     asyncio.to_thread(self.worker.get_available_funds),
                     asyncio.to_thread(self.worker.get_net_liquidation),
+                    asyncio.to_thread(self.worker.get_total_cash),
                 )
+
+                # No-leverage clamp (Rule #1 — no riba). AvailableFunds is
+                # NetLiquidation minus margin requirement, so on a margin-enabled
+                # account it exceeds settled cash and sizing off it would buy with
+                # borrowed money. Bound by TotalCashValue; on a cash account the
+                # two are equal, so this is a no-op there. total_cash == 0 means
+                # the tag was absent (readonly/unknown), not a zero balance — leave
+                # the budget alone rather than silently blocking every BUY.
+                if total_cash > 0:
+                    available_funds = min(available_funds, total_cash)
 
                 # Capital cap: size as if the account held only `trading_capital_cap`,
                 # ignoring balance beyond it (e.g. a $1B paper account tested at $436).
