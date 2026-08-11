@@ -1166,6 +1166,117 @@ class TestSectorConcentrationLimit(unittest.TestCase):
         self.assertTrue(result)
 
 
+class TestUnclassifiedSectorBucket(unittest.TestCase):
+    """Regression: unclassified names must NOT inherit the largest held sector's balance.
+
+    On 2026-07-29 all 8 BUYs were rejected because _exceeds_concentration_limit
+    charged every unknown-sector candidate to the biggest held bucket — by
+    construction the one closest to its cap. Most of the universe is unclassified
+    (34 Unknown / 5 Manual / 20 known), so this blocked essentially all buying and
+    is why the paper test never deployed capital.
+    """
+
+    # net_liq 100_000 * 30% => max_sector = 30_000
+    _SETTINGS = {"max_position_size_pct": 50.0, "max_sector_exposure_pct": 30.0}
+    _NET_LIQ = 100_000.0
+
+    def _db(self, target_sector, position_sectors):
+        """Mock SessionLocal: first .first() is the target lookup, then one per position."""
+        mock_db = MagicMock()
+        mock_db.__enter__ = MagicMock(return_value=mock_db)
+        mock_db.__exit__ = MagicMock(return_value=False)
+
+        def rec(sector):
+            r = MagicMock()
+            r.metrics = {"sector": sector}
+            return r
+
+        mock_db.query.return_value.filter.return_value.order_by.return_value.first.side_effect = [
+            rec(target_sector),
+            *[rec(s) for s in position_sectors],
+        ]
+        return mock_db
+
+    def _worker(self, positions):
+        w = MagicMock()
+        w.get_positions.return_value = positions
+        return w
+
+    def test_unknown_candidate_not_charged_to_largest_sector(self):
+        """The exact 2026-07-29 case: Tech at 29_500 of a 30_000 cap, unknown-sector buy passes."""
+        worker = self._worker([{"symbol": "MSFT", "market_value": 29_500.0}])
+        db = self._db("Unknown", ["Technology"])
+        with patch("ibkr_core.features.trading.trader.SessionLocal", return_value=db):
+            # $1,000 of an unclassified name. Old code charged it to Technology
+            # (29_500 + 1_000 = 30_500 > 30_000) and rejected it.
+            result = _exceeds_concentration_limit(
+                "AAPL", 10.0, 100.0, self._NET_LIQ, worker, self._SETTINGS
+            )
+        self.assertFalse(result)
+
+    def test_unclassified_bucket_is_still_capped(self):
+        """Unclassified exposure aggregates into one bucket and that bucket IS enforced."""
+        worker = self._worker([{"symbol": "FOO", "market_value": 29_500.0}])
+        db = self._db("Unknown", ["Unknown"])
+        with patch("ibkr_core.features.trading.trader.SessionLocal", return_value=db):
+            # 29_500 already unclassified + 1_000 new = 30_500 > 30_000 → blocked
+            result = _exceeds_concentration_limit(
+                "AAPL", 10.0, 100.0, self._NET_LIQ, worker, self._SETTINGS
+            )
+        self.assertTrue(result)
+
+    def test_unclassified_and_known_buckets_are_separate(self):
+        """A near-cap known sector does not constrain the unclassified bucket, or vice versa."""
+        worker = self._worker([
+            {"symbol": "MSFT", "market_value": 29_000.0},  # Technology, near cap
+            {"symbol": "FOO", "market_value": 5_000.0},    # unclassified
+        ])
+        db = self._db("Unknown", ["Technology", "Manual"])
+        with patch("ibkr_core.features.trading.trader.SessionLocal", return_value=db):
+            # Unclassified bucket = 5_000 + 1_000 = 6_000, well under 30_000
+            result = _exceeds_concentration_limit(
+                "AAPL", 10.0, 100.0, self._NET_LIQ, worker, self._SETTINGS
+            )
+        self.assertFalse(result)
+
+    def test_known_sector_still_enforced(self):
+        """The fix must not weaken the check for candidates whose sector IS known."""
+        worker = self._worker([{"symbol": "MSFT", "market_value": 29_500.0}])
+        db = self._db("Technology", ["Technology"])
+        with patch("ibkr_core.features.trading.trader.SessionLocal", return_value=db):
+            result = _exceeds_concentration_limit(
+                "AAPL", 10.0, 100.0, self._NET_LIQ, worker, self._SETTINGS
+            )
+        self.assertTrue(result)
+
+    def test_min_sector_count_does_not_fire_for_unknown_candidate(self):
+        """Under the old fallback this branch fired unconditionally for unknown sectors.
+
+        The fallback always set target_sector to an already-held sector, so
+        `target_sector in held_sectors` was always True — meaning that with fewer
+        than min_sector_count sectors held, EVERY unclassified buy was rejected.
+        """
+        settings = dict(self._SETTINGS, min_sector_count=4)
+        worker = self._worker([{"symbol": "MSFT", "market_value": 1_000.0}])
+        db = self._db("Unknown", ["Technology"])  # only 1 known sector held, need 4
+        with patch("ibkr_core.features.trading.trader.SessionLocal", return_value=db):
+            result = _exceeds_concentration_limit(
+                "AAPL", 1.0, 100.0, self._NET_LIQ, worker, settings
+            )
+        self.assertFalse(result)
+
+    def test_min_sector_count_still_fires_for_known_candidate(self):
+        """Diversification gate must still work when the candidate's sector is known."""
+        settings = dict(self._SETTINGS, min_sector_count=4)
+        worker = self._worker([{"symbol": "MSFT", "market_value": 1_000.0}])
+        db = self._db("Technology", ["Technology"])
+        with patch("ibkr_core.features.trading.trader.SessionLocal", return_value=db):
+            result = _exceeds_concentration_limit(
+                "AAPL", 1.0, 100.0, self._NET_LIQ, worker, settings
+            )
+        self.assertTrue(result)
+
+
 class TestIsInTradingWindow(unittest.TestCase):
     """is_in_trading_window respects open/close offsets."""
 

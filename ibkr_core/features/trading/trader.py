@@ -222,6 +222,15 @@ def _exceeds_concentration_limit(
                 .first()
             )
             _UNCLASSIFIED = {"Unknown", "Manual", ""}
+            # Names we have no sector for share ONE aggregate bucket. The previous
+            # behaviour charged them to the LARGEST held sector — by construction
+            # the bucket nearest its cap — so as soon as any one sector filled up,
+            # every unclassified candidate was rejected. Most of the universe is
+            # unclassified, so that silently blocked almost all buying: it wiped out
+            # all 8 BUYs on 2026-07-29 and is why the paper test never deployed.
+            # Bucketing them together still bounds unclassified exposure, without
+            # inheriting an unrelated sector's balance.
+            _UNKNOWN_BUCKET = "Unclassified"
 
             def _norm_sector(s: str | None) -> str:
                 raw = (s or "Unknown").split("/")[0].strip()
@@ -231,8 +240,7 @@ def _exceeds_concentration_limit(
                 target_rec.metrics.get("sector") if target_rec and target_rec.metrics else None
             )
 
-            sector_value = existing_value
-            held_sectors: set[str] = set()
+            held_sectors: set[str] = set()  # KNOWN sectors only — feeds min_sector_count
             sector_values: dict[str, float] = {}
             for pos in positions:
                 if pos["symbol"] == symbol:
@@ -245,33 +253,34 @@ def _exceeds_concentration_limit(
                 )
                 if pos_rec and pos_rec.metrics:
                     ps = _norm_sector(pos_rec.metrics.get("sector"))
+                    mv = float(pos.get("market_value", 0.0))
+                    sector_values[ps or _UNKNOWN_BUCKET] = (
+                        sector_values.get(ps or _UNKNOWN_BUCKET, 0.0) + mv
+                    )
                     if ps:
                         held_sectors.add(ps)
-                        mv = float(pos.get("market_value", 0.0))
-                        sector_values[ps] = sector_values.get(ps, 0.0) + mv
-                        if ps == target_sector:
-                            sector_value += mv
 
-            # If target sector unknown, conservatively treat as largest held sector
-            if not target_sector and sector_values:
-                target_sector = max(sector_values, key=sector_values.get)
-                sector_value = existing_value + sector_values.get(target_sector, 0.0)
+            bucket = target_sector or _UNKNOWN_BUCKET
+            sector_value = existing_value + sector_values.get(bucket, 0.0)
 
-            if target_sector:
-                if (sector_value + new_qty * price) > max_sector:
-                    logger.warning(
-                        "%s: sector '%s' limit exceeded (%.2f > %.2f)",
-                        symbol, target_sector, sector_value + new_qty * price, max_sector,
-                    )
-                    return True
+            if (sector_value + new_qty * price) > max_sector:
+                logger.warning(
+                    "%s: sector '%s' limit exceeded (%.2f > %.2f)",
+                    symbol, bucket, sector_value + new_qty * price, max_sector,
+                )
+                return True
 
-                min_sectors = settings.get("min_sector_count", 4)
-                if len(held_sectors) < min_sectors and target_sector in held_sectors:
-                    logger.warning(
-                        "%s: only %d sector(s) held, need %d before adding more '%s'",
-                        symbol, len(held_sectors), min_sectors, target_sector,
-                    )
-                    return True
+            # Diversification gate applies only when we KNOW the candidate's sector —
+            # for an unclassified name we cannot tell whether it diversifies or
+            # concentrates. (Under the old fallback this branch fired unconditionally,
+            # because the fallback always set target_sector to an already-held one.)
+            min_sectors = settings.get("min_sector_count", 4)
+            if target_sector and len(held_sectors) < min_sectors and target_sector in held_sectors:
+                logger.warning(
+                    "%s: only %d sector(s) held, need %d before adding more '%s'",
+                    symbol, len(held_sectors), min_sectors, target_sector,
+                )
+                return True
     except Exception as e:
         logger.warning("Sector concentration check failed for %s: %s", symbol, e)
 

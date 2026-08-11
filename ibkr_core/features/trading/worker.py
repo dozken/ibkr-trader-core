@@ -21,6 +21,14 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# ib_insync market-data coroutines can hang FOREVER on a half-open socket: IBKR
+# raises nothing, the awaitable simply never completes. Because these awaits are
+# taken while holding self._limiter, one stuck call also starves every other
+# market-data request. On 2026-08-10 that pinned execute_trade for 14h38m — the
+# loop dispatched exactly one BUY all day and every later candidate was skipped
+# as "outside its trading window". Every IBKR market-data await is now bounded.
+_IBKR_CALL_TIMEOUT = float(os.getenv("IBKR_CALL_TIMEOUT_SEC", "20"))
+
 # Canonical (yfinance-suffixed) → IBKR bare symbol. Full suffix table +
 # hyphen class-share handling live in core.symbols (the old local set covered
 # only 12 suffixes, so most foreign contracts failed qualification).
@@ -608,33 +616,62 @@ class IBKRWorker:
         )
         return quantize_to_increment(price, side, COARSE_NONUS_TICK)
 
+    async def _bounded(self, coro, what: str, symbol: str):
+        """Await an IBKR coroutine with a hard timeout. Returns None if it timed out.
+
+        None is unambiguous here: these calls return lists on success, so a None
+        means "the socket is not answering", which callers treat as a dead path
+        rather than as an empty result worth retrying.
+        """
+        try:
+            return await asyncio.wait_for(coro, timeout=_IBKR_CALL_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "%s(%s): no response after %.0fs — abandoning call",
+                what, symbol, _IBKR_CALL_TIMEOUT,
+            )
+            return None
+
     async def get_last_price(self, symbol: str, exchange: str = "NMS") -> float:
         async with self._limiter:
             await self._wait_for_pacing()
             contract = self._stock_contract(symbol, exchange)
-            await self.ib.qualifyContractsAsync(contract)
-            for attempt in range(3):
-                tickers = await self.ib.reqTickersAsync(contract)
-                if not tickers:
+            qualified = await self._bounded(
+                self.ib.qualifyContractsAsync(contract), "qualifyContractsAsync", symbol
+            )
+            if qualified is not None:
+                for attempt in range(3):
+                    tickers = await self._bounded(
+                        self.ib.reqTickersAsync(contract), "reqTickersAsync", symbol
+                    )
+                    if tickers is None:
+                        break  # socket unhealthy — retrying just burns more timeouts
+                    if not tickers:
+                        await asyncio.sleep(1)
+                        continue
+                    ticker = tickers[0]
+                    # Prefer last, then close, then marketPrice() (bid/ask mid for delayed data)
+                    candidates = [ticker.last, ticker.close, ticker.marketPrice()]
+                    for val in candidates:
+                        if val is not None and not math.isnan(val) and val > 0:
+                            return val
                     await asyncio.sleep(1)
-                    continue
-                ticker = tickers[0]
-                # Prefer last, then close, then marketPrice() (bid/ask mid for delayed data)
-                candidates = [ticker.last, ticker.close, ticker.marketPrice()]
-                for val in candidates:
-                    if val is not None and not math.isnan(val) and val > 0:
-                        return val
-                await asyncio.sleep(1)
-            # Fallback: yfinance when IBKR market data unavailable
+            # Fallback: yfinance when IBKR market data unavailable. Runs in a thread
+            # because yf.history() is blocking — awaiting it inline would stall the
+            # whole event loop, not just this call.
             try:
                 import yfinance as yf
-                tick = yf.Ticker(symbol)
-                hist = tick.history(period="1d")
-                if not hist.empty:
-                    val = float(hist["Close"].iloc[-1])
-                    if val > 0:
-                        logger.info("get_last_price(%s): yfinance fallback → %.2f", symbol, val)
-                        return val
+
+                def _yf_close() -> float:
+                    hist = yf.Ticker(symbol).history(period="1d")
+                    return float(hist["Close"].iloc[-1]) if not hist.empty else 0.0
+
+                val = await asyncio.wait_for(
+                    asyncio.to_thread(_yf_close), timeout=_IBKR_CALL_TIMEOUT
+                )
+                if val > 0:
+                    logger.info("get_last_price(%s): yfinance fallback → %.2f", symbol, val)
+                    return val
             except Exception:
                 pass
             return 0.0
@@ -647,10 +684,16 @@ class IBKRWorker:
         async with self._limiter:
             await self._wait_for_pacing()
             contract = self._stock_contract(symbol, exchange)
-            await self.ib.qualifyContractsAsync(contract)
-            tickers = await self.ib.reqTickersAsync(contract)
+            _empty = {"bid": 0.0, "ask": 0.0, "last": 0.0, "volume": 0.0}
+            if await self._bounded(
+                self.ib.qualifyContractsAsync(contract), "qualifyContractsAsync", symbol
+            ) is None:
+                return _empty
+            tickers = await self._bounded(
+                self.ib.reqTickersAsync(contract), "reqTickersAsync", symbol
+            )
             if not tickers:
-                return {"bid": 0.0, "ask": 0.0, "last": 0.0, "volume": 0.0}
+                return _empty
             t = tickers[0]
             last = t.close if math.isnan(t.last) else t.last
             return {

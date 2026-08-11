@@ -809,5 +809,75 @@ class TestNoShortGuard(unittest.IsolatedAsyncioTestCase):
                 await w.place_bracket_order(t, 95.0, 110.0)
 
 
+class TestMarketDataTimeouts(unittest.IsolatedAsyncioTestCase):
+    """A hung IBKR socket must not stall the caller (or starve the shared limiter).
+
+    Regression for 2026-08-10: qualifyContractsAsync never returned, execute_trade
+    sat inside it for 14h38m holding self._limiter, and the loop placed exactly one
+    order all day.
+    """
+
+    def _worker(self):
+        w = _make_worker()
+        w._limiter = asyncio.Semaphore(5)
+        w._wait_for_pacing = AsyncMock()
+        w._stock_contract = MagicMock(return_value=MagicMock())
+        return w
+
+    @staticmethod
+    async def _never_returns():
+        await asyncio.sleep(3600)
+
+    async def test_get_last_price_gives_up_when_qualify_hangs(self):
+        w = self._worker()
+        w.ib.qualifyContractsAsync = MagicMock(side_effect=lambda *a, **k: self._never_returns())
+        w.ib.reqTickersAsync = AsyncMock(return_value=[])
+        with patch("ibkr_core.features.trading.worker._IBKR_CALL_TIMEOUT", 0.05), \
+             patch("ibkr_core.features.trading.worker.asyncio.to_thread",
+                   AsyncMock(return_value=0.0)):
+            price = await asyncio.wait_for(w.get_last_price("AAPL"), timeout=5)
+        self.assertEqual(price, 0.0)
+
+    async def test_get_last_price_gives_up_when_tickers_hang(self):
+        w = self._worker()
+        w.ib.qualifyContractsAsync = AsyncMock(return_value=[MagicMock()])
+        w.ib.reqTickersAsync = MagicMock(side_effect=lambda *a, **k: self._never_returns())
+        with patch("ibkr_core.features.trading.worker._IBKR_CALL_TIMEOUT", 0.05), \
+             patch("ibkr_core.features.trading.worker.asyncio.to_thread",
+                   AsyncMock(return_value=0.0)):
+            price = await asyncio.wait_for(w.get_last_price("AAPL"), timeout=5)
+        self.assertEqual(price, 0.0)
+
+    async def test_limiter_is_released_after_a_timeout(self):
+        """The semaphore must not leak, or one bad symbol degrades every later call."""
+        w = self._worker()
+        w.ib.qualifyContractsAsync = MagicMock(side_effect=lambda *a, **k: self._never_returns())
+        w.ib.reqTickersAsync = AsyncMock(return_value=[])
+        with patch("ibkr_core.features.trading.worker._IBKR_CALL_TIMEOUT", 0.05), \
+             patch("ibkr_core.features.trading.worker.asyncio.to_thread",
+                   AsyncMock(return_value=0.0)):
+            for _ in range(6):  # more iterations than the semaphore has slots
+                await asyncio.wait_for(w.get_last_price("AAPL"), timeout=5)
+        self.assertFalse(w._limiter.locked())
+
+    async def test_yfinance_fallback_still_works_after_ibkr_timeout(self):
+        w = self._worker()
+        w.ib.qualifyContractsAsync = MagicMock(side_effect=lambda *a, **k: self._never_returns())
+        w.ib.reqTickersAsync = AsyncMock(return_value=[])
+        with patch("ibkr_core.features.trading.worker._IBKR_CALL_TIMEOUT", 0.05), \
+             patch("ibkr_core.features.trading.worker.asyncio.to_thread",
+                   AsyncMock(return_value=123.45)):
+            price = await asyncio.wait_for(w.get_last_price("AAPL"), timeout=5)
+        self.assertEqual(price, 123.45)
+
+    async def test_get_market_data_gives_up_when_hung(self):
+        w = self._worker()
+        w.ib.qualifyContractsAsync = MagicMock(side_effect=lambda *a, **k: self._never_returns())
+        w.ib.reqTickersAsync = AsyncMock(return_value=[])
+        with patch("ibkr_core.features.trading.worker._IBKR_CALL_TIMEOUT", 0.05):
+            data = await asyncio.wait_for(w.get_market_data("AAPL"), timeout=5)
+        self.assertEqual(data, {"bid": 0.0, "ask": 0.0, "last": 0.0, "volume": 0.0})
+
+
 if __name__ == "__main__":
     unittest.main()
