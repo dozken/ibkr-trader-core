@@ -28,7 +28,10 @@ def _load() -> dict:
             with open(_HAWL_FILE) as f:
                 return json.load(f)
         except Exception:
-            pass
+            # Returning a null hawl_start restarts the lunar year, moving the
+            # date Zakat falls due — a religious obligation, not a cache miss.
+            logger.warning("Hawl state at %s unreadable — treating the lunar year as "
+                           "not yet started", _HAWL_FILE, exc_info=True)
     return {"hawl_start": None, "last_checked": None}
 
 

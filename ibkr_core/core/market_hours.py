@@ -1,7 +1,10 @@
+import logging
 from datetime import datetime, time
 from functools import lru_cache
 from zoneinfo import ZoneInfo
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # yfinance exchange code -> (IANA timezone, [(open, close), ...], ibkr_exchange, currency)
 # Multiple sessions = lunch break markets (Japan, China, HK)
@@ -189,7 +192,9 @@ def is_trading_day(exchange_code: str, day=None) -> bool:
                 import pandas as pd
                 return bool(cal.is_session(pd.Timestamp(day)))
             except Exception:
-                pass
+                # Falling through means holidays get treated as trading days.
+                logger.debug("Calendar %s could not resolve session for %s — "
+                             "falling back to weekday-only", cal_code, day, exc_info=True)
 
     # Fallback: weekday-only
     if exchange_code in SUNDAY_THURSDAY_EXCHANGES:

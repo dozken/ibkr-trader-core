@@ -68,7 +68,7 @@ async def _answer_callback(token: str, callback_query_id: str):
                 json={"callback_query_id": callback_query_id},
             )
         except Exception:
-            pass
+            logger.debug("Telegram callback ack failed for %s", callback_query_id, exc_info=True)
 
 
 async def _handle_command(command: str, args: List[str],

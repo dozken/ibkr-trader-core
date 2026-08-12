@@ -204,7 +204,10 @@ def _exceeds_concentration_limit(
         if existing:
             existing_value = float(existing.get("market_value", 0.0))
     except Exception:
-        pass
+        # existing_value=0 makes an already-held name look untouched, so the
+        # concentration cap sizes the new BUY as if from flat — it can overshoot.
+        logger.warning("Could not read the existing %s position — sizing this BUY as "
+                       "if flat, which may breach the position cap", symbol, exc_info=True)
 
     new_position_value = existing_value + new_qty * price
     if new_position_value > max_pos:
@@ -1088,7 +1091,8 @@ async def _run_twap_slices(worker, twap_id: int, start_idx: int = 1) -> None:
                     twap.status = "FAILED"
                     db.commit()
             except Exception:
-                pass
+                logger.error("Could not mark TWAP %s FAILED — it will look in-flight "
+                             "forever", twap_id, exc_info=True)
             return
         finally:
             db.close()

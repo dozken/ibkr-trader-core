@@ -331,7 +331,9 @@ async def lifespan(app: FastAPI):
                             connected_ibs.add(id(w.ib))
                             break
                     except Exception:
-                        pass
+                        # Unlogged, this retries every 30s forever in total silence.
+                        logger.warning("Secondary worker for account %s failed to "
+                                       "connect — retrying in 30s", aid, exc_info=True)
                     await asyncio.sleep(30)
 
         worker._fill_callback = _on_fill
@@ -595,7 +597,8 @@ def system_readiness(request: Request):
                     earliest_dt = earliest_dt.replace(tzinfo=timezone.utc)
                 paper_trading_days = max(0, (now - earliest_dt).days)
     except Exception:
-        pass
+        logger.warning("Readiness: trade-history stats unavailable — the gate will "
+                       "judge on partial data", exc_info=True)
 
     # Gate trips only when BOTH rate > 10% AND ≥5 absolute errors —
     # avoids false alarms during low-volume periods where 1-2 legit broker
@@ -640,7 +643,10 @@ def system_readiness(request: Request):
             win_rate_pct = round(wins / n_resolved * 100, 1)
             avg_7d_return = round(sum(outcomes) / n_resolved, 2)
     except Exception:
-        pass
+        # n_resolved stays 0, which reads as "not enough signals yet" rather
+        # than "the query broke" — two very different things to a reader.
+        logger.warning("Readiness: resolved-signal stats unavailable — reporting "
+                       "zero resolved signals", exc_info=True)
 
     enough_signals = n_resolved >= _MIN_RESOLVED
     win_rate_ok = (not enough_signals) or (win_rate_pct is not None and win_rate_pct >= _MIN_WIN_RATE)

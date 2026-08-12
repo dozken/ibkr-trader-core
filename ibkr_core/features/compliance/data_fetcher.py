@@ -480,7 +480,8 @@ def _fetch_yfinance(symbol: str) -> Optional[Dict[str, Any]]:
                     if cookie_cache is not None:
                         cookie_cache.clear()
                 except Exception:
-                    pass
+                    logger.warning("yfinance cookie/crumb reset failed for %s — the "
+                                   "retry will likely 401 again", symbol, exc_info=True)
                 import time as _time
                 _time.sleep(2)
                 continue

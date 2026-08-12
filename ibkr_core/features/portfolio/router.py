@@ -194,7 +194,8 @@ async def get_rebalance_preview(request: Request) -> List[TradeCreate]:
         try:
             price_map[s] = await worker.get_last_price(s)
         except Exception:
-            pass
+            logger.debug("Rebalance: no price for %s — excluded from the plan",
+                         s, exc_info=True)
             
     await asyncio.gather(*[_fetch(s) for s in symbols])
     
@@ -228,7 +229,8 @@ def get_portfolio_value(request: Request, account_id: Optional[int] = None) -> P
                 account_type=account_type
             )
     except Exception:
-        pass
+        logger.warning("Portfolio value unavailable — reporting $0 / disconnected",
+                       exc_info=True)
     return PortfolioValue(available_funds=0.0, connected=False, account_type=account_type)
 
 
@@ -244,7 +246,10 @@ def get_positions(request: Request, account_id: Optional[int] = None) -> List[Po
         if worker and worker.ib.isConnected():
             return [Position(**p) for p in worker.get_positions()]
     except Exception:
-        pass
+        # An empty list is indistinguishable from "genuinely flat" to every
+        # caller — that ambiguity must at least leave a trace in the log.
+        logger.warning("Positions unavailable — reporting an empty portfolio",
+                       exc_info=True)
     return []
 
 
@@ -505,7 +510,8 @@ def get_pnl(request: Request, db: Session = Depends(get_db),
         if worker and worker.ib.isConnected():
             live_positions = [Position(**p) for p in worker.get_positions()]
     except Exception:
-        pass
+        logger.warning("P&L: live positions unavailable — falling back to DB history only",
+                       exc_info=True)
 
     # 2. Build a map of live position data keyed by symbol
     live_map: Dict[str, Position] = {p.symbol: p for p in live_positions}
@@ -778,7 +784,8 @@ def get_portfolio_summary(request: Request, db: Session = Depends(get_db),
             total_cash = float(worker.get_total_cash())
             positions = worker.get_positions()
     except Exception:
-        pass
+        logger.warning("NAV: cash/positions unavailable — reporting disconnected",
+                       exc_info=True)
 
     if not connected or not positions:
         return PortfolioSummaryResponse(connected=connected, account_type=account_type)
@@ -921,7 +928,8 @@ async def manual_rerate(request: Request):
         try:
             positions = await asyncio.to_thread(worker.get_positions)
         except Exception:
-            pass
+            logger.warning("Re-rate: positions unavailable — nothing will be reviewed",
+                           exc_info=True)
 
     if not positions:
         return {"scored": [], "sell_queued": [], "threshold": threshold, "note": "No positions (IBKR disconnected?)"}

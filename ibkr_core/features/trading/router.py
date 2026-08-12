@@ -305,7 +305,8 @@ def _get_signal_score(symbol: str) -> float:
         if row is not None and row.t_score is not None:
             return float(row.t_score)
     except Exception:
-        pass
+        logger.warning("Stored t_score lookup failed for %s — recomputing a quick one",
+                       symbol, exc_info=True)
     return _quick_t_score(symbol)
 
 

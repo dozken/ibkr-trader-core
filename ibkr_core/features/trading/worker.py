@@ -107,7 +107,8 @@ class IBKRWorker:
                 try:
                     self.ib.disconnect()
                 except Exception:
-                    pass
+                    logger.debug("Pre-connect disconnect failed — reconnecting anyway",
+                                 exc_info=True)
 
             if self.readonly:
                 await self._connect_readonly(timeout)
@@ -200,7 +201,7 @@ class IBKRWorker:
             if self.ib.isConnected():
                 self.ib.disconnect()
         except Exception:
-            pass
+            logger.debug("IBKR disconnect raised — treating as already down", exc_info=True)
 
     # ------------------------------------------------------------------
     # Fix #9: fill event callbacks
@@ -256,7 +257,8 @@ class IBKRWorker:
                     code = getattr(last, "errorCode", 0)
                     reason = f"{last.message}" + (f" (code {code})" if code else "")
             except Exception:
-                pass
+                logger.debug("Could not extract a cancel reason for %s — using %r",
+                             symbol, reason, exc_info=True)
             body = f"❌ {symbol} {side} {qty} cancelled — {reason} · Order #{order_id}"
             settings = load_settings(self.account_id)
             if not settings.get("notify_trade_fills", True):
@@ -673,7 +675,10 @@ class IBKRWorker:
                     logger.info("get_last_price(%s): yfinance fallback → %.2f", symbol, val)
                     return val
             except Exception:
-                pass
+                # 0.0 propagates as "unpriceable" — callers must skip the symbol,
+                # so record why rather than letting it look like a clean zero.
+                logger.warning("get_last_price(%s): yfinance fallback failed — "
+                               "returning 0.0 (unpriceable)", symbol, exc_info=True)
             return 0.0
 
     async def get_market_data(self, symbol: str, exchange: str = "NMS") -> Dict[str, float]:
@@ -821,7 +826,8 @@ class IBKRWorker:
                         if len(symbols) == 1 and not close.dropna().empty:
                             price_map[symbols[0]] = float(close.dropna().iloc[-1])
             except Exception:
-                pass
+                logger.warning("Bulk price fallback failed for %d symbols — positions "
+                               "keep their IBKR-reported values", len(symbols), exc_info=True)
 
         # IBKR reports averageCost / marketPrice / marketValue / unrealizedPNL
         # ALL in the contract's LOCAL currency, in MAJOR units, consistently per

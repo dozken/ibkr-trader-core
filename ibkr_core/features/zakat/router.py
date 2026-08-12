@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
@@ -10,6 +11,8 @@ from ibkr_core.core.database import get_db
 from ibkr_core.core.models import PurificationHistory, TradeHistory, PositionCompliance
 from ibkr_core.core.state import TradeState
 from typing import Dict
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/zakat", tags=["zakat"])
 
@@ -167,7 +170,9 @@ def hawl_status(request: Request) -> dict:
         if worker and worker.ib.isConnected():
             portfolio_value = float(worker.get_net_liquidation())
     except Exception:
-        pass
+        # $0 can push the portfolio under nisab and reset the hawl clock.
+        logger.warning("Portfolio value unavailable for the hawl update — using $0, "
+                       "which may read as below nisab", exc_info=True)
     nisab = fetch_nisab_usd()
     update_hawl(portfolio_value, nisab)
     return get_hawl_status(portfolio_value, nisab)

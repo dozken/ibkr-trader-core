@@ -368,7 +368,10 @@ async def _dispatch_signal(
                                 signal.symbol, signal.action, comp_window)
                     return
         except Exception:
-            pass
+            # Swallowing here disables the rejection cooldown, which is exactly
+            # what produced the REJECTED_COMPLIANCE retry storm once already.
+            logger.warning("Compliance-cooldown check failed for %s %s — proceeding "
+                           "without it", signal.symbol, signal.action, exc_info=True)
         logger.info(f"Auto-{signal.action} {signal.symbol} (confidence={signal.confidence}%, threshold={auto_threshold}%)")
         t = trade or TradeCreate(symbol=signal.symbol, quantity=0, side=signal.action,
                                 confidence=signal.confidence,
@@ -662,7 +665,8 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                                     channels,
                                 )
                 except Exception:
-                    pass
+                    logger.warning("Aging-position review failed for %s — no alert sent",
+                                   symbol, exc_info=True)
 
                 # ── Partial profit: sell half at first target ──────────────────
                 # Skipped when fx_ok is False — upnl_pct is mixed-unit (H3).
@@ -736,7 +740,10 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                                     f" gain {upnl_pct:.1%} < +{time_exit_min_gain:.0%} target"
                                 )
                     except Exception:
-                        pass
+                        # Silence means the time-based exit never fires for this
+                        # position and it is held indefinitely.
+                        logger.warning("Time-exit check failed for %s — position not "
+                                       "evaluated for a stale-thesis exit", symbol, exc_info=True)
 
                 if exit_reason:
                     logger.info("Exit trigger %s: %s", symbol, exit_reason)
@@ -1167,7 +1174,9 @@ def _load_hwm() -> dict:
             with open(_HWM_FILE) as f:
                 return json.load(f)
     except Exception:
-        pass
+        # An empty HWM map resets every trailing stop to its entry price.
+        logger.warning("High-water marks at %s unreadable — trailing stops will "
+                       "re-baseline from scratch", _HWM_FILE, exc_info=True)
     return {}
 
 
@@ -1195,7 +1204,9 @@ def _load_partial_sells() -> dict:
             with open(_PARTIAL_SELLS_FILE) as f:
                 return json.load(f)
     except Exception:
-        pass
+        # Losing this ledger lets an already-taken partial profit fire a second time.
+        logger.warning("Partial-sell ledger at %s unreadable — a partial profit may "
+                       "be taken twice", _PARTIAL_SELLS_FILE, exc_info=True)
     return {}
 
 
@@ -1248,7 +1259,9 @@ def _load_cooldowns() -> dict:
             with open(_COOLDOWN_FILE) as f:
                 return json.load(f)
     except Exception:
-        pass
+        # No cooldowns means a just-sold name can be re-bought immediately.
+        logger.warning("Sell cooldowns at %s unreadable — recently sold names are "
+                       "eligible to re-buy at once", _COOLDOWN_FILE, exc_info=True)
     return {}
 
 
