@@ -18,6 +18,11 @@
       document.documentElement.setAttribute('data-theme', 'aegov')
     </script>
     <div id="root"></div>
+    <!-- Written by docker-entrypoint.sh at container start, NOT at build time,
+         so the published image carries no credential. Absent under `bun dev`,
+         where src/shared/routes.ts falls back to the Vite env var.
+         A classic script runs before the deferred module below. -->
+    <script src="/config.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

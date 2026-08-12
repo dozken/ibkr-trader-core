@@ -2,7 +2,21 @@ export const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 const WS_BASE = API_BASE
   ? API_BASE.replace(/^http/, 'ws')
   : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`
-export const API_KEY = import.meta.env.VITE_IBKR_API_KEY || ''
+// Runtime-injected by the container entrypoint (see index.html / Dockerfile).
+// Baking this in at build time put the key inside the published image, so
+// rotating it silently required a rebuild and republish. The Vite env var
+// remains the dev-server fallback only.
+//
+// NOTE: this key still reaches the browser either way — it is an origin guard,
+// not a secret kept from whoever loads the app. Runtime injection keeps it out
+// of the distributed artifact; it does not make it confidential.
+declare global {
+  interface Window {
+    __APP_CONFIG__?: { apiKey?: string }
+  }
+}
+export const API_KEY =
+  window.__APP_CONFIG__?.apiKey || import.meta.env.VITE_IBKR_API_KEY || ''
 
 export const ROUTES = {
   WS_TICKERS: `${WS_BASE}/ws/tickers`,
