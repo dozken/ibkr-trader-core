@@ -179,6 +179,70 @@ def test_patch_read_only_reconnects_worker_in_new_mode(client):
     assert worker.connected_as is False
 
 
+def test_cannot_arm_live_while_a_paper_account_is_active(client):
+    """The boot guard tolerates read-only live beside paper; arming would put
+    simulated and real orders in one process, so the API refuses it."""
+    c, db = client
+    live = Account(label="Live", host="h", port=4003, client_id=1,
+                   is_paper=False, is_active=True, read_only=True)
+    paper = Account(label="Paper", host="h", port=4004, client_id=2,
+                    is_paper=True, is_active=True, read_only=False)
+    db.add_all([live, paper])
+    db.commit()
+    db.refresh(live)
+
+    r = c.patch(f"/api/accounts/{live.id}", json={"read_only": False})
+    assert r.status_code == 409
+    db.refresh(live)
+    assert live.read_only is True  # rejected call left the DB untouched
+
+
+def test_cannot_activate_paper_beside_an_armed_live_account(client):
+    c, db = client
+    live = Account(label="Live", host="h", port=4003, client_id=1,
+                   is_paper=False, is_active=True, read_only=False)
+    paper = Account(label="Paper", host="h", port=4004, client_id=2,
+                    is_paper=True, is_active=False, read_only=False)
+    db.add_all([live, paper])
+    db.commit()
+    db.refresh(paper)
+
+    r = c.patch(f"/api/accounts/{paper.id}", json={"is_active": True})
+    assert r.status_code == 409
+    db.refresh(paper)
+    assert paper.is_active is False
+
+
+def test_paper_may_activate_beside_read_only_live(client):
+    c, db = client
+    live = Account(label="Live", host="h", port=4003, client_id=1,
+                   is_paper=False, is_active=True, read_only=True)
+    paper = Account(label="Paper", host="h", port=4004, client_id=2,
+                    is_paper=True, is_active=False, read_only=False)
+    db.add_all([live, paper])
+    db.commit()
+    db.refresh(paper)
+
+    r = c.patch(f"/api/accounts/{paper.id}", json={"is_active": True})
+    assert r.status_code == 200
+    assert r.json()["is_active"] is True
+
+
+def test_create_armed_live_beside_active_paper_rejected(client):
+    c, db = client
+    db.add(Account(label="Paper", host="h", port=4004, client_id=2,
+                   is_paper=True, is_active=True))
+    db.commit()
+    r = c.post("/api/accounts", json={"label": "Live", "host": "h", "port": 4003,
+                                      "client_id": 9, "is_paper": False,
+                                      "read_only": False})
+    assert r.status_code == 409
+    r = c.post("/api/accounts", json={"label": "Live RO", "host": "h", "port": 4003,
+                                      "client_id": 9, "is_paper": False,
+                                      "read_only": True})
+    assert r.status_code == 201
+
+
 def test_patch_unrelated_field_leaves_worker_alone(client):
     c, db = client
     acc = Account(label="Live", host="127.0.0.1", port=4003, client_id=2,

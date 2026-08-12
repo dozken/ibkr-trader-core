@@ -54,15 +54,30 @@ class PaperTestGuardTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self._run()
 
-    def test_raises_on_coexistence_even_when_live_is_read_only(self):
-        # read_only is ignored: a read-only live account is still real money.
+    def test_read_only_live_may_coexist_with_paper(self):
+        # A read-only live account has no order path (execute_trade rejects
+        # pre-IBKR, the worker connects in IBKR readonly mode), so it can be
+        # watched during a paper test. Arming it is refused by the API.
         self._add("Live", port=4003, is_paper=False, read_only=True)
+        self._add("Paper", port=4004, is_paper=True)
+        self._run()
+
+    def test_raises_when_one_of_several_live_accounts_is_armed(self):
+        self._add("Live RO", port=4003, is_paper=False, read_only=True)
+        self._add("Live armed", port=4003, is_paper=False, read_only=False)
         self._add("Paper", port=4004, is_paper=True)
         with self.assertRaises(RuntimeError):
             self._run()
 
     def test_raises_on_flag_with_active_live(self):
         self._add("Live", port=4003, is_paper=False)
+        os.environ["PAPER_TEST"] = "true"
+        with self.assertRaises(RuntimeError):
+            self._run()
+
+    def test_flag_stays_strict_even_for_read_only_live(self):
+        # PAPER_TEST marks a dedicated paper run — no live account at all.
+        self._add("Live", port=4003, is_paper=False, read_only=True)
         os.environ["PAPER_TEST"] = "true"
         with self.assertRaises(RuntimeError):
             self._run()

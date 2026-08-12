@@ -183,9 +183,15 @@ def _assert_paper_test_safety() -> None:
     gateway back on) during a paper test, this aborts startup. Raises
     ``RuntimeError`` — surfaced by the lifespan startup-crash handler — when EITHER:
 
-      (a) COEXISTENCE: an active LIVE account and an active PAPER account both
-          exist in the DB (the genuinely dangerous state); OR
-      (b) FLAG: env ``PAPER_TEST`` is truthy AND any active LIVE account exists.
+      (a) COEXISTENCE: an active LIVE account that can place orders and an active
+          PAPER account both exist in the DB (the genuinely dangerous state).
+          Live accounts that are ``read_only`` cannot reach an order path at all
+          (``trader.execute_trade`` rejects pre-IBKR, and the worker connects in
+          IBKR readonly mode), so they may coexist with a paper test — that is
+          how you watch real positions while testing. Arming one while a paper
+          account is active is refused by ``PATCH /api/accounts/{id}``; OR
+      (b) FLAG: env ``PAPER_TEST`` is truthy AND any active LIVE account exists,
+          armed or not. The flag marks a dedicated paper test, so it stays strict.
 
     Returns silently otherwise, so normal single-mode operation is untouched.
     """
@@ -209,12 +215,22 @@ def _assert_paper_test_safety() -> None:
 
     paper_test = os.getenv("PAPER_TEST", "").strip().lower() in ("1", "true", "yes")
 
-    if live and paper:
+    armed_live = [a for a in live if not a.read_only]
+
+    if armed_live and paper:
         raise RuntimeError(
-            "Refusing to boot: active LIVE and PAPER accounts coexist — a paper "
-            f"test must not run alongside real money. LIVE={_fmt(live)} "
-            f"PAPER={_fmt(paper)}. Deactivate one side (is_active=false) or stop "
-            "the live gateway."
+            "Refusing to boot: an ARMED live account and a PAPER account coexist "
+            "— a paper test must not run alongside tradable real money. "
+            f"ARMED LIVE={_fmt(armed_live)} PAPER={_fmt(paper)}. Deactivate one "
+            "side (is_active=false), set the live account read_only, or stop the "
+            "live gateway."
+        )
+    if live and paper:
+        logger.warning(
+            "Active LIVE and PAPER accounts coexist, allowed because every live "
+            "account is read-only (no order path). LIVE=%s PAPER=%s — arming a "
+            "live account is refused while a paper account is active.",
+            _fmt(live), _fmt(paper),
         )
     if paper_test and live:
         raise RuntimeError(

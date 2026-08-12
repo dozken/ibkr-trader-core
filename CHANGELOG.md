@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.28] - 2026-08-12
+
+### Changed
+- **A read-only live account may now run alongside a paper test.** The startup guard refused any live/paper coexistence, which meant watching real positions and running a paper test were mutually exclusive. It now blocks only an *armed* live account beside an active paper account — a `read_only` live account has no order path at all (`execute_trade` rejects pre-IBKR, and the worker connects in IBKR readonly mode). Coexistence is logged as a warning. The `PAPER_TEST` env flag stays strict: it marks a dedicated paper run and still refuses any live account.
+- `POST`/`PATCH` on `/api/accounts` reject (409) any change that would produce an armed live account beside an active paper account — arming one, or activating paper next to one. Without this the forbidden state was reachable at runtime and would only surface as a crash at the next restart. The check runs against the state the write *would* produce, so a rejected call leaves the DB untouched.
+
 ## [0.3.27] - 2026-08-12
 
 ### Added
