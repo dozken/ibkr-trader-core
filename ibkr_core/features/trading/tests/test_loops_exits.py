@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+from ibkr_core.core.clock import db_now
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -140,7 +141,7 @@ class TestCooldown(unittest.TestCase):
     def test_cooldown_expired(self):
         loops = _loops_module()
         self._patch_cd(loops)
-        old_date = (datetime.now() - timedelta(days=15)).isoformat()
+        old_date = (db_now() - timedelta(days=15)).isoformat()
         with open(self.cd_path, "w") as f:
             json.dump({"AAPL": old_date}, f)
         self.assertFalse(loops._is_in_cooldown("AAPL", days=14))
@@ -148,7 +149,7 @@ class TestCooldown(unittest.TestCase):
     def test_cooldown_active_within_window(self):
         loops = _loops_module()
         self._patch_cd(loops)
-        recent = (datetime.now() - timedelta(days=3)).isoformat()
+        recent = (db_now() - timedelta(days=3)).isoformat()
         with open(self.cd_path, "w") as f:
             json.dump({"AAPL": recent}, f)
         self.assertTrue(loops._is_in_cooldown("AAPL", days=14))

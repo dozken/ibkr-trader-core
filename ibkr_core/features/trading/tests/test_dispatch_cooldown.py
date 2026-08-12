@@ -1,11 +1,12 @@
 """Tests for _dispatch_signal cooldown logic — prevents retry storms after IBKR errors."""
 import unittest
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from ibkr_core.core.state import TradeState
 from ibkr_core.features.compliance.schemas import ComplianceStatus
 from ibkr_core.features.trading.schemas import TradeSignal
+from ibkr_core.core.clock import db_now
 
 
 _SETTINGS = {
@@ -23,7 +24,7 @@ _COMPLIANCE = ComplianceStatus(
 def _signal(symbol="INTC", action="SELL", confidence=80):
     return TradeSignal(
         symbol=symbol, action=action, confidence=confidence,
-        sentiment_score=0.5, reasoning="test", timestamp=datetime.utcnow(),
+        sentiment_score=0.5, reasoning="test", timestamp=db_now(),
     )
 
 
@@ -39,7 +40,7 @@ class TestDispatchCooldown(unittest.IsolatedAsyncioTestCase):
         from ibkr_core.features.trading import loops
 
         recent_err = MagicMock()
-        recent_err.created_at = datetime.utcnow() - timedelta(minutes=5)
+        recent_err.created_at = db_now() - timedelta(minutes=5)
 
         # Mock SessionLocal context manager
         mock_db = MagicMock()
@@ -64,7 +65,7 @@ class TestDispatchCooldown(unittest.IsolatedAsyncioTestCase):
         from ibkr_core.features.trading import loops
 
         recent_reject = MagicMock()
-        recent_reject.created_at = datetime.utcnow() - timedelta(hours=2)
+        recent_reject.created_at = db_now() - timedelta(hours=2)
 
         mock_db = MagicMock()
         mock_query = MagicMock()
@@ -91,7 +92,7 @@ class TestDispatchCooldown(unittest.IsolatedAsyncioTestCase):
         from ibkr_core.features.trading import loops
 
         recent_comp = MagicMock()
-        recent_comp.created_at = datetime.utcnow() - timedelta(minutes=10)
+        recent_comp.created_at = db_now() - timedelta(minutes=10)
 
         mock_db = MagicMock()
         mock_query = MagicMock()
@@ -115,7 +116,7 @@ class TestDispatchCooldown(unittest.IsolatedAsyncioTestCase):
         from ibkr_core.features.trading import loops
 
         recent_comp = MagicMock()
-        recent_comp.created_at = datetime.utcnow() - timedelta(hours=3)
+        recent_comp.created_at = db_now() - timedelta(hours=3)
 
         mock_db = MagicMock()
         mock_query = MagicMock()

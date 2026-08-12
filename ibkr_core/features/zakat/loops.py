@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from datetime import datetime
 
 from ibkr_core.core.database import SessionLocal
 from ibkr_core.core.health_utils import set_loop_error
@@ -9,6 +8,7 @@ from ibkr_core.features.zakat.hawl import update_hawl, get_hawl_status
 from ibkr_core.core.monitoring import PURIFICATION_PENDING, ZAKAT_LIABILITY
 from ibkr_core.features.zakat.router import get_purification_liabilities
 from ibkr_core.features.alerts.telegram import send_telegram
+from ibkr_core.core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ async def zakat_monitoring_loop(worker, health: dict) -> None:
                 total_pending = sum(liab.remaining_liability for liab in liabilities)
                 PURIFICATION_PENDING.set(total_pending)
 
-                health["zakat_monitoring_loop"]["last_run"] = datetime.now().isoformat()
+                health["zakat_monitoring_loop"]["last_run"] = utc_now().isoformat()
 
             await asyncio.sleep(3600 * 12)  # twice a day
 

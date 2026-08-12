@@ -191,6 +191,7 @@ from ibkr_core.core.market_hours import (
     infer_exchange_from_symbol,
     resolve_exchange,
 )
+from ibkr_core.core.clock import as_utc, db_now, utc_now, utc_today
 from ibkr_core.core.health_utils import set_loop_error
 from ibkr_core.core.websocket import ConnectionManager, WSBaseMessage
 from ibkr_core.features.alerts.dispatcher import alert as send_alert
@@ -259,7 +260,7 @@ def _exceeds_daily_loss_limit(worker, settings: dict, account_id: Optional[int] 
     try:
         from ibkr_core.core.database import SessionLocal
         from ibkr_core.core.models import PortfolioSnapshot
-        today_start = datetime.combine(date.today(), dtime(0, 0))
+        today_start = datetime.combine(utc_today(), dtime(0, 0))
         with SessionLocal() as db:
             q = db.query(PortfolioSnapshot).filter(
                 PortfolioSnapshot.timestamp >= today_start,
@@ -324,7 +325,7 @@ async def _dispatch_signal(
         #   IBKR_ERROR: 15min (broker rejected — back off briefly)
         try:
             with SessionLocal() as _db:
-                now = datetime.utcnow()
+                now = db_now()
                 # IBKR_ERROR cooldown (same symbol + side, 15min)
                 err_cutoff = now - timedelta(minutes=15)
                 recent_err = _db.query(TradeHistory).filter(
@@ -445,7 +446,7 @@ async def _dispatch_signal(
             markup = {"inline_keyboard": [[
                 {"text": f"✅ Approve BUY {signal.symbol}", "callback_data": cb}
             ]]}
-        today = date.today()
+        today = utc_today()
         dedup_key = (signal.symbol, signal.action, account_id)
         if _signal_alerted.get(dedup_key) == today:
             logger.debug("Signal alert suppressed (already sent today): %s %s acct=%s", signal.action, signal.symbol, account_id)
@@ -493,7 +494,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                     tick, last_symbol,
                     extra={"heartbeat": "main_loop", "tick": tick},
                 )
-            health[loop_key]["last_run"] = datetime.now().isoformat()
+            health[loop_key]["last_run"] = utc_now().isoformat()
             health[loop_key]["status"] = "running"
 
             # Reconnect if IBKR dropped
@@ -653,11 +654,11 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                 try:
                     entry_dt = await asyncio.to_thread(_position_entry_date, symbol)
                     if entry_dt:
-                        days_held = (datetime.now() - entry_dt.replace(tzinfo=None)).days
+                        days_held = (utc_now() - as_utc(entry_dt)).days
                         if days_held > 60 and upnl_pct < 0.05:
                             last_alert = _aging_alerted.get(symbol)
-                            if last_alert is None or (date.today() - last_alert).days >= 7:
-                                _aging_alerted[symbol] = date.today()
+                            if last_alert is None or (utc_today() - last_alert).days >= 7:
+                                _aging_alerted[symbol] = utc_today()
                                 channels = settings.get("alert_channels", [])
                                 await send_alert(
                                     f"Position Review: {symbol}",
@@ -688,7 +689,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                                 partial_signal = TradeSignal(
                                     symbol=symbol, action="SELL", confidence=80,
                                     sentiment_score=0.0, reasoning=partial_reason,
-                                    timestamp=datetime.now(),
+                                    timestamp=utc_now(),
                                 )
                                 partial_trade = TradeCreate(
                                     symbol=symbol, quantity=qty * partial_frac, side="SELL"
@@ -733,7 +734,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                         if entry_dt is None:
                             entry_dt = await asyncio.to_thread(_position_entry_date, symbol)
                         if entry_dt:
-                            days_held = (datetime.now() - entry_dt.replace(tzinfo=None)).days
+                            days_held = (utc_now() - as_utc(entry_dt)).days
                             if days_held > time_exit_days and upnl_pct < time_exit_min_gain:
                                 exit_reason = (
                                     f"Stale thesis: {days_held}d held,"
@@ -754,7 +755,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                             exit_signal = TradeSignal(
                                 symbol=symbol, action="SELL", confidence=95,
                                 sentiment_score=0.0, reasoning=exit_reason,
-                                timestamp=datetime.now(),
+                                timestamp=utc_now(),
                             )
                             exit_trade = TradeCreate(symbol=symbol, quantity=qty, side="SELL")
                             await _dispatch_signal(exit_signal, cr, exchange, trader, manager,
@@ -805,7 +806,7 @@ async def main_loop(worker, manager: ConnectionManager, health: dict,
                                 symbol=sym, action="SELL", confidence=75,
                                 sentiment_score=0.0,
                                 reasoning=f"Max positions trim: {len(positions)}/{max_positions}",
-                                timestamp=datetime.now(),
+                                timestamp=utc_now(),
                             )
                             trim_trade = TradeCreate(symbol=sym, quantity=qty, side="SELL")
                             await _dispatch_signal(trim_signal, cr, exchange, trader, manager,
@@ -1025,7 +1026,7 @@ async def cash_sweep_loop(worker, manager: ConnectionManager, health: dict, acco
                 await asyncio.sleep(_POLL_S)
                 continue
             health["cash_sweep_loop"]["status"] = "running"
-            health["cash_sweep_loop"]["last_run"] = datetime.now().isoformat()
+            health["cash_sweep_loop"]["last_run"] = utc_now().isoformat()
             settings = load_settings(account_id)
             sleep_s = int(settings.get("cash_sweep_interval_min", 30)) * 60
 
@@ -1216,7 +1217,7 @@ def _has_partial_sell(symbol: str) -> bool:
 
 def _mark_partial_sell(symbol: str) -> None:
     ps = _load_partial_sells()
-    ps[symbol] = datetime.now().isoformat()
+    ps[symbol] = utc_now().isoformat()
     _atomic_write_json(_PARTIAL_SELLS_FILE, ps)
 
 
@@ -1268,7 +1269,7 @@ def _load_cooldowns() -> dict:
 def _mark_cooldown_sell(symbol: str) -> None:
     """Record that symbol was just sold at take-profit; blocks re-entry for cooldown period."""
     cooldowns = _load_cooldowns()
-    cooldowns[symbol] = datetime.now().isoformat()
+    cooldowns[symbol] = utc_now().isoformat()
     _atomic_write_json(_COOLDOWN_FILE, cooldowns, indent=2)
 
 
@@ -1278,7 +1279,7 @@ def _is_in_cooldown(symbol: str, days: int = 14) -> bool:
     if not ts:
         return False
     try:
-        return (datetime.now() - datetime.fromisoformat(ts)).days < days
+        return (utc_now() - as_utc(datetime.fromisoformat(ts))).days < days
     except Exception:
         return False
 
@@ -1309,7 +1310,7 @@ async def halal_drip_loop(worker, manager: ConnectionManager, health: dict, acco
                 await asyncio.sleep(3600)
                 continue
 
-            health["halal_drip_loop"]["last_run"] = datetime.now().isoformat()
+            health["halal_drip_loop"]["last_run"] = utc_now().isoformat()
             
             positions = await asyncio.to_thread(worker.get_positions)
             if not positions:
@@ -1458,7 +1459,7 @@ async def discovery_loop(worker, manager: ConnectionManager, health: dict, accou
                     )
                     dispatched += 1
 
-            health["discovery_loop"]["last_run"] = datetime.now().isoformat()
+            health["discovery_loop"]["last_run"] = utc_now().isoformat()
 
         except asyncio.CancelledError:
             break
@@ -1523,13 +1524,13 @@ async def position_rerating_loop(worker, manager: ConnectionManager, health: dic
                                 symbol=symbol, action="SELL", confidence=80,
                                 sentiment_score=0.0,
                                 reasoning=f"Re-rating: score {score} ≤ threshold {threshold}. Fundamentals/technicals degraded.",
-                                timestamp=datetime.now(),
+                                timestamp=utc_now(),
                             )
                             await _dispatch_signal(signal, cr, exchange, trader, manager, settings, account_id=account_id)
                 except Exception as e:
                     logger.warning("Re-rating failed for %s: %s", symbol, e)
 
-            health["position_rerating_loop"]["last_run"] = datetime.now().isoformat()
+            health["position_rerating_loop"]["last_run"] = utc_now().isoformat()
 
         except asyncio.CancelledError:
             break

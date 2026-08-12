@@ -3,7 +3,8 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import datetime, timedelta
+from datetime import timedelta
+from ibkr_core.core.clock import db_now
 
 
 def _hawl_module():
@@ -74,7 +75,7 @@ class TestHawlStatus(unittest.TestCase):
     def test_status_hawl_in_progress(self):
         mod = _hawl_module()
         self._patch(mod)
-        start = (datetime.now() - timedelta(days=100)).isoformat()
+        start = (db_now() - timedelta(days=100)).isoformat()
         with open(self.hawl_file, "w") as f:
             json.dump({"hawl_start": start, "last_checked": start}, f)
         status = mod.get_hawl_status(portfolio_value=100_000, nisab=5_000)
@@ -87,7 +88,7 @@ class TestHawlStatus(unittest.TestCase):
     def test_status_is_due_after_354_days(self):
         mod = _hawl_module()
         self._patch(mod)
-        start = (datetime.now() - timedelta(days=355)).isoformat()
+        start = (db_now() - timedelta(days=355)).isoformat()
         with open(self.hawl_file, "w") as f:
             json.dump({"hawl_start": start, "last_checked": start}, f)
         status = mod.get_hawl_status(portfolio_value=100_000, nisab=5_000)
@@ -98,7 +99,7 @@ class TestHawlStatus(unittest.TestCase):
     def test_reset_clears_hawl(self):
         mod = _hawl_module()
         self._patch(mod)
-        start = datetime.now().isoformat()
+        start = db_now().isoformat()
         with open(self.hawl_file, "w") as f:
             json.dump({"hawl_start": start, "last_checked": start}, f)
         mod.reset_hawl()
@@ -109,7 +110,7 @@ class TestHawlStatus(unittest.TestCase):
     def test_pct_complete_capped_at_100(self):
         mod = _hawl_module()
         self._patch(mod)
-        start = (datetime.now() - timedelta(days=500)).isoformat()
+        start = (db_now() - timedelta(days=500)).isoformat()
         with open(self.hawl_file, "w") as f:
             json.dump({"hawl_start": start, "last_checked": start}, f)
         status = mod.get_hawl_status(portfolio_value=100_000, nisab=5_000)

@@ -18,6 +18,7 @@ from ibkr_core.features.portfolio.allocator import PortfolioAllocator
 from ibkr_core.features.trading.schemas import TradeSignal, TradeCreate
 from ibkr_core.features.trading.order_policy import LIVE_PORTS as _LIVE_PORTS
 from ibkr_core.features.settings.service import load_settings
+from ibkr_core.core.clock import as_utc, utc_now, utc_today
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
@@ -377,9 +378,9 @@ async def get_portfolio_history(db: Session = Depends(get_db),
     avg_impure_pct = sum(comp_map.values()) / len(comp_map) if comp_map else 0.03 # 3% default fallback
 
     try:
-        from datetime import timedelta as _td, date as _date
+        from datetime import timedelta as _td
 
-        today = _date.today()
+        today = utc_today()
         fetch_end = min(end_date + _td(days=1), today + _td(days=1))
 
         # Skip date-range fetch if window has no past weekdays (yfinance logs a
@@ -561,7 +562,7 @@ def get_pnl(request: Request, db: Session = Depends(get_db),
 
     # 5b. First BUY date per symbol for days_held
     first_buy: Dict[str, datetime] = {}
-    today = datetime.now()
+    today = utc_now()
     for trade in filled_trades:
         if trade.side == "BUY" and trade.symbol in live_map:
             prev = first_buy.get(trade.symbol)
@@ -599,7 +600,10 @@ def get_pnl(request: Request, db: Session = Depends(get_db),
         target_price = round(avg_cost * (1 + float(_take_pct) / 100), 2) if avg_cost > 0 else None
         partial_price = round(avg_cost * (1 + _partial_pct / 100), 2) if avg_cost > 0 else None
         entry = first_buy.get(symbol)
-        days_held = (today - entry).days if entry else None
+        # `entry` is a TradeHistory.created_at read straight from a naive
+        # TIMESTAMP column; as_utc keeps this subtraction from raising once
+        # `today` is aware.
+        days_held = (today - as_utc(entry)).days if entry else None
 
         position_pnls.append(
             PositionPnL(

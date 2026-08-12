@@ -1,8 +1,9 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
+from ibkr_core.core.clock import utc_now
 from ibkr_core.core.state import TradeState
 from ibkr_core.core.websocket import WSBaseMessage
 from ibkr_core.features.compliance.schemas import ComplianceStatus
@@ -25,7 +26,7 @@ class TradeSignal(BaseModel):
     # Shariah verdict for the symbol (attached after screening) so the UI can
     # show the halal status on each signal card. None = not screened.
     compliance: Optional[ComplianceStatus] = None
-    timestamp: datetime = datetime.now()
+    timestamp: datetime = Field(default_factory=utc_now)
 
 
 class AnalystConsensus(BaseModel):
@@ -59,8 +60,8 @@ class Trade(TradeBase):
     id: Optional[int] = None
     state: TradeState
     compliance_snapshot: Optional[ComplianceStatus] = None
-    created_at: datetime = datetime.now()
-    updated_at: datetime = datetime.now()
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
     ibkr_order_id: Optional[int] = None
     fill_price: Optional[float] = None
     commission: Optional[float] = None

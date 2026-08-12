@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from datetime import datetime
 
 from ibkr_core.core.market_hours import infer_exchange_from_symbol, market_status
 from ibkr_core.core.websocket import ConnectionManager
@@ -38,6 +37,7 @@ async def _check_vix_tier_change(current_vix: float, health: dict, channels: lis
 
 
 from ibkr_core.core.monitoring import PORTFOLIO_COMPLIANCE_PCT
+from ibkr_core.core.clock import utc_now
 
 async def compliance_audit_loop(worker, manager: ConnectionManager, health: dict,
                                 account_manager=None) -> None:
@@ -47,7 +47,7 @@ async def compliance_audit_loop(worker, manager: ConnectionManager, health: dict
     first_run = True
     while True:
         try:
-            health["compliance_audit_loop"]["last_run"] = datetime.now().isoformat()
+            health["compliance_audit_loop"]["last_run"] = utc_now().isoformat()
             settings = load_settings()
             interval_hours = int(settings.get("compliance_check_interval_hours", 24))
             if not first_run:

@@ -34,6 +34,7 @@ _IBKR_CALL_TIMEOUT = float(os.getenv("IBKR_CALL_TIMEOUT_SEC", "20"))
 # only 12 suffixes, so most foreign contracts failed qualification).
 from ibkr_core.core.market_hours import resolve_exchange as _resolve_exchange
 from ibkr_core.core.symbols import from_ibkr, to_ibkr as _ibkr_symbol, to_usd, uses_symbol_field
+from ibkr_core.core.clock import utc_now
 
 
 def _ibkr_amount_to_usd(amount, currency: str):
@@ -756,7 +757,7 @@ class IBKRWorker:
                             "last": last,
                             "bid": t.bid,
                             "ask": t.ask,
-                            "timestamp": datetime.now().isoformat()
+                            "timestamp": utc_now().isoformat()
                         })
 
             self._ticker_callbacks[symbol] = on_pending_tickers

@@ -63,13 +63,17 @@ exclude = ["ibkr_core.features.ai*", "tests*"]
 # B, SIM, S, DTZ, BLE, TRY, RUF, PL, ...), which turned CI red on an unrelated
 # push. Declare the set we actually enforce so a ruff upgrade can never silently
 # change what lint means. Widen deliberately, never by version drift.
-select = ["E4", "E7", "E9", "F"]
+select = ["E4", "E7", "E9", "F", "DTZ"]
 ignore = ["E402"]
 
 [tool.ruff.lint.per-file-ignores]
 # Test files use compact mock setup (multiple statements per line) and
 # intentional throwaway locals — idiomatic for fixtures, not real dead code.
-"**/tests/*" = ["E701", "E702", "F841"]
+# DTZ001: fixed literal datetimes in tests stand in for values read back from
+# TIMESTAMP WITHOUT TIME ZONE columns, which really are naive — making the
+# fixtures aware would misrepresent the data under test. Clock READS in tests
+# (DTZ003/DTZ005) are still enforced; use ibkr_core.core.clock.
+"**/tests/*" = ["E701", "E702", "F841", "DTZ001"]
 # Alembic scaffolding.
 "**/migrations/env.py" = ["E701"]
 # allocator.apply() is a known passthrough stub (sizing enforced in worker for

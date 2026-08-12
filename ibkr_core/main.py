@@ -43,6 +43,7 @@ from ibkr_core.features.zakat.router import router as zakat_router
 from ibkr_core.features.zakat.loops import zakat_monitoring_loop
 from ibkr_core.core.audit import verify_audit_chain
 from ibkr_core.core.database import SessionLocal
+from ibkr_core.core.clock import utc_now
 
 # Optional AI/ML module — present only in the private fork. Public installs
 # fall back to the bundled reference Strategy (SMA crossover).
@@ -92,7 +93,7 @@ async def audit_integrity_loop(worker, health: dict) -> None:
                     except asyncio.CancelledError:
                         return
 
-            health["audit_integrity_loop"]["last_run"] = datetime.now().isoformat()
+            health["audit_integrity_loop"]["last_run"] = utc_now().isoformat()
             await asyncio.sleep(3600) # Verify every hour
             
         except asyncio.CancelledError:
@@ -133,7 +134,7 @@ async def price_push_loop(worker, health: dict) -> None:
                     worker.unsubscribe_ticker(sym)
                     subscribed.discard(sym)
 
-                health["price_push_loop"]["last_run"] = datetime.now().isoformat()
+                health["price_push_loop"]["last_run"] = utc_now().isoformat()
 
             await asyncio.sleep(30)
         except asyncio.CancelledError:
@@ -481,7 +482,6 @@ def system_markets():
             from ibkr_core.features.ai.halal_universe import SEED_UNIVERSE, REGIONAL_HALAL  # type: ignore
         except ImportError:
             from ibkr_core.strategies.halal_universe_seed import SEED_UNIVERSE, REGIONAL_HALAL
-    from datetime import datetime
     from zoneinfo import ZoneInfo
 
     # Continent grouping for visual organization
@@ -497,8 +497,10 @@ def system_markets():
         "ZA": "Africa",
     }
 
-    # Compute today's UTC session windows from local time
-    utc_now = datetime.utcnow()
+    # Compute today's UTC session windows from local time. Named now_utc, not
+    # utc_now: the latter is the imported clock function and shadowing it here
+    # would silently break any later call in this scope.
+    now_utc = utc_now()
 
     def _utc_sessions_for(ex_code: str) -> list[dict]:
         tz_name, sessions, _, _ = get_exchange_config(ex_code)
@@ -547,7 +549,7 @@ def system_markets():
         "open_count": sum(1 for r in region_meta if r["is_open"]),
         "total_count": len(region_meta),
         "total_symbols": len(SEED_UNIVERSE),
-        "utc_now_h": utc_now.hour + utc_now.minute / 60,
+        "utc_now_h": now_utc.hour + now_utc.minute / 60,
     }
 
 
@@ -559,7 +561,7 @@ def system_readiness(request: Request):
     """
     from ibkr_core.core.database import SessionLocal
     from ibkr_core.core.models import TradeHistory, SignalLog
-    from datetime import datetime, timezone, timedelta
+    from datetime import timezone, timedelta
     import os
 
     health = getattr(request.app.state, "loop_health", {})

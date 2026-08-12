@@ -8,6 +8,7 @@ from ibkr_core.core.market_hours import is_market_open
 from ibkr_core.core.models import Account, PositionCompliance, PortfolioSnapshot
 from ibkr_core.features.alerts.dispatcher import alert as send_alert
 from ibkr_core.features.settings.service import load_settings
+from ibkr_core.core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ async def purification_reminder_loop(health: dict) -> None:
     
     while True:
         try:
-            now = datetime.now()
+            now = utc_now()
             if now.day == 1 and now.month != last_month:
                 settings = load_settings()
                 channels = settings.get("alert_channels", [])
@@ -126,7 +127,7 @@ async def daily_report_loop(worker, health: dict, account_manager=None) -> None:
 
     while True:
         try:
-            now = datetime.now()
+            now = utc_now()
             today = now.date()
 
             if not is_market_open("NMS") and now.hour >= 16 and today != last_reported_date:

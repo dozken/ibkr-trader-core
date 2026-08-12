@@ -13,6 +13,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from typing import Optional
+from ibkr_core.core.clock import as_utc, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ def update_hawl(portfolio_value: float, nisab: float) -> dict:
     Returns current hawl status dict.
     """
     data = _load()
-    now = datetime.now().isoformat()
+    now = utc_now().isoformat()
     above = portfolio_value >= nisab
 
     if above:
@@ -85,9 +86,11 @@ def get_hawl_status(portfolio_value: float, nisab: float) -> dict:
             "pct_complete": 0.0,
         }
 
-    hawl_start = datetime.fromisoformat(hawl_start_iso)
+    # A hawl_start written before the UTC migration is naive; as_utc keeps
+    # the arithmetic below from raising against an aware now().
+    hawl_start = as_utc(datetime.fromisoformat(hawl_start_iso))
     hawl_end = hawl_start + timedelta(days=_LUNAR_YEAR_DAYS)
-    now = datetime.now()
+    now = utc_now()
     days_elapsed = (now - hawl_start).days
     days_remaining = max(0, (hawl_end - now).days)
     is_due = now >= hawl_end
@@ -110,5 +113,5 @@ def get_hawl_status(portfolio_value: float, nisab: float) -> dict:
 
 def reset_hawl() -> None:
     """Call after Zakat is paid to start a new Hawl cycle."""
-    _save({"hawl_start": None, "last_checked": datetime.now().isoformat()})
+    _save({"hawl_start": None, "last_checked": utc_now().isoformat()})
     logger.info("Hawl reset — new cycle begins after next Nisab check.")

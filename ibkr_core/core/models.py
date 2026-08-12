@@ -1,12 +1,13 @@
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, JSON, Enum as SQLEnum, ForeignKey
 from sqlalchemy.orm import declarative_base
-from datetime import datetime, timezone
+from ibkr_core.core.clock import utc_now
 from ibkr_core.core.state import TradeState
 
 Base = declarative_base()
 
-def get_utc_now():
-    return datetime.now(timezone.utc)
+# Kept as the column-default name used throughout the model definitions below;
+# the clock itself lives in ibkr_core.core.clock so every "now" agrees.
+get_utc_now = utc_now
 
 
 class Account(Base):

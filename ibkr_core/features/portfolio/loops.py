@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from datetime import datetime
 
 from sqlalchemy import func
 
@@ -14,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 from ibkr_core.core.monitoring import TOTAL_NLV, CASH_AVAILABLE, ACTIVE_POSITIONS, DAILY_PNL_USD, SECTOR_EXPOSURE
+from ibkr_core.core.clock import utc_now
 
 
 def _load_peak_nlv_from_db(account_id: int | None = None) -> float:
@@ -113,7 +113,7 @@ async def portfolio_snapshot_loop(worker, health: dict, *, account_id: int | Non
                         db.commit()
 
                 await asyncio.to_thread(_save)
-                health["portfolio_snapshot_loop"]["last_run"] = datetime.now().isoformat()
+                health["portfolio_snapshot_loop"]["last_run"] = utc_now().isoformat()
 
             await asyncio.sleep(3600)
         except asyncio.CancelledError:

@@ -1,11 +1,11 @@
 """Reference Strategy: buy and hold — minimal example."""
 from __future__ import annotations
 
-from datetime import datetime
 from typing import List
 
 from ibkr_core.core.strategy.base import MarketContext, Strategy
 from ibkr_core.features.trading.schemas import TradeSignal
+from ibkr_core.core.clock import utc_now
 
 
 class BuyAndHold(Strategy):
@@ -20,7 +20,7 @@ class BuyAndHold(Strategy):
                 action="BUY",
                 reasoning="buy-and-hold reference strategy",
                 vix_tier="CALM",
-                timestamp=datetime.now(),
+                timestamp=utc_now(),
             )
             for sym in ctx.watchlist
         ]

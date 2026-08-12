@@ -5,6 +5,7 @@ from ibkr_core.features.trading.trader import Trader, _calculate_position_size, 
 from ibkr_core.core.state import TradeState
 from ibkr_core.features.trading.schemas import TradeCreate
 from ibkr_core.features.compliance.schemas import ComplianceStatus
+from ibkr_core.core.clock import db_now
 
 _COMPLIANT = ComplianceStatus(
     symbol="AAPL", sector="Technology", is_compliant=True,
@@ -719,7 +720,7 @@ class TestPossessionConfirmed(unittest.TestCase):
     def _buy_row(self, days_old, state="REJECTED_FUNDS"):
         from datetime import timedelta
         row = MagicMock()
-        row.created_at = datetime.utcnow() - timedelta(days=days_old)
+        row.created_at = db_now() - timedelta(days=days_old)
         row.updated_at = row.created_at
         row.state = state
         return row

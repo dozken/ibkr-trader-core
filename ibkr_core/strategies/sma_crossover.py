@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
 from typing import List
 
 import yfinance as yf
 
 from ibkr_core.core.strategy.base import MarketContext, Strategy
 from ibkr_core.features.trading.schemas import TradeSignal
+from ibkr_core.core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class SMACrossover(Strategy):
             t_score=conf,
             s_score=None,
             vix_tier="CALM",
-            timestamp=datetime.now(),
+            timestamp=utc_now(),
         )
 
     async def get_rebalance_sells(self, positions, signals):

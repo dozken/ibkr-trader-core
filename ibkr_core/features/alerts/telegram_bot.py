@@ -4,12 +4,12 @@ import os
 from typing import Dict, List
 
 import httpx
-from datetime import datetime
 
 from ibkr_core.features.alerts.audit import log_telegram
 from ibkr_core.core.health_utils import set_loop_error, clear_loop_error
 from ibkr_core.features.trading.worker import IBKRWorker
 from ibkr_core.features.settings.service import load_settings
+from ibkr_core.core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -336,14 +336,14 @@ async def telegram_bot_loop(worker, health: dict, account_manager=None) -> None:
                         asyncio.create_task(
                             _handle_command(command, args, worker, account_manager, token, chat_id))
 
-                health["telegram_bot_loop"]["last_run"] = datetime.now().isoformat()
+                health["telegram_bot_loop"]["last_run"] = utc_now().isoformat()
                 clear_loop_error(health["telegram_bot_loop"])
                 await asyncio.sleep(1)
 
             except asyncio.CancelledError:
                 break
             except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.TimeoutException):
-                health["telegram_bot_loop"]["last_run"] = datetime.now().isoformat()
+                health["telegram_bot_loop"]["last_run"] = utc_now().isoformat()
                 continue
             except Exception as e:
                 logger.error(f"telegram_bot_loop error: {e}")

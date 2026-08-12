@@ -17,6 +17,7 @@ from ibkr_core.features.compliance.data_fetcher import (
 )
 from ibkr_core.features.settings.service import load_settings as _load_settings
 from ibkr_core.core.market_hours import infer_exchange_from_symbol
+from ibkr_core.core.clock import utc_today
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +64,8 @@ def manual_verify(symbol: str, source: str = "Zoya App", note: str = "",
         "status": "COMPLIANT",
         "source": source,
         "note": note,
-        "verified_at": date.today().isoformat(),
-        "expires_at": (date.today() + timedelta(days=ttl)).isoformat(),
+        "verified_at": utc_today().isoformat(),
+        "expires_at": (utc_today() + timedelta(days=ttl)).isoformat(),
     }
     data[symbol.upper()] = entry
     _save_manual_verifications(data)
@@ -86,7 +87,7 @@ def manual_unverify(symbol: str) -> bool:
 def list_manual_verifications() -> dict:
     """Return all manual verifications with expiry status."""
     data = _load_manual_verifications()
-    today = date.today()
+    today = utc_today()
     for sym, entry in data.items():
         try:
             exp = date.fromisoformat(entry["expires_at"])
@@ -107,12 +108,12 @@ def _check_manual_verification(symbol: str) -> ComplianceStatus | None:
         return None
     try:
         expires = date.fromisoformat(entry["expires_at"])
-        if date.today() > expires:
+        if utc_today() > expires:
             logger.info("Manual verification expired for %s (was %s)", sym, entry["expires_at"])
             return None
     except (KeyError, ValueError):
         return None
-    days_left = (expires - date.today()).days
+    days_left = (expires - utc_today()).days
     return ComplianceStatus(
         symbol=symbol, sector="Manual",
         is_compliant=True, verdict="COMPLIANT",
@@ -498,7 +499,7 @@ def _live_shariah_screen_uncached(symbol: str, ratio_buffer_override: float | No
         if data_as_of_str:
             try:
                 filing_date = date.fromisoformat(data_as_of_str)
-                age_days = (date.today() - filing_date).days
+                age_days = (utc_today() - filing_date).days
                 if age_days > _STALENESS_DAYS:
                     data_stale = True
                     staleness_note = f"Data from {data_as_of_str} ({age_days}d old — ratios may be stale)"

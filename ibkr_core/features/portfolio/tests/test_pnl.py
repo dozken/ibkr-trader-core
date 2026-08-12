@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 from ibkr_core.features.portfolio.router import get_pnl
 from ibkr_core.core.models import TradeHistory
 from ibkr_core.core.state import TradeState
+from ibkr_core.core.clock import db_now
 
 
 # ---------------------------------------------------------------------------
@@ -443,23 +444,23 @@ class TestPositionLevels(unittest.TestCase):
         self.assertIsNone(pos.partial_price)
 
     def test_days_held_from_first_buy(self):
-        from datetime import datetime, timedelta
+        from datetime import timedelta
         positions = [{"symbol": "AAPL", "quantity": 10, "avg_cost": 100.0,
                       "market_value": 1100.0, "unrealized_pnl": 100.0}]
         buy = _make_trade("AAPL", "BUY", 10, 100.0)
-        buy.created_at = datetime.now() - timedelta(days=30)
+        buy.created_at = db_now() - timedelta(days=30)
         result = self._get_pnl(positions, [buy])
         pos = result.positions[0]
         self.assertIn(pos.days_held, (29, 30))
 
     def test_days_held_uses_earliest_buy(self):
-        from datetime import datetime, timedelta
+        from datetime import timedelta
         positions = [{"symbol": "AAPL", "quantity": 15, "avg_cost": 105.0,
                       "market_value": 1600.0, "unrealized_pnl": 75.0}]
         buy1 = _make_trade("AAPL", "BUY", 10, 100.0)
-        buy1.created_at = datetime.now() - timedelta(days=60)
+        buy1.created_at = db_now() - timedelta(days=60)
         buy2 = _make_trade("AAPL", "BUY", 5, 115.0)
-        buy2.created_at = datetime.now() - timedelta(days=10)
+        buy2.created_at = db_now() - timedelta(days=10)
         result = self._get_pnl(positions, [buy1, buy2])
         pos = result.positions[0]
         self.assertIn(pos.days_held, (59, 60))

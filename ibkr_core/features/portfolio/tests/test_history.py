@@ -5,6 +5,7 @@ import pandas as pd
 from ibkr_core.features.portfolio.router import get_portfolio_history
 from ibkr_core.core.models import PortfolioSnapshot, TradeHistory, PositionCompliance
 from ibkr_core.core.state import TradeState
+from ibkr_core.core.clock import db_now
 
 def _make_snapshot(timestamp, total_value, cash_balance):
     snap = PortfolioSnapshot(
@@ -31,7 +32,7 @@ def _make_compliance(symbol, impure_pct):
         symbol=symbol,
         shariah_status="COMPLIANT",
         metrics={"impure_revenue_pct": impure_pct},
-        timestamp=datetime.now()
+        timestamp=db_now()
     )
     return row
 
