@@ -29,6 +29,12 @@ from typing import Optional
 # main port_type checks.
 LIVE_PORTS = frozenset({7496, 4001, 4003})
 
+# Ports that PROVE a paper account (TWS 7497 / IBGW raw 4002 / gnzsnz paper 4004).
+# Deliberately an explicit allowlist rather than "everything not in LIVE_PORTS":
+# code that arms trading must require proof of paper, never infer it from the
+# absence of evidence, so an unrecognised port is treated as real money.
+PAPER_PORTS = frozenset({7497, 4002, 4004})
+
 # Bracket entry premium (percent): the parent BUY limit is placed this far above
 # the signal price so it fills immediately like a market order. Distinct from the
 # single-order limit_order_slippage_pct — do not merge the two knobs.
@@ -43,6 +49,20 @@ class DataState(Enum):
 def subscription_for_port(port: int) -> DataState:
     """Classify a connection port into its market-data subscription state."""
     return DataState.REALTIME if port in LIVE_PORTS else DataState.DELAYED
+
+
+def cold_boot_arming(port: int) -> tuple[bool, bool]:
+    """(is_active, read_only) for an account auto-seeded into an empty DB.
+
+    A first boot has had no human confirm anything, so it may only arm trading
+    against a port that PROVES paper. Everything else — a live port, or one we
+    do not recognise — is seeded inactive and read-only and waits to be armed
+    deliberately. This is not hypothetical: compose defaults IBKR_PORT to 4003,
+    the real-money gateway, so seeding active-and-writable meant a cold boot on
+    an empty database came up able to place real orders.
+    """
+    provably_paper = port in PAPER_PORTS
+    return provably_paper, not provably_paper
 
 
 def marketable_limit(price: float, side: str, slippage_pct: float) -> float:

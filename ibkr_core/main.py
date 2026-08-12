@@ -34,6 +34,8 @@ from ibkr_core.features.trading.gateway_router import router as gateway_router
 # Canonical live-gateway API ports (7496 TWS / 4001 IBGW raw / 4003 gnzsnz live;
 # paper = 7497 / 4002 / 4004). Single source of truth in order_policy.
 from ibkr_core.features.trading.order_policy import LIVE_PORTS as _LIVE_PORTS
+from ibkr_core.features.trading.order_policy import PAPER_PORTS as _PAPER_PORTS
+from ibkr_core.features.trading.order_policy import cold_boot_arming
 from ibkr_core.features.trading.router import router as trading_router
 from ibkr_core.features.trading.worker import IBKRWorker
 from ibkr_core.features.trading.account_manager import get_account_manager
@@ -240,7 +242,12 @@ async def lifespan(app: FastAPI):
             if not _seed_db.query(AccountModel).first():
                 _host = os.getenv("IBKR_HOST", "127.0.0.1")
                 _port = int(os.getenv("IBKR_PORT", "7497"))
-                _is_paper = _port in (7497, 4002)
+                # is_paper mirrors how the rest of the code classifies a port
+                # (line 192 / 578 / 869), but ARMING requires proof: an
+                # unrecognised port is real money until shown otherwise.
+                _is_paper = _port not in _LIVE_PORTS
+                _active, _read_only = cold_boot_arming(_port)
+                _provably_paper = _active
                 _seed_acc = AccountModel(
                     label="Paper" if _is_paper else "Live",
                     host=_host,
@@ -248,11 +255,28 @@ async def lifespan(app: FastAPI):
                     client_id=1,
                     ibkr_account_id=os.getenv("IBKR_ACCOUNT_ID"),
                     is_paper=_is_paper,
-                    is_active=True,
+                    # Fail closed. A cold boot on an empty DB must never produce
+                    # an account that can place real orders: compose defaults
+                    # IBKR_PORT to 4003 (the REAL-MONEY gateway), so the old
+                    # unconditional is_active=True — with read_only defaulting
+                    # to False — armed live trading with no human in the loop.
+                    # Paper seeds ready to run; anything else is inert until
+                    # someone deliberately activates it.
+                    is_active=_active,
+                    read_only=_read_only,
                 )
                 _seed_db.add(_seed_acc)
                 _seed_db.commit()
-                logger.info("Auto-seeded default account (host=%s port=%d)", _host, _port)
+                if _provably_paper:
+                    logger.info("Auto-seeded default PAPER account (host=%s port=%d), active",
+                                _host, _port)
+                else:
+                    logger.warning(
+                        "Auto-seeded account on host=%s port=%d INACTIVE and READ-ONLY: "
+                        "port %d is not a known paper port %s, so it is treated as real "
+                        "money. Trading stays disarmed until you activate it deliberately.",
+                        _host, _port, _port, sorted(_PAPER_PORTS),
+                    )
         finally:
             _seed_db.close()
 

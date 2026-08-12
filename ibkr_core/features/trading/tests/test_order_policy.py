@@ -11,8 +11,10 @@ from ibkr_core.features.trading.order_policy import (
     BRACKET_ENTRY_PREMIUM_PCT,
     COARSE_NONUS_TICK,
     LIVE_PORTS,
+    PAPER_PORTS,
     DataState,
     OrderPolicy,
+    cold_boot_arming,
     marketable_limit,
     quantize_to_increment,
     select_tick_increment,
@@ -164,3 +166,35 @@ class TestOrderPolicyDecide(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestColdBootArming(unittest.TestCase):
+    """A first boot on an empty DB must never come up able to place real orders."""
+
+    def test_paper_ports_seed_active_and_writable(self):
+        # 7497 TWS paper, 4002 IBGW raw paper, 4004 gnzsnz paper API.
+        for port in (7497, 4002, 4004):
+            with self.subTest(port=port):
+                is_active, read_only = cold_boot_arming(port)
+                self.assertTrue(is_active)
+                self.assertFalse(read_only)
+
+    def test_live_ports_seed_inert(self):
+        # 4003 is the compose default for IBKR_PORT, so this is the real case:
+        # seeding it active-and-writable armed real-money trading on cold boot.
+        for port in (7496, 4001, 4003):
+            with self.subTest(port=port):
+                is_active, read_only = cold_boot_arming(port)
+                self.assertFalse(is_active)
+                self.assertTrue(read_only)
+
+    def test_unrecognised_ports_seed_inert(self):
+        # Absence of evidence is not proof of paper — arm nothing.
+        for port in (0, 1, 4000, 4005, 8000, 65535):
+            with self.subTest(port=port):
+                is_active, read_only = cold_boot_arming(port)
+                self.assertFalse(is_active)
+                self.assertTrue(read_only)
+
+    def test_paper_and_live_port_sets_are_disjoint(self):
+        self.assertEqual(LIVE_PORTS & PAPER_PORTS, frozenset())
