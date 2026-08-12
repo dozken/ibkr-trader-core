@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.27] - 2026-08-12
+
+### Added
+- **Arm / disarm an account from the header.** The account chip now shows whether the selected account is `READ-ONLY` or `ARMED`, with an inline toggle. Arming goes through a confirmation dialog naming the IBKR account; disarming back to read-only is one click, since that direction only removes risk.
+- `PATCH /api/accounts/{id}` now applies a `read_only` change to the running worker. `execute_trade` already re-read the flag per order, but a worker connected in IBKR readonly mode cannot transmit orders at all, so the flag alone left an armed account mute until the next restart. The worker is now reconnected in the new mode. Accounts sharing one IBKR connection (same host/port/client_id) share the mode — that case is logged as a warning.
+
+### Security
+- `POST`/`PATCH`/`DELETE` on `/api/accounts` now require `X-API-Key`. Creating an account, flipping `read_only`, and deactivating were previously unauthenticated, so anything that could reach the API could arm real-money trading.
+
 ## [0.3.24] - 2026-08-08
 
 ### Fixed

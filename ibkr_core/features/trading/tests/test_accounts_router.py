@@ -130,6 +130,84 @@ def test_patch_account_label(client):
     assert r.json()["label"] == "New Label"
 
 
+def test_patch_read_only_reconnects_worker_in_new_mode(client):
+    """Arming must flip the live worker too — a readonly IB connection cannot
+    transmit orders, so the DB flag alone would leave the account mute."""
+    c, db = client
+    acc = Account(label="Live", host="127.0.0.1", port=4003, client_id=2,
+                  is_paper=False, is_active=True, read_only=True)
+    db.add(acc)
+    db.commit()
+    db.refresh(acc)
+
+    class FakeWorker:
+        def __init__(self):
+            self.readonly = True
+            self.ib = object()
+            self.disconnected = False
+            self.connected_as = None
+
+        def disconnect(self):
+            self.disconnected = True
+
+        async def connect(self):
+            self.connected_as = self.readonly
+            return True
+
+    class FakeManager:
+        def __init__(self, w, aid):
+            self._w, self._aid = w, aid
+
+        def get_worker_by_id(self, account_id):
+            return self._w if account_id == self._aid else None
+
+        def list_account_ids(self):
+            return [self._aid]
+
+    worker = FakeWorker()
+    prev = getattr(c.app.state, "account_manager", None)
+    c.app.state.account_manager = FakeManager(worker, acc.id)
+    try:
+        r = c.patch(f"/api/accounts/{acc.id}", json={"read_only": False})
+    finally:
+        c.app.state.account_manager = prev
+
+    assert r.status_code == 200
+    assert r.json()["read_only"] is False
+    assert worker.readonly is False
+    assert worker.disconnected is True
+    assert worker.connected_as is False
+
+
+def test_patch_unrelated_field_leaves_worker_alone(client):
+    c, db = client
+    acc = Account(label="Live", host="127.0.0.1", port=4003, client_id=2,
+                  is_paper=False, is_active=True, read_only=True)
+    db.add(acc)
+    db.commit()
+    db.refresh(acc)
+
+    touched = []
+
+    class FakeManager:
+        def get_worker_by_id(self, account_id):
+            touched.append(account_id)
+            return None
+
+        def list_account_ids(self):
+            return []
+
+    prev = getattr(c.app.state, "account_manager", None)
+    c.app.state.account_manager = FakeManager()
+    try:
+        r = c.patch(f"/api/accounts/{acc.id}", json={"label": "Renamed"})
+    finally:
+        c.app.state.account_manager = prev
+
+    assert r.status_code == 200
+    assert touched == []
+
+
 def test_deactivate_account(client):
     c, db = client
     acc = Account(label="Paper", host="127.0.0.1", port=7497, client_id=1,

@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Outlet, useRouterState } from '@tanstack/react-router'
 import {
   Bell,
@@ -7,18 +7,28 @@ import {
   ClipboardList,
   Coins,
   LayoutDashboard,
+  Lock,
   Moon,
   ScanSearch,
   Server,
   Settings as SettingsIcon,
   Sun,
+  Unlock,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Toaster } from 'react-hot-toast'
+import toast, { Toaster } from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import CommandPalette from './components/CommandPalette'
 import { Logo } from './components/Logo'
-import { ROUTES, withAccount } from './shared/routes'
+import { API_KEY, ROUTES, withAccount } from './shared/routes'
 import { useAccount } from './features/trading/context/AccountContext'
 
 interface PortfolioValue {
@@ -32,6 +42,8 @@ interface Account {
   label: string
   is_paper: boolean
   port: number
+  read_only: boolean
+  ibkr_account_id: string | null
 }
 
 const NAV = [
@@ -59,7 +71,9 @@ export default function Layout() {
   const { location } = useRouterState()
   const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'))
   const [cmdOpen, setCmdOpen] = useState(false)
+  const [accountToArm, setAccountToArm] = useState<Account | null>(null)
   const { selectedAccountId, setSelectedAccountId } = useAccount()
+  const qc = useQueryClient()
 
   const { data: portfolio } = useQuery<PortfolioValue>({
     queryKey: ['portfolio-value', selectedAccountId],
@@ -71,6 +85,33 @@ export default function Layout() {
     queryKey: ['accounts'],
     queryFn: () => fetch(ROUTES.ACCOUNTS).then((r) => r.json()),
     staleTime: 30_000,
+  })
+
+  // The chip shows one account: the selected one, or the only one there is.
+  const chipAccount =
+    accounts?.find((a) => a.id === selectedAccountId) ??
+    (accounts?.length === 1 ? accounts[0] : null) ??
+    null
+
+  const armMutation = useMutation({
+    mutationFn: ({ id, read_only }: { id: number; read_only: boolean }) =>
+      fetch(`${ROUTES.ACCOUNTS}/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+        body: JSON.stringify({ read_only }),
+      }).then(async (r) => {
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'Request failed')
+        return r.json() as Promise<Account>
+      }),
+    onSuccess: (acc) => {
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+      setAccountToArm(null)
+      toast.success(acc.read_only ? `${acc.label} set to read-only` : `${acc.label} ARMED — orders will be sent`)
+    },
+    onError: (e: Error) => {
+      toast.error(e.message || 'Request failed')
+      setAccountToArm(null)
+    },
   })
 
   useEffect(() => {
@@ -149,11 +190,31 @@ export default function Layout() {
 
   const controls = (
     <div className="flex items-center gap-2">
-      {accounts && accounts.length === 1 && (
+      {chipAccount && (
         <span
-          className={`text-[11px] font-bold px-2 py-0.5 rounded border ${accounts[0].is_paper ? 'bg-brand-warning/10 border-brand-warning/30 text-brand-warning' : 'bg-brand-danger/10 border-brand-danger/30 text-brand-danger'}`}
+          className={`flex items-center gap-1.5 text-[11px] font-bold px-2 py-0.5 rounded border ${chipAccount.is_paper ? 'bg-brand-warning/10 border-brand-warning/30 text-brand-warning' : 'bg-brand-danger/10 border-brand-danger/30 text-brand-danger'}`}
+          title={chipAccount.ibkr_account_id || undefined}
         >
-          {accounts[0].label} · {accounts[0].is_paper ? 'PAPER' : 'LIVE'}
+          {chipAccount.label} · {chipAccount.is_paper ? 'PAPER' : 'LIVE'}
+          <span
+            className={`flex items-center gap-1 px-1.5 rounded ${chipAccount.read_only ? 'bg-brand-light/10 text-brand-light/80' : 'bg-brand-danger text-white'}`}
+            title={chipAccount.read_only ? 'Read-only — no orders are sent' : 'ARMED — the bot can place real orders'}
+          >
+            {chipAccount.read_only ? <Lock size={10} /> : <Unlock size={10} />}
+            {chipAccount.read_only ? 'READ-ONLY' : 'ARMED'}
+          </span>
+          <button
+            onClick={() =>
+              chipAccount.read_only
+                ? setAccountToArm(chipAccount)
+                : armMutation.mutate({ id: chipAccount.id, read_only: true })
+            }
+            disabled={armMutation.isPending}
+            className="underline decoration-dotted underline-offset-2 opacity-80 hover:opacity-100 disabled:opacity-40"
+            title={chipAccount.read_only ? 'Enable trading on this account' : 'Return this account to read-only'}
+          >
+            {armMutation.isPending ? '…' : chipAccount.read_only ? 'Arm' : 'Disarm'}
+          </button>
         </span>
       )}
       {accounts && accounts.length > 1 && (
@@ -256,6 +317,31 @@ export default function Layout() {
           )
         })}
       </nav>
+
+      <Dialog open={!!accountToArm} onOpenChange={(open) => !open && setAccountToArm(null)}>
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle>
+              Arm trading on {accountToArm?.label}?
+            </DialogTitle>
+            <DialogDescription>
+              {accountToArm?.is_paper
+                ? 'This paper account will start placing simulated orders.'
+                : `This lifts the order block on ${accountToArm?.ibkr_account_id || 'this account'} — the bot will place orders with REAL money, unattended, until you disarm it.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setAccountToArm(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => accountToArm && armMutation.mutate({ id: accountToArm.id, read_only: false })}
+              disabled={armMutation.isPending}
+            >
+              {armMutation.isPending ? 'Arming...' : 'Arm trading'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
     </div>
