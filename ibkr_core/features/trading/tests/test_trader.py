@@ -1092,7 +1092,11 @@ class TestCalibratedKellySizing(unittest.TestCase):
 
     def test_position_size_threads_win_probability(self):
         from ibkr_core.features.trading.trader import _calculate_position_size
+        # position_size_pct is the TARGET and max_position_size_pct the hard
+        # cap; Kelly scales between them. Without a target below the cap there is
+        # no headroom to scale up into, since sizing is now clamped to the cap.
         base = {"min_trade_size": 1.0, "cash_reserve_pct": 0.0,
+                "position_size_pct": 50.0,
                 "max_position_size_pct": 100.0, "use_kelly_sizing": True,
                 "take_profit_pct": 15.0, "stop_loss_pct": 8.0}
         with patch("ibkr_core.features.trading.trader.get_current_vix", return_value=15.0):
@@ -1304,3 +1308,49 @@ class TestIsInTradingWindow(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestKellyRespectsPositionCap(unittest.TestCase):
+    """Half-Kelly may size DOWN, but never above max_position_size_pct.
+
+    Regression: the Kelly multiplier was applied AFTER `dollars` had already
+    been clamped to max_position, so a high-confidence BUY was sized up to 1.5x
+    the cap. _exceeds_concentration_limit then rejected it outright — recorded
+    as REJECTED_FUNDS on an account with $1.09M of idle cash. The overshoot grew
+    with confidence, so the strongest signals were the most certain to be
+    rejected. Measured live 2026-08-14 at an 8% cap: 73% -> 1.12x, 97% -> 1.50x.
+    """
+
+    def setUp(self):
+        _p = patch("ibkr_core.features.trading.trader._get_vix_size_factor", return_value=1.0)
+        _p.start()
+        self.addCleanup(_p.stop)
+        self.settings = dict(_SETTINGS, use_kelly_sizing=True, cash_reserve_pct=0.0,
+                             max_position_size_pct=8.0)
+
+    def _cap(self, net_liq: float) -> float:
+        return net_liq * self.settings["max_position_size_pct"] / 100
+
+    def test_high_confidence_never_exceeds_cap(self):
+        net_liq = 1_095_855.0
+        price = 100.0
+        cap = self._cap(net_liq)
+        for conf in (0.60, 0.73, 0.82, 0.92, 0.97, 1.0):
+            with self.subTest(confidence=conf):
+                qty = _calculate_position_size(net_liq, net_liq, price, self.settings,
+                                               confidence=conf)
+                self.assertLessEqual(qty * price, cap + 1e-6)
+
+    def test_cap_is_actually_reached_not_just_undershot(self):
+        # Guard against "fixed" by sizing everything to zero.
+        net_liq = 1_095_855.0
+        price = 100.0
+        qty = _calculate_position_size(net_liq, net_liq, price, self.settings, confidence=0.97)
+        self.assertGreater(qty * price, self._cap(net_liq) * 0.9)
+
+    def test_low_confidence_still_scales_down(self):
+        # Kelly must remain free to reduce size below the cap.
+        net_liq = 1_095_855.0
+        price = 100.0
+        low = _calculate_position_size(net_liq, net_liq, price, self.settings, confidence=0.05)
+        self.assertLess(low * price, self._cap(net_liq))

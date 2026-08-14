@@ -170,7 +170,17 @@ def _calculate_position_size(
     vix_factor = _get_vix_size_factor()
     if settings.get("use_kelly_sizing", True):
         kelly_factor = _kelly_scale(confidence, settings, win_prob=win_probability)
-        dollars = dollars * kelly_factor
+        # Re-clamp to max_position AFTER scaling. `dollars` above is already the
+        # capped figure, and half-Kelly scales up to 1.5x, so multiplying here
+        # produced a position ABOVE max_position_size_pct — which
+        # _exceeds_concentration_limit then rejected outright as
+        # REJECTED_FUNDS. The overshoot rises with confidence, so the effect was
+        # backwards: the stronger the signal, the more certain the rejection.
+        # Measured on the paper account 2026-08-14 at an 8% cap: conf 73% ->
+        # 1.12x, 82% -> 1.27x, 92% -> 1.43x, 97% -> 1.50x, all four rejected.
+        # Kelly may still size DOWN freely; the position cap is a hard risk
+        # limit and must bound it from above.
+        dollars = min(dollars * kelly_factor, max_position)
     slip_factor = _slippage_scale(symbol) if symbol else 1.0
     qty = (dollars / price) * vix_factor * slip_factor
     if math.isnan(qty) or qty < _MIN_FRACTIONAL_QTY:
@@ -637,6 +647,15 @@ class Trader:
                 if _exceeds_concentration_limit(trade.symbol, trade.quantity, usd_price, net_liq, self.worker, settings):
                     machine.transition_to(TradeState.REJECTED_FUNDS)
                     trade.state = machine.state
+                    # REJECTED_FUNDS is the closest existing state, but this is a
+                    # CONCENTRATION rejection, not a cash one — say so on the row.
+                    # Reading the bare state cost a lot of time twice: a full book
+                    # of rejects on an account holding $1.09M of idle cash looks
+                    # like a funding problem and is not one.
+                    trade.error_message = (
+                        f"Concentration limit: {trade.quantity:g} @ {usd_price:.2f} USD breaches "
+                        f"max_position_size_pct/max_sector_exposure_pct (cash was not the constraint)"
+                    )
                     self._persist_trade_history(db, trade)
                     return trade
 
