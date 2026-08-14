@@ -42,10 +42,14 @@ def test_ride_winners_overlay_values():
     assert overlay["use_trailing_stop"] is True
     assert overlay["use_atr_stops"] is False
     assert overlay["bracket_exits"] is False
-    assert overlay["trading_capital_cap"] == 5000.0  # whole-share smoke-test cap (see profiles.py)
-    assert overlay["max_positions"] == 4
-    assert overlay["max_position_size_pct"] == 35.0
+    # Backtest-parity sizing (see profiles.py): uncapped capital, 15 x 8%.
+    assert overlay["trading_capital_cap"] is None
+    assert overlay["max_positions"] == 15
+    assert overlay["max_position_size_pct"] == 8.0
+    # Target deliberately above the cap: min(target, max) makes it a flat 8%.
     assert overlay["position_size_pct"] == 25.0
+    # 3650 == the stale-thesis exit is OFF, matching a backtest that models none.
+    assert overlay["time_exit_days"] == 3650
     assert overlay["use_kelly_sizing"] is True
     assert overlay["use_limit_orders"] is True
     assert overlay["limit_order_slippage_pct"] == 0.3
@@ -56,8 +60,8 @@ def test_ride_winners_backtest_kwargs_mapping():
     assert kw["buy_threshold"] == 60.0
     assert kw["sell_threshold"] == 35.0           # rerate_sell_threshold -> sell_threshold
     assert kw["sizing_mode"] == "kelly"            # use_kelly_sizing -> sizing_mode
-    assert kw["max_positions"] == 4
-    assert kw["max_position_size_pct"] == 35.0
+    assert kw["max_positions"] == 15
+    assert kw["max_position_size_pct"] == 8.0
     assert kw["stop_loss_pct"] == 8.0
     assert kw["take_profit_pct"] == 500.0
 

@@ -41,6 +41,9 @@ class StrategyProfile(BaseModel):
     use_trailing_stop: bool
     use_atr_stops: bool
     bracket_exits: bool
+    # Stale-thesis exit. The backtest models NO time exit, so a finite value
+    # here is a live-vs-sim divergence by construction — 3650 == off.
+    time_exit_days: int
     # Sizing
     trading_capital_cap: Optional[float]
     max_positions: int
@@ -100,14 +103,25 @@ RIDE_WINNERS = StrategyProfile(
     use_trailing_stop=True,
     use_atr_stops=False,
     bracket_exits=False,
-    # Whole-share smoke-test cap: with IBKR fractional shares disabled
-    # (allow_fractional_shares=false), a $436 cap can't buy 1 whole share of a
-    # $200+ mega-cap without breaching the 35% concentration limit, so the test
-    # runs at $5000. Restore to 436.0 in lockstep with settings_4.json once
-    # fractional shares are enabled for a faithful $436 test.
-    trading_capital_cap=5000.0,
-    max_positions=4,
-    max_position_size_pct=35.0,
+    # Off: the ride-winners hypothesis is 'let winners run', and a 45-day
+    # +5% stale-thesis cut contradicts it. On 2026-08-12 it liquidated all
+    # 13 positions at once (TXN: 68d held, +3.3% < +5% target) because the
+    # book was bought on one date and crossed the threshold together.
+    time_exit_days=3650,
+    # Sizing is BACKTEST PARITY (PortfolioBacktestRequest defaults): 15
+    # positions at 8% each, uncapped capital. It was previously a $5000 /
+    # 4-position / 35% whole-share smoke-test cap, which held peak exposure to
+    # 2.5% of a $1.09M account — NAV then moved less than the cash interest on
+    # the idle 97.5%, so the test could not measure edge at all and was
+    # concluded as noise twice. Changed 2026-08-14 in lockstep with
+    # settings_4.json.
+    #
+    # position_size_pct (25) deliberately exceeds max_position_size_pct (8):
+    # sizing takes min(target, max), so the effective size is a flat 8% and
+    # Kelly may only scale DOWN from it — which is what the backtest models.
+    trading_capital_cap=None,
+    max_positions=15,
+    max_position_size_pct=8.0,
     position_size_pct=25.0,
     use_kelly_sizing=True,
     use_limit_orders=True,
