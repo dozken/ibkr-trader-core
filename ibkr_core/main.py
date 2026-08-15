@@ -240,6 +240,67 @@ def _assert_paper_test_safety() -> None:
         )
 
 
+SECONDARY_CONNECT_RETRY_SECONDS = 30
+
+
+async def connect_secondary_workers(
+    account_manager,
+    primary_account_id,
+    primary_worker=None,
+    retry_seconds: float = SECONDARY_CONNECT_RETRY_SECONDS,
+) -> None:
+    """Connect workers for non-primary accounts, each retrying independently.
+
+    Every account gets its OWN retry task. This used to be a single sequential
+    loop, so an account whose gateway was down (`while True` + sleep, never
+    succeeding) blocked every account after it — head-of-line starvation.
+
+    Observed live 2026-08-14: the paper gateway was healthy and its API accepted
+    connections, yet account 4's worker sat at "waiting for connection..." for
+    13.5 h because account 3 pointed at the deliberately-stopped live gateway
+    and retried ahead of it forever. Nothing logged the stall; the paper test
+    simply never ran. Per-account tasks make one dead gateway cost only its own
+    account.
+    """
+    # Dedup by IB object identity BEFORE spawning, so accounts sharing a
+    # connection still connect once. Doing this inside the concurrent tasks
+    # would race on the set and could double-connect the same client id.
+    seen_ibs = set()
+    if primary_worker is not None:
+        seen_ibs.add(id(primary_worker.ib))
+    pending = []
+    for aid in account_manager.list_account_ids():
+        if aid == primary_account_id:
+            continue
+        w = account_manager.get_worker_by_id(aid)
+        if not w:
+            continue
+        if id(w.ib) in seen_ibs:
+            logger.info("Secondary worker for account %s shares existing connection", aid)
+            continue
+        seen_ibs.add(id(w.ib))
+        pending.append((aid, w))
+
+    async def _connect_one(aid, w) -> None:
+        while True:
+            try:
+                if await w.connect():
+                    logger.info("Secondary worker connected: account %s", aid)
+                    return
+                logger.warning(
+                    "Secondary worker for account %s not connected — retrying in %ss",
+                    aid, retry_seconds,
+                )
+            except Exception:
+                # Unlogged, this retries forever in total silence.
+                logger.warning("Secondary worker for account %s failed to "
+                               "connect — retrying in %ss", aid, retry_seconds, exc_info=True)
+            await asyncio.sleep(retry_seconds)
+
+    if pending:
+        await asyncio.gather(*(_connect_one(aid, w) for aid, w in pending))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     tasks = []
@@ -351,31 +412,9 @@ async def lifespan(app: FastAPI):
             pass
 
         async def _connect_secondary_workers():
-            """Connect workers for non-primary accounts (multi-account). Shares
-            a connection when accounts point at the same gateway."""
-            connected_ibs = set()
-            if worker:
-                connected_ibs.add(id(worker.ib))
-            for aid in account_manager.list_account_ids():
-                if aid == primary_account_id:
-                    continue
-                w = account_manager.get_worker_by_id(aid)
-                if not w:
-                    continue
-                if id(w.ib) in connected_ibs:
-                    logger.info(f"Secondary worker for account {aid} shares existing connection")
-                    continue
-                while True:
-                    try:
-                        if await w.connect():
-                            logger.info(f"Secondary worker connected: account {aid}")
-                            connected_ibs.add(id(w.ib))
-                            break
-                    except Exception:
-                        # Unlogged, this retries every 30s forever in total silence.
-                        logger.warning("Secondary worker for account %s failed to "
-                                       "connect — retrying in 30s", aid, exc_info=True)
-                    await asyncio.sleep(30)
+            await connect_secondary_workers(
+                account_manager, primary_account_id, primary_worker=worker
+            )
 
         worker._fill_callback = _on_fill
         tasks = [
