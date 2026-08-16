@@ -11,7 +11,10 @@ from ibkr_core.core.logging_config import setup_logging, install_asyncio_excepth
 
 setup_logging()
 
-from fastapi import APIRouter, FastAPI, Request, WebSocket, WebSocketDisconnect, Response
+from fastapi import (
+    APIRouter, FastAPI, HTTPException, Query, Request, Response, WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from pydantic import BaseModel
@@ -833,7 +836,12 @@ class TradingInvariants(BaseModel):
 
 @system_router.get("/api/system/trading", response_model=TradingInvariants)
 @system_router.get("/health/trading", response_model=TradingInvariants, include_in_schema=False)
-def system_trading(request: Request) -> TradingInvariants:
+def system_trading(
+    request: Request,
+    account_id: Optional[int] = Query(
+        None, description="Report on this active account instead of the default."
+    ),
+) -> TradingInvariants:
     """Structured live-trading invariants for the active account(s).
 
     Read-only, mirrors /api/system/readiness wiring (app.state.worker /
@@ -841,6 +849,15 @@ def system_trading(request: Request) -> TradingInvariants:
     plus a ``violations`` list so verifying the safety posture (e.g. real-money
     paused during a paper test, exits armed, cap budget, delayed data) is one
     assert rather than eyeballing positions across several endpoints.
+
+    Which account is reported: ``account_id`` when given, otherwise the first
+    active account that can actually place orders (``read_only`` false). This
+    used to be unconditionally the lowest-id active account, which is wrong in
+    the supported "watch real positions while paper-testing" posture — a
+    read-only LIVE account sorts ahead of the armed PAPER one, so the endpoint
+    described a disconnected account that cannot trade (cap, cap_budget,
+    exits_armed, data_mode all belonging to the wrong account) while the
+    account actually trading went unmonitored.
     """
     from ibkr_core.core.models import Account
     from ibkr_core.features.settings.service import load_settings
@@ -869,7 +886,18 @@ def system_trading(request: Request) -> TradingInvariants:
             ]
     except Exception:
         db_ok = False  # can't read posture ⇒ fail-safe to a violation below
-    any_live_active = any(not a["is_paper"] for a in active)
+
+    def _is_live(a: dict) -> bool:
+        # Mirrors _assert_paper_test_safety._is_live: real money if flagged live
+        # OR pointed at a live gateway API port (a paper flag on a live port is
+        # still treated as live — fail-safe).
+        return (not a["is_paper"]) or (a["port"] in _LIVE_PORTS)
+
+    any_live_active = any(_is_live(a) for a in active)
+    # Only a live account that can reach an order path is dangerous. A read_only
+    # live account is rejected pre-IBKR in trader.execute_trade and connects in
+    # IBKR readonly mode, so it cannot trade.
+    armed_live = [a for a in active if _is_live(a) and not a["read_only"]]
 
     # ── Live gateway: "connected" iff a worker on a live port is connected ──────
     workers: list = []
@@ -903,8 +931,22 @@ def system_trading(request: Request) -> TradingInvariants:
     data_mode = "delayed"
     data_mode_inferred = True
 
-    if active:
-        acc = active[0]
+    if account_id is not None:
+        selected = [a for a in active if a["id"] == account_id]
+        if not selected:
+            raise HTTPException(
+                404, f"account {account_id} is not active "
+                     f"(active: {[a['id'] for a in active]})"
+            )
+        active_for_report = selected
+    else:
+        # The account that can actually place orders, else fall back to the
+        # lowest-id active account so single-account setups are unchanged.
+        tradable = [a for a in active if not a["read_only"]]
+        active_for_report = tradable or active
+
+    if active_for_report:
+        acc = active_for_report[0]
         worker = None
         if am is not None:
             try:
@@ -988,13 +1030,19 @@ def system_trading(request: Request) -> TradingInvariants:
         violations.append("live gateway connected while paper mode expected")
     if active_account is not None and not exits_armed:
         violations.append(f"account {active_account.id} exits not armed")
-    # Coexistence is dangerous regardless of intended/flagged mode: an active LIVE
-    # and an active PAPER account at once means real-money trading is not isolated.
+    # Coexistence is dangerous only when the live side can actually place orders.
     # Mirrors _assert_paper_test_safety's boot-time refusal (#1) so this endpoint
-    # cannot report ok=true for the exact state the startup guard refuses to boot on.
-    if any_live_active and any(a["is_paper"] for a in active):
+    # cannot report ok=true for the exact state the startup guard refuses to boot
+    # on — and, equally, does not report a violation for a state that guard
+    # explicitly ALLOWS. This previously fired whenever any live account was
+    # active, including read-only ones, which is the supported "watch real
+    # positions while paper-testing" posture. The result was a guaranteed daily
+    # CRITICAL from the health check with ok=false permanently pinned, i.e. alert
+    # fatigue precisely on the signal meant to catch a real outage.
+    if armed_live and any(not _is_live(a) for a in active):
         violations.append(
-            "active LIVE and PAPER accounts coexist — real-money trading not isolated"
+            f"ARMED live account(s) {[a['id'] for a in armed_live]} coexist with a "
+            "PAPER account — real-money trading not isolated"
         )
 
     return TradingInvariants(
