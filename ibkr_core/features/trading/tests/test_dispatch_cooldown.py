@@ -83,6 +83,34 @@ class TestDispatchCooldown(unittest.IsolatedAsyncioTestCase):
 
         self.trader.execute_trade.assert_not_called()
 
+    async def test_skip_when_recent_rejected_concentration_buy_within_24h(self):
+        """Recent REJECTED_CONCENTRATION BUY blocks auto-execute for 24h.
+
+        Distinct from REJECTED_FUNDS: a concentration-limit breach won't clear
+        any faster than a cash shortfall, so it gets the same cooldown window,
+        but it's checked separately since it's now a separate state.
+        """
+        from ibkr_core.features.trading import loops
+
+        recent_conc = MagicMock()
+        recent_conc.created_at = db_now() - timedelta(hours=2)
+
+        mock_db = MagicMock()
+        mock_query = MagicMock()
+        mock_query.filter.return_value = mock_query
+        mock_query.first.side_effect = [None, None, recent_conc]  # err no, funds no, concentration yes
+        mock_db.query.return_value = mock_query
+        mock_session_local = MagicMock()
+        mock_session_local.return_value.__enter__.return_value = mock_db
+
+        with patch.object(loops, "SessionLocal", mock_session_local):
+            await loops._dispatch_signal(
+                _signal(symbol="NVDA", action="BUY"), _COMPLIANCE, "NMS",
+                self.trader, self.manager, _SETTINGS,
+            )
+
+        self.trader.execute_trade.assert_not_called()
+
     async def test_skip_when_recent_rejected_compliance_sell_within_1h(self):
         """Recent REJECTED_COMPLIANCE SELL (Qabd/T+2 or no-short guard) blocks re-fire for 1h.
 
@@ -97,8 +125,8 @@ class TestDispatchCooldown(unittest.IsolatedAsyncioTestCase):
         mock_db = MagicMock()
         mock_query = MagicMock()
         mock_query.filter.return_value = mock_query
-        # err no, funds no, compliance yes
-        mock_query.first.side_effect = [None, None, recent_comp]
+        # err no, funds no, concentration no, compliance yes
+        mock_query.first.side_effect = [None, None, None, recent_comp]
         mock_db.query.return_value = mock_query
         mock_session_local = MagicMock()
         mock_session_local.return_value.__enter__.return_value = mock_db
@@ -121,7 +149,8 @@ class TestDispatchCooldown(unittest.IsolatedAsyncioTestCase):
         mock_db = MagicMock()
         mock_query = MagicMock()
         mock_query.filter.return_value = mock_query
-        mock_query.first.side_effect = [None, None, recent_comp]
+        # err no, funds no, concentration no, compliance yes
+        mock_query.first.side_effect = [None, None, None, recent_comp]
         mock_db.query.return_value = mock_query
         mock_session_local = MagicMock()
         mock_session_local.return_value.__enter__.return_value = mock_db

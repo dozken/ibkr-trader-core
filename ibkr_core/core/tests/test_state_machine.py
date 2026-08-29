@@ -94,6 +94,20 @@ class TestTradeStateMachine(unittest.TestCase):
         machine.transition_to(TradeState.REJECTED_FUNDS)
         self.assertEqual(machine.state, TradeState.REJECTED_FUNDS)
 
+        # From PRE_ORDER to REJECTED_CONCENTRATION (distinct from REJECTED_FUNDS —
+        # a concentration-limit rejection is not a cash shortfall)
+        machine = TradeStateMachine()
+        machine.transition_to(TradeState.AI_ANALYSIS)
+        machine.transition_to(TradeState.SCREENING)
+        machine.transition_to(TradeState.HALAL_CERTIFIED)
+        machine.transition_to(TradeState.PRE_ORDER)
+        machine.transition_to(TradeState.REJECTED_CONCENTRATION)
+        self.assertEqual(machine.state, TradeState.REJECTED_CONCENTRATION)
+
+        # REJECTED_CONCENTRATION can reset to IDLE after intervention
+        machine.transition_to(TradeState.IDLE)
+        self.assertEqual(machine.state, TradeState.IDLE)
+
         # From any state to IBKR_ERROR (e.g. SUBMITTED)
         machine = TradeStateMachine()
         machine.transition_to(TradeState.AI_ANALYSIS)

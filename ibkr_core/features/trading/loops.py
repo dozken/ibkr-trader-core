@@ -318,6 +318,10 @@ async def _dispatch_signal(
         # Cooldown gate: skip recent failures to prevent retry storms.
         #   REJECTED_FUNDS BUY: 24h (cash situation unlikely to change fast)
         #   REJECTED_FUNDS SELL: 1h (rare; allow retry)
+        #   REJECTED_CONCENTRATION BUY: 24h (position/sector concentration limit
+        #     won't clear faster than that either — other positions need to trim
+        #     or the cap needs raising, neither happens within the hour)
+        #   REJECTED_CONCENTRATION SELL: 1h (rare; allow retry)
         #   REJECTED_COMPLIANCE BUY: 24h (non-halal name won't turn compliant fast)
         #   REJECTED_COMPLIANCE SELL: 1h (Qabd/T+2 settlement or no-short guard —
         #     condition can't change within the hour; without this, an exit-signalled
@@ -351,6 +355,20 @@ async def _dispatch_signal(
                 if recent_reject:
                     logger.info("Auto-execute skip %s %s — REJECTED_FUNDS within %s",
                                 signal.symbol, signal.action, rej_window)
+                    return
+
+                # REJECTED_CONCENTRATION cooldown (side-aware, mirrors REJECTED_FUNDS)
+                conc_window = timedelta(hours=24) if signal.action == "BUY" else timedelta(hours=1)
+                conc_cutoff = now - conc_window
+                recent_conc = _db.query(TradeHistory).filter(
+                    TradeHistory.symbol == signal.symbol,
+                    TradeHistory.side == signal.action,
+                    TradeHistory.state == TradeState.REJECTED_CONCENTRATION,
+                    TradeHistory.created_at >= conc_cutoff,
+                ).first()
+                if recent_conc:
+                    logger.info("Auto-execute skip %s %s — REJECTED_CONCENTRATION within %s",
+                                signal.symbol, signal.action, conc_window)
                     return
 
                 # REJECTED_COMPLIANCE cooldown (side-aware). SELL blocks are the

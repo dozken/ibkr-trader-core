@@ -17,6 +17,7 @@ class TradeState(str, Enum):
     SETTLED = "SETTLED"
     REJECTED_COMPLIANCE = "REJECTED_COMPLIANCE"
     REJECTED_FUNDS = "REJECTED_FUNDS"
+    REJECTED_CONCENTRATION = "REJECTED_CONCENTRATION"
     IBKR_ERROR = "IBKR_ERROR"
     DRY_RUN = "DRY_RUN"
 
@@ -54,6 +55,7 @@ class TradeStateMachine:
                 TradeState.SUBMITTED,
                 TradeState.DRY_RUN,
                 TradeState.REJECTED_FUNDS,
+                TradeState.REJECTED_CONCENTRATION,
                 TradeState.IDLE
             },
 
@@ -76,6 +78,7 @@ class TradeStateMachine:
             # Failure states can reset to IDLE after intervention or safe shutdown
             TradeState.REJECTED_COMPLIANCE: {TradeState.IDLE},
             TradeState.REJECTED_FUNDS: {TradeState.IDLE},
+            TradeState.REJECTED_CONCENTRATION: {TradeState.IDLE},
             TradeState.IBKR_ERROR: {TradeState.IDLE},
         }
 

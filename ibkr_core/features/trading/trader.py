@@ -645,13 +645,8 @@ class Trader:
                     trade.quantity = float(whole)
 
                 if _exceeds_concentration_limit(trade.symbol, trade.quantity, usd_price, net_liq, self.worker, settings):
-                    machine.transition_to(TradeState.REJECTED_FUNDS)
+                    machine.transition_to(TradeState.REJECTED_CONCENTRATION)
                     trade.state = machine.state
-                    # REJECTED_FUNDS is the closest existing state, but this is a
-                    # CONCENTRATION rejection, not a cash one — say so on the row.
-                    # Reading the bare state cost a lot of time twice: a full book
-                    # of rejects on an account holding $1.09M of idle cash looks
-                    # like a funding problem and is not one.
                     trade.error_message = (
                         f"Concentration limit: {trade.quantity:g} @ {usd_price:.2f} USD breaches "
                         f"max_position_size_pct/max_sector_exposure_pct (cash was not the constraint)"

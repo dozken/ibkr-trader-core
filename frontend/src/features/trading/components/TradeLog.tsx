@@ -31,6 +31,7 @@ const TradeLog: React.FC<TradeLogProps> = ({ trades }) => {
         return 'bg-brand-danger/10 text-brand-danger border-brand-danger/20'
       case 'REJECTED_COMPLIANCE':
       case 'REJECTED_FUNDS':
+      case 'REJECTED_CONCENTRATION':
       case 'IBKR_ERROR':
         return 'bg-brand-warning/10 text-brand-warning border-brand-warning/20'
       case 'FILLED':
@@ -48,6 +49,7 @@ const TradeLog: React.FC<TradeLogProps> = ({ trades }) => {
       case 'LIQUIDATING':
         return <AlertTriangle size={14} />
       case 'REJECTED_COMPLIANCE':
+      case 'REJECTED_CONCENTRATION':
       case 'IBKR_ERROR':
         return <Ban size={14} />
       case 'FILLED':
@@ -70,7 +72,7 @@ const TradeLog: React.FC<TradeLogProps> = ({ trades }) => {
       </div>
 
       <div className="flex flex-wrap gap-1.5 px-4 pb-3 border-b border-brand-divider/40">
-        {(['ALL', 'FILLED', 'SETTLED', 'HALAL_CERTIFIED', 'LIQUIDATING', 'REJECTED_COMPLIANCE', 'REJECTED_FUNDS', 'IBKR_ERROR'] as const).map((s) => {
+        {(['ALL', 'FILLED', 'SETTLED', 'HALAL_CERTIFIED', 'LIQUIDATING', 'REJECTED_COMPLIANCE', 'REJECTED_FUNDS', 'REJECTED_CONCENTRATION', 'IBKR_ERROR'] as const).map((s) => {
           const tip = s === 'ALL' ? null : stateTooltip(s)
           const btn = (
             <button

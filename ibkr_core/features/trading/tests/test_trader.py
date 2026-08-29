@@ -978,7 +978,12 @@ class TestConcentrationRiskGuard(unittest.IsolatedAsyncioTestCase):
         self.patcher_vix.stop()
 
     async def test_rejects_buy_when_existing_plus_new_exceeds_limit(self):
-        """Existing AAPL position + new buy > max_position_size_pct → REJECTED_FUNDS."""
+        """Existing AAPL position + new buy > max_position_size_pct → REJECTED_CONCENTRATION.
+
+        Regression: this used to land as REJECTED_FUNDS, which reads as a cash
+        shortfall even on an account sitting on $1M+ of idle cash — the state
+        must say CONCENTRATION, not FUNDS, since cash was never the constraint.
+        """
         # net_liq=10000, max_pos=10%=1000
         # existing AAPL = 900, new = 2*150=300 → total 1200 > 1000 → rejected
         self.mock_worker.get_available_funds.return_value = 10000.0
@@ -991,7 +996,8 @@ class TestConcentrationRiskGuard(unittest.IsolatedAsyncioTestCase):
         trade_req = TradeCreate(symbol="AAPL", quantity=2, side="BUY")
         trade = await self.trader.execute_trade(trade_req, pre_screened=_COMPLIANT)
 
-        self.assertEqual(trade.state, TradeState.REJECTED_FUNDS)
+        self.assertEqual(trade.state, TradeState.REJECTED_CONCENTRATION)
+        self.assertIn("Concentration limit", trade.error_message)
         self.mock_worker.place_bracket_order.assert_not_called()
 
     async def test_allows_buy_when_existing_plus_new_within_limit(self):

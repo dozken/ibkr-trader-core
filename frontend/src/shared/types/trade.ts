@@ -19,6 +19,7 @@ type TradeState =
   | 'SETTLED'
   | 'REJECTED_COMPLIANCE'
   | 'REJECTED_FUNDS'
+  | 'REJECTED_CONCENTRATION'
   | 'IBKR_ERROR'
 
 export interface ComplianceSnapshot {
