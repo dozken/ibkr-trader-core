@@ -15,19 +15,25 @@ def test_rejects_missing_colon():
         load_strategy("ibkr_core.strategies.sma_crossover.SMACrossover")
 
 
-def test_rejects_unknown_module():
-    with pytest.raises(ModuleNotFoundError):
-        load_strategy("no.such.module:Anything")
+def test_fallback_on_unknown_module():
+    """Unknown module falls back to default strategy instead of raising."""
+    s = load_strategy("no.such.module:Anything")
+    assert isinstance(s, Strategy)
+    assert "SMA" in s.name  # fell back to default
 
 
-def test_rejects_missing_class():
-    with pytest.raises(ImportError, match="not found"):
-        load_strategy("ibkr_core.strategies.sma_crossover:DoesNotExist")
+def test_fallback_on_missing_class():
+    """Missing class falls back to default strategy instead of raising."""
+    s = load_strategy("ibkr_core.strategies.sma_crossover:DoesNotExist")
+    assert isinstance(s, Strategy)
+    assert "SMA" in s.name  # fell back to default
 
 
-def test_rejects_non_strategy_class():
-    with pytest.raises(ImportError, match="does not subclass"):
-        load_strategy("ibkr_core.core.strategy.base:MarketContext")
+def test_fallback_on_non_strategy_class():
+    """Non-Strategy class falls back to default instead of raising."""
+    s = load_strategy("ibkr_core.core.strategy.base:MarketContext")
+    assert isinstance(s, Strategy)
+    assert "SMA" in s.name  # fell back to default
 
 
 def test_active_strategy_singleton():
