@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import tempfile
 import time
 import logging
 from datetime import date, timedelta
@@ -51,8 +52,24 @@ def _load_manual_verifications() -> dict:
 
 
 def _save_manual_verifications(data: dict) -> None:
+    """Atomically write manual verifications to disk.
+
+    Uses write-to-temp + rename pattern to prevent corruption if the process
+    crashes mid-write (e.g., during a deploy or OOM kill).
+    """
     _MANUAL_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _MANUAL_FILE.write_text(json.dumps(data, indent=2))
+    content = json.dumps(data, indent=2)
+    # Write to temp file in same directory (ensures same filesystem for atomic rename)
+    fd, tmp_path = tempfile.mkstemp(dir=_MANUAL_FILE.parent, suffix=".tmp")
+    try:
+        os.write(fd, content.encode("utf-8"))
+        os.close(fd)
+        os.rename(tmp_path, _MANUAL_FILE)
+    except Exception:
+        os.close(fd) if not os.get_inheritable(fd) else None
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
 
 
 def manual_verify(symbol: str, source: str = "Zoya App", note: str = "",

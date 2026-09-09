@@ -13,9 +13,12 @@ async def send_slack(text: str) -> None:
         logger.error("Slack alert misconfigured: set SLACK_WEBHOOK_URL")
         return
     try:
-        async with httpx.AsyncClient() as client:
+        # Explicit timeout prevents indefinite hangs on network issues
+        async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(_WEBHOOK_URL, json={"text": text})
             if resp.status_code != 200:
                 logger.error("Slack webhook returned %s: %s", resp.status_code, resp.text)
+    except httpx.TimeoutException:
+        logger.error("Slack alert timed out")
     except Exception as e:
         logger.error("Slack alert failed: %s", e)

@@ -2,6 +2,7 @@ import contextvars
 import json
 import logging
 import os
+import tempfile
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -276,7 +277,26 @@ def load_settings(account_id: Optional[int] = None) -> dict:
 
 
 def save_settings(data: dict, account_id: Optional[int] = None) -> None:
+    """Atomically save settings to disk.
+
+    Uses write-to-temp + rename pattern to prevent corruption if the process
+    crashes mid-write. A corrupted settings file can prevent the bot from
+    starting or cause it to trade with wrong parameters.
+    """
     os.makedirs(SETTINGS_DIR, exist_ok=True)
     path = _settings_path(account_id)
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
+    content = json.dumps(data, indent=2)
+    # Write to temp file in same directory (ensures same filesystem for atomic rename)
+    fd, tmp_path = tempfile.mkstemp(dir=SETTINGS_DIR, suffix=".tmp")
+    try:
+        os.write(fd, content.encode("utf-8"))
+        os.close(fd)
+        os.rename(tmp_path, path)
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise

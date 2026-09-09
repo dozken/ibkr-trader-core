@@ -1,4 +1,5 @@
 import logging
+import threading
 from typing import Dict, List, Optional, Tuple
 
 from ibkr_core.core.database import SessionLocal
@@ -114,10 +115,21 @@ class AccountManager:
 
 
 _manager: Optional[AccountManager] = None
+_manager_lock = threading.Lock()
 
 
 def get_account_manager() -> AccountManager:
+    """Return the singleton AccountManager, initializing from DB if needed.
+
+    Thread-safe: uses a lock to prevent duplicate initialization during
+    concurrent startup requests (e.g., multiple health checks hitting the
+    app before lifespan completes).
+    """
     global _manager
-    if _manager is None:
-        _manager = AccountManager.from_db()
+    if _manager is not None:
+        return _manager
+    with _manager_lock:
+        # Double-check after acquiring lock
+        if _manager is None:
+            _manager = AccountManager.from_db()
     return _manager

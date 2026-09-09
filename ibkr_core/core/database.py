@@ -2,7 +2,7 @@ import logging
 import os
 import time
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 
@@ -43,10 +43,20 @@ engine = create_engine(DATABASE_URL, connect_args=_connect_args)
 if DATABASE_URL.startswith("sqlite"):
     from sqlalchemy import event as _sa_event
     @_sa_event.listens_for(engine, "connect")
-    def _set_wal(conn, _):
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA cache_size=-32000")  # 32 MB page cache
+    def _set_sqlite_pragmas(dbapi_conn, _):
+        """Configure SQLite connection for reliability and performance.
+
+        Uses raw cursor.execute() for PRAGMA statements (DBAPI level, not
+        SQLAlchemy Connection), which is correct for the 'connect' event.
+        Foreign key enforcement is OFF by default in SQLite — must enable per
+        connection for FK constraints in models.py to actually work.
+        """
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA cache_size=-32000")  # 32 MB page cache
+        cursor.close()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
