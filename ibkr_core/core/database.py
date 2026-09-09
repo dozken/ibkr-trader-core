@@ -2,7 +2,7 @@ import logging
 import os
 import time
 
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 
