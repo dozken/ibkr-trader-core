@@ -60,7 +60,19 @@ def upgrade() -> None:
     if not _has_index("audit_logs", "ix_audit_logs_account_id"):
         op.create_index('ix_audit_logs_account_id', 'audit_logs', ['account_id'], unique=False)
 
-    # portfolio_snapshots
+    # portfolio_snapshots - create if missing (table was added to model without migration)
+    if not _has_table("portfolio_snapshots"):
+        op.create_table('portfolio_snapshots',
+            sa.Column('id', sa.Integer(), nullable=False),
+            sa.Column('account_id', sa.Integer(), nullable=True),
+            sa.Column('timestamp', sa.DateTime(), nullable=False),
+            sa.Column('total_value', sa.Float(), nullable=False),
+            sa.Column('cash_balance', sa.Float(), nullable=False),
+            sa.Column('unrealized_pnl', sa.Float(), nullable=False),
+            sa.PrimaryKeyConstraint('id'),
+        )
+        op.create_index('ix_portfolio_snapshots_id', 'portfolio_snapshots', ['id'], unique=False)
+        op.create_index('ix_portfolio_snapshots_timestamp', 'portfolio_snapshots', ['timestamp'], unique=False)
     if not _has_column("portfolio_snapshots", "account_id"):
         op.add_column('portfolio_snapshots', sa.Column('account_id', sa.Integer(), nullable=True))
     if not _has_index("portfolio_snapshots", "ix_portfolio_snapshots_account_id"):

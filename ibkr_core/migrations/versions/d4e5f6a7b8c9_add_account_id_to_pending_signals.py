@@ -25,10 +25,12 @@ def _has_column(table: str, column: str) -> bool:
 
 def upgrade() -> None:
     if not _has_column("pending_signals", "account_id"):
+        # SQLite: add column without FK constraint (FK enforcement via PRAGMA)
         op.add_column(
             "pending_signals",
-            sa.Column("account_id", sa.Integer(), sa.ForeignKey("accounts.id"), nullable=True, index=True),
+            sa.Column("account_id", sa.Integer(), nullable=True),
         )
+        op.create_index("ix_pending_signals_account_id", "pending_signals", ["account_id"])
 
 
 def downgrade() -> None:
