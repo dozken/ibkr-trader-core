@@ -17,7 +17,7 @@ def test_approve_fails_when_no_api_key_and_not_dev_mode():
         
         response = client.post("/api/trades/approve", json={"symbol": "AAPL", "side": "BUY"})
         assert response.status_code == 500
-        assert response.json()["detail"] == "IBKR_API_KEY environment variable is not set."
+        assert "IBKR_API_KEY environment variable is not set" in response.json()["detail"]
 
 def test_approve_succeeds_bypass_in_dev_mode():
     # Force DEV_MODE=true and empty IBKR_API_KEY

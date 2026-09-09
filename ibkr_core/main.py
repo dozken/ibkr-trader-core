@@ -1122,11 +1122,17 @@ def create_app(extra_routers=(), extra_loops=(), title: str = "IBKR Shariah Trad
 
     app = FastAPI(title=title, lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
+    # CORS origins configurable via env for production deployments on custom domains.
+    # Defaults to localhost dev servers; set CORS_ORIGINS=https://app.example.com for prod.
+    cors_origins = os.getenv(
+        "CORS_ORIGINS", "http://localhost:3000,http://localhost:5173"
+    ).split(",")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://localhost:5173"],
-        allow_methods=["GET", "POST"],
+        allow_origins=[o.strip() for o in cors_origins if o.strip()],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],
+        allow_credentials=True,
     )
 
     app.include_router(compliance_router)
